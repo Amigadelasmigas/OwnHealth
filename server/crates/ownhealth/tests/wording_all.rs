@@ -44,6 +44,9 @@ const SOURCES: &[(&str, Source)] = &[
     ("gaps", |s| Box::pin(gaps(s))),
     ("gap_letters", |_| Box::pin(gap_letters())),
     ("ips", |s| Box::pin(ips_narratives(s))),
+    ("calendar_feed", |_| {
+        Box::pin(async { Ok(vec![ownhealth_api::routes::ics::phrases()]) })
+    }),
 ];
 
 async fn status(s: &Seeded) -> anyhow::Result<Vec<Value>> {

@@ -16,6 +16,7 @@ pub mod family;
 pub mod family_history;
 pub mod gaps;
 pub mod genome;
+pub mod ics;
 pub mod imports;
 pub mod inbox;
 pub mod inboxes;
@@ -50,6 +51,7 @@ pub fn all() -> Router<Runtime> {
         .merge(genome::router())
         .merge(genome::couple::router())
         .merge(genome::events::router())
+        .merge(ics::router())
         .merge(imports::router())
         .merge(inbox::router())
         .merge(inboxes::router())
