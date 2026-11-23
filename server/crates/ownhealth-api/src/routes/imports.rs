@@ -2,9 +2,13 @@
 //! output) and the import jobs they start.
 //!
 //! ```text
-//! POST /api/imports   multipart: profile, files (one or more)
+//! POST /api/imports   multipart: profile, files (one or more), timezone (optional, the browser's IANA zone)
 //! GET  /api/jobs      ?ids=1,2,3&limit=50   import jobs of the caller's profiles, newest first
 //! ```
+//!
+//! `timezone` reads a CGM export's wall-clock times when the server has no `OWNHEALTH_TIMEZONE`, or one
+//! Postgres does not know. An old name the tz database links to a current one (`Asia/Calcutta`) travels
+//! as the current name; a zone still unknown travels as no zone, and the upload goes in all the same.
 //!
 //! Files are spooled to disk while the form is read, then land in the blob store once the caller may
 //! import on the profile; the dispatcher creates documents and enqueues each lane's import job.
@@ -22,7 +26,7 @@ use axum::{Json, Router};
 use ownhealth_core::access::accessible_profiles;
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::blobs::BlobOwner;
-use ownhealth_core::documents::{StoredFile, dispatch_upload};
+use ownhealth_core::documents::{StoredFile, dispatch_upload_in_zone};
 use ownhealth_core::pyjson::row_to_json;
 use ownhealth_core::{Error, Runtime, ids};
 use serde_json::{Value, json};
@@ -90,6 +94,7 @@ async fn spool(field: &mut axum::extract::multipart::Field<'_>, path: &std::path
 async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Json<Value>> {
     let principal = &caller.0;
     let mut profile: Option<String> = None;
+    let mut timezone: Option<String> = None;
     let mut files: Vec<Spool> = Vec::new();
     // a body that is not multipart has neither field, which FastAPI reports as two missing fields
     if let Ok(mut form) = Multipart::from_request(req, &rt).await {
@@ -108,6 +113,10 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
                 Some("profile") => {
                     let bytes = read_capped(&mut field).await?;
                     profile = Some(String::from_utf8(bytes).map_err(|_| bad_body())?);
+                }
+                Some("timezone") if !is_file => {
+                    let bytes = read_capped(&mut field).await?;
+                    timezone = Some(String::from_utf8(bytes).map_err(|_| bad_body())?);
                 }
                 Some("files") => {
                     let filename = field
@@ -145,6 +154,8 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
 
     let mut tx = rt.pool.begin().await?;
     let perm = caller.require(&mut tx, &profile, None, Some("import")).await?;
+    // never a refusal: a zone Postgres does not know, even by its current name, is no zone
+    let zone = ownhealth_devices::cgm_csv::known_zone(&mut tx, timezone.as_deref()).await?;
     let mut stored = Vec::with_capacity(files.len());
     for f in &files {
         let blobs = rt.blobs.clone();
@@ -161,13 +172,14 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
         });
     }
     drop(files);
-    let result = match dispatch_upload(
+    let result = match dispatch_upload_in_zone(
         &mut tx,
         &rt.blobs,
         perm.profile.household_id,
         perm.profile.id,
         &stored,
         principal.user_id,
+        zone.as_deref(),
     )
     .await
     {
@@ -202,8 +214,9 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
     Ok(Json(result))
 }
 
-/// The import jobs whose result counts a profile's wearable samples and names its devices.
-pub const WEARABLE_JOBS: [&str; 2] = ["import.fit", "import.gadgetbridge"];
+/// The import jobs whose result counts a profile's wearable samples and names its devices (a CGM
+/// export's result also counts its Low and High readings).
+pub const WEARABLE_JOBS: [&str; 3] = ["import.fit", "import.gadgetbridge", "import.cgm_csv"];
 
 /// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones.
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {

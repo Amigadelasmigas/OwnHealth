@@ -14,7 +14,6 @@ use ownhealth_core::dedup::{
     simhash64, store_page_fingerprint,
 };
 use ownhealth_core::ingest::ImportSummary;
-use ownhealth_core::jobs::{EnqueueOptions, enqueue};
 use ownhealth_core::observations::{ObservationIn, confirm_observation, supersede_observation};
 use ownhealth_core::provenance::{SrcIn, SrcRef, create_src, region_label};
 use ownhealth_core::review::{
@@ -1048,8 +1047,13 @@ pub(crate) async fn accept_identity(
     Ok(Vec::new())
 }
 
-/// Structured files run their own import again; everything else (PDF, image) the PDF one.
-fn reimport_kind(mime: &str) -> &'static str {
+/// Structured files run their own import again; everything else (PDF, image) the PDF one. A CGM export
+/// (`cgm`: its flags hold `cgm_csv`) runs the CGM import of the stored document, which reads the file in
+/// the zone it keeps.
+fn reimport_kind(mime: &str, cgm: bool) -> &'static str {
+    if cgm {
+        return "import.cgm_csv";
+    }
     match mime {
         "application/fhir+json" | "application/fhir+ndjson" => "import.fhir_bundle",
         "application/zip" => "import.apple_health",
@@ -1073,6 +1077,9 @@ pub async fn assign_document(
     user_id: Uuid,
     skip_item: Option<Uuid>,
 ) -> Result<Option<i64>> {
+    // a CGM export's lock before its row (a running import of it holds the lock, then writes the row);
+    // a caller that locked the row already took this lock before it, as the assign route does
+    ownhealth_ingest_structured::retract::lock_export_of(&mut *conn, document_id).await?;
     let doc = lock_document(&mut *conn, document_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("document {document_id} not found")))?;
@@ -1112,7 +1119,11 @@ pub async fn assign_document(
     for item_id in open {
         dismiss(&mut *conn, item_id, user_id, Some("document moved to another profile")).await?;
     }
-    let kind = reimport_kind(&doc.mime);
+    let cgm: bool = sqlx::query_scalar("select flags ? 'cgm_csv' from document where id = $1")
+        .bind(document_id)
+        .fetch_one(&mut *conn)
+        .await?;
+    let kind = reimport_kind(&doc.mime, cgm);
     if doc.doc_type.as_deref() == Some("genomics") {
         return Err(Error::Review(
             "a genome-facts file cannot move; retract it and upload it to the right profile".into(),
@@ -1127,18 +1138,20 @@ pub async fn assign_document(
     // the new profile's key must open the files before the re-import reads them
     ownhealth_core::documents::rekey_document(&mut *conn, blobs, document_id, doc.profile_id, Some(profile_id)).await?;
     let key = format!("{kind}:{document_id}:{profile_id}");
-    Ok(enqueue(
+    // a run of an earlier move to this profile that is still marked running may have read the document
+    // before this move (its work commits before it is marked done): one more run is queued after it
+    ownhealth_ingest_structured::retract::queue_after(
         conn,
         kind,
+        &key,
         &json!({
             "document_id": document_id.to_string(),
             "profile_id": profile_id.to_string(),
             "household_id": doc.household_id.to_string(),
             "force": true,
         }),
-        EnqueueOptions::dedupe(&key),
     )
-    .await?)
+    .await
 }
 
 // ------------------------------------------------------------------ checks ----

@@ -133,7 +133,7 @@ export interface ReviewItem {
 
 export interface ImportItem {
 	filename: string;
-	kind: 'pdf' | 'image' | 'apple_health_zip' | 'fhir_json' | 'fhir_ndjson' | 'genome_facts' | 'vcf' | 'tbi' | 'fit' | 'fit_gz';
+	kind: 'pdf' | 'image' | 'apple_health_zip' | 'fhir_json' | 'fhir_ndjson' | 'genome_facts' | 'vcf' | 'tbi' | 'fit' | 'fit_gz' | 'libreview_csv' | 'dexcom_clarity_csv';
 	sha256: string;
 	document_id?: Uuid;
 	duplicate?: boolean;
@@ -375,7 +375,7 @@ export interface WearableSeries {
 
 export interface WearablesSummary {
 	metrics: WearableMetric[];
-	devices: { source_id: number; provider: string; device: string | null; last_sample: IsoDateTime | null; coverage_pct: number }[];
+	devices: { source_id: number; provider: string; device: string | null; device_id: string | null; last_sample: IsoDateTime | null; coverage_pct: number }[];
 }
 
 export interface RecordOut {

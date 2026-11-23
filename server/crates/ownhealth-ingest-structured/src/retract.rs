@@ -9,9 +9,9 @@
 //! cleared, so importing it again runs the import instead of returning the old summary.
 //!
 //! Samples another still-active export also holds belong to whichever export brought them first
-//! (Apple Health) or last (Gadgetbridge, whose exports are cumulative); they leave with that one. A
-//! retracted Gadgetbridge export queues the profile's other active exports for import again, so what
-//! they hold comes back.
+//! (Apple Health, CGM exports) or last (Gadgetbridge, whose exports are cumulative); they leave with
+//! that one. A retracted Gadgetbridge or CGM export queues the profile's other active exports of its
+//! kind for import again, so what they hold comes back.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,6 +33,8 @@ pub fn retract_document_facts<'c>(
     reason: &'c str,
 ) -> BoxFuture<'c, Result<Value>> {
     Box::pin(async move {
+        // a running import of a CGM export holds this lock: wait for it, so what it wrote leaves too
+        lock_export_of(&mut *conn, document_id).await?;
         let mut observations: Vec<Value> = Vec::new();
         let mut records = Map::new();
         let children: Vec<Uuid> = sqlx::query_scalar(
@@ -105,31 +107,110 @@ pub fn retract_document_facts<'c>(
     })
 }
 
-/// The Gadgetbridge exports of the same profile that are still active are imported again, so the
-/// samples the retracted export had adopted from them (`Conflict::Adopt`) come back with them.
+/// The upload kinds whose other exports are imported again when one is retracted, with the flag their
+/// import writes: Gadgetbridge (samples adopted with `Conflict::Adopt`) and the LibreView and Clarity
+/// CSV exports (one job for both; readings kept by the first file with `Conflict::Keep`).
+const REIMPORTED: [(&str, &str); 2] = [("gadgetbridge_db", "gadgetbridge"), ("libreview_csv", "cgm_csv")];
+
+/// The exports of the same kind and profile that are still active are imported again, so the samples
+/// the retracted export held in their place come back with them.
 async fn reimport_cumulative(conn: &mut PgConnection, document_id: Uuid) -> Result<()> {
-    let Some(job) = ownhealth_core::documents::job_kind("gadgetbridge_db") else {
+    for (kind, flag) in REIMPORTED {
+        reimport_kind(&mut *conn, document_id, kind, flag).await?;
+    }
+    Ok(())
+}
+
+/// Queue the profile's other active exports of `kind` (those whose flags hold `flag`) for import again,
+/// with their import summary cleared. A CGM export also calls it when its own readings are replaced.
+/// A CGM export keeps `cgm_csv` from its first import on, so one whose last run again died (its
+/// summary still cleared) is queued too; a Gadgetbridge export needs its summary.
+pub async fn reimport_kind(conn: &mut PgConnection, document_id: Uuid, kind: &str, flag: &str) -> Result<()> {
+    let Some(job) = ownhealth_core::documents::job_kind(kind) else {
         return Ok(());
     };
-    let mime = ownhealth_core::documents::mime("gadgetbridge_db").unwrap_or_default();
+    let mime = ownhealth_core::documents::mime(kind).unwrap_or_default();
     let others: Vec<Uuid> = sqlx::query_scalar(
         "update document o set flags = o.flags - 'import' from document d where d.id = $1 and d.mime = $2 \
          and o.mime = $2 and o.profile_id = d.profile_id and o.id <> d.id and o.status = 'active' \
-         and o.flags ? 'import' returning o.id",
+         and o.flags ? $3 and (o.flags ? 'import' or $3 = 'cgm_csv') returning o.id",
     )
     .bind(document_id)
     .bind(mime)
+    .bind(flag)
     .fetch_all(&mut *conn)
     .await?;
     for id in others {
-        let key = format!("{job}:reimport:{id}");
-        ownhealth_core::jobs::enqueue(
-            &mut *conn,
-            job,
-            &json!({"document_id": id.to_string()}),
-            ownhealth_core::jobs::EnqueueOptions::dedupe(&key),
-        )
-        .await?;
+        let payload = json!({"document_id": id.to_string()});
+        queue_after(&mut *conn, job, &format!("{job}:reimport:{id}"), &payload).await?;
     }
+    Ok(())
+}
+
+/// Queue `job` with `payload` under the dedupe key `base`, to run after this transaction. A job still
+/// queued under it is enough: it starts after this transaction removed its samples, so its writes see
+/// that. A job under it that is running may have written before (its work commits before it is marked
+/// done), so one more run is queued after the newest of them, under a key no other job holds. Returns
+/// the new job's id; None when a queued one is enough. A move queues its run again for the new owner
+/// this way too.
+pub async fn queue_after(conn: &mut PgConnection, job: &str, base: &str, payload: &Value) -> Result<Option<i64>> {
+    use ownhealth_core::jobs::{EnqueueOptions, enqueue};
+    // a job that finishes between the look and the enqueue frees its key, so look again
+    for _ in 0..3 {
+        let held: Option<(String, i64)> = sqlx::query_as(
+            "select state, id from job where (dedupe_key = $1 or starts_with(dedupe_key, $1 || ':after:')) \
+             and state in ('queued', 'running') order by state = 'queued' desc, id desc limit 1",
+        )
+        .bind(base)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let key = match held {
+            Some((state, _)) if state == "queued" => return Ok(None),
+            Some((_, running)) => format!("{base}:after:{running}"),
+            None => base.to_string(),
+        };
+        if let Some(id) = enqueue(&mut *conn, job, payload, EnqueueOptions::dedupe(&key)).await? {
+            return Ok(Some(id));
+        }
+    }
+    let why = std::io::Error::other(format!("could not queue {job} under {base}"));
+    Err(ownhealth_core::Error::Other(why.into()))
+}
+
+/// Hold [`lock_exports`] for document `document_id` when it is a CGM export (`flags.cgm_csv`); nothing
+/// for any other document. A running CGM import holds that lock and then writes its document row, so
+/// whatever retracts or moves a document takes this before any lock on the document's row: a move that
+/// held the row first would wait for the import while the import waits for the row (40P01). A move that
+/// committed while this waited gives the export another owner, whose import the move queued: this then
+/// takes that owner's lock too, and reads the owner again, until the owner it read is one whose lock it
+/// holds (as the CGM import does).
+pub async fn lock_export_of(conn: &mut PgConnection, document_id: Uuid) -> Result<()> {
+    let mut locked: Vec<Uuid> = Vec::new();
+    loop {
+        let cgm: Option<Option<Uuid>> =
+            sqlx::query_scalar("select profile_id from document where id = $1 and flags ? 'cgm_csv'")
+                .bind(document_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+        match cgm.flatten() {
+            Some(owner) if !locked.contains(&owner) => {
+                lock_exports(&mut *conn, owner, "cgm_csv").await?;
+                locked.push(owner);
+            }
+            _ => return Ok(()),
+        }
+    }
+}
+
+/// Hold the lock on one profile's exports of one kind (`flag`) until this transaction ends. A CGM
+/// import takes it first, so two imports of one profile never interleave: one that replaces its own
+/// readings and queues the others again never races another's run. A retraction or a move of a CGM
+/// export takes it before anything else ([`lock_export_of`]), so it never misses the readings of an
+/// import still running.
+pub async fn lock_exports(conn: &mut PgConnection, profile_id: Uuid, flag: &str) -> Result<()> {
+    sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("ownhealth:exports:{flag}:{profile_id}"))
+        .execute(conn)
+        .await?;
     Ok(())
 }

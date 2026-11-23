@@ -13,7 +13,8 @@
 //! ```
 //!
 //! Lab reports need `read:labs`, a raw wearables export (`doc_type` `wearables`: a FIT activity file,
-//! a Gadgetbridge database) `read:wearables`, other documents `read:records`; page text and words also
+//! a Gadgetbridge database, a CGM CSV export; and any document whose flags hold a CGM import,
+//! `cgm_csv`) `read:wearables`, other documents `read:records`; page text and words also
 //! need `read:documents_text`. A document on a profile the caller cannot read answers 404 like an unknown
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
 //! such.
@@ -67,7 +68,12 @@ fn untrusted(s: Option<&str>, origin: &str) -> Value {
     }
 }
 
-fn scope_for(doc_type: Option<&str>) -> &'static str {
+/// The scope a document needs, by its type; a document whose flags hold a CGM import (`cgm`) holds every
+/// reading of the export, so it needs read:wearables whatever its type.
+fn scope_for(doc_type: Option<&str>, cgm: bool) -> &'static str {
+    if cgm {
+        return "read:wearables";
+    }
     match doc_type {
         Some("lab_report") => "read:labs",
         Some(WEARABLES_DOC_TYPE) => "read:wearables",
@@ -75,10 +81,15 @@ fn scope_for(doc_type: Option<&str>) -> &'static str {
     }
 }
 
+/// [`scope_for`]'s `cgm` as a SQL boolean over the document alias `d`.
+const CGM_SQL: &str = "coalesce(d.flags ? 'cgm_csv', false)";
+
 fn unknown(message: &str) -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "unknown", message)
 }
 
+/// A document as the list and the detail show it. A CGM export's flags (its counts, sensors and import
+/// summary) reach only a caller who may read wearables: [`scope_for`] lets no one else list or open it.
 fn summary(row: &Map<String, Value>, snippet: Option<&str>) -> Map<String, Value> {
     let flags: Map<String, Value> = row
         .get("flags")
@@ -179,7 +190,8 @@ pub async fn visible_document(
         Err(e) => return Err(e.into()),
     };
     let doc_type = json_row.get("doc_type").and_then(Value::as_str);
-    for scope in [Some(scope_for(doc_type)), scope_extra].into_iter().flatten() {
+    let cgm = json_row.get("flags").and_then(|f| f.get("cgm_csv")).is_some();
+    for scope in [Some(scope_for(doc_type, cgm)), scope_extra].into_iter().flatten() {
         if !perm.scopes.contains(scope) {
             return Err(Error::access_denied("insufficient_scope", format!("This needs {scope}.")).into());
         }
@@ -203,14 +215,16 @@ pub async fn visible_document(
 /// [`visible_document`] decides. A review item that only points at its document (a pull's
 /// `fhir_unmapped_summary`) shows on the same terms.
 pub async fn file_opens(conn: &mut PgConnection, perm: &Permission, document_id: Uuid) -> Result<bool, ApiError> {
-    let doc_type: Option<Option<String>> = sqlx::query_scalar("select doc_type from document where id = $1")
-        .bind(document_id)
-        .fetch_optional(&mut *conn)
-        .await?;
-    let Some(doc_type) = doc_type else {
+    let row: Option<(Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select d.doc_type, {CGM_SQL} from document d where d.id = $1"
+    )))
+    .bind(document_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((doc_type, cgm)) = row else {
         return Ok(false);
     };
-    if !perm.scopes.contains(scope_for(doc_type.as_deref())) {
+    if !perm.scopes.contains(scope_for(doc_type.as_deref(), cgm)) {
         return Ok(false);
     }
     Ok(perm.has("read:sensitive") || !document_is_sensitive(conn, document_id).await?)
@@ -267,19 +281,20 @@ pub async fn list_for(
         format!("not {}", sensitive_document_sql("d.id"))
     };
     let mut wh = vec!["d.profile_id = $1".to_string()];
-    // each type under the scope it needs (scope_for): a wearables export only with read:wearables
+    // each type under the scope it needs (scope_for): a wearables export, or any document with CGM
+    // import flags, only with read:wearables
     let mut types = Vec::new();
     if labs {
-        types.push("d.doc_type = 'lab_report'".to_string());
+        types.push(format!("(d.doc_type = 'lab_report' and not {CGM_SQL})"));
     }
     if records {
         types.push(format!(
-            "(d.doc_type is distinct from 'lab_report' and {})",
+            "(d.doc_type is distinct from 'lab_report' and {} and not {CGM_SQL})",
             record_document_sql("d")
         ));
     }
     if wearables {
-        types.push(format!("d.doc_type = '{WEARABLES_DOC_TYPE}'"));
+        types.push(format!("(d.doc_type = '{WEARABLES_DOC_TYPE}' or {CGM_SQL})"));
     }
     wh.push(format!("({})", types.join(" or ")));
     wh.push("($3::text is null or d.doc_type = $3)".into());
@@ -620,6 +635,8 @@ async fn assign(
     e.done()?;
     let profile = profile.unwrap_or_default();
     let mut tx = rt.pool.begin().await?;
+    // A CGM export's lock before its row: a running import of it holds that lock and then writes the row.
+    ownhealth_ingest_structured::retract::lock_export_of(&mut tx, document_id).await?;
     // The row lock first: a move running at the same time commits before the owner is read here, so
     // the permission check and the re-key (in assign_document) both see the owner it left.
     ownhealth_core::documents::lock_owner(&mut tx, document_id).await?;
@@ -669,6 +686,10 @@ async fn retract(
     let reason = body_str(&mut e, &body, "reason");
     e.done()?;
     let mut tx = rt.pool.begin().await?;
+    // As the assign route: a CGM export's lock, then the row lock, then the owner read. A move that
+    // commits while this waits gives the document its new owner, and the permission is checked on it.
+    ownhealth_ingest_structured::retract::lock_export_of(&mut tx, document_id).await?;
+    ownhealth_core::documents::lock_owner(&mut tx, document_id).await?;
     let doc = visible_document(&mut tx, &principal, document_id, None, false).await?;
     if !doc.perm.can("write") {
         let msg = format!("The role {} cannot change this profile.", doc.perm.role);

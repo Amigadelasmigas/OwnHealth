@@ -38,15 +38,15 @@ token's `mcp_lang`.
 | foundation | review.rs | `GET /review?status=&profile=&kind=&document_id=` | |
 | foundation | review.rs | `GET /review/{id}` ; `POST /review/{id}/accept` `{edits?}` ; `/reject` `{reason}` ; `/reopen` ; `/dismiss` `{reason?}` | action `review` |
 | foundation | review.rs | `POST /review/bulk-accept` `{document_id, min_row_conf}` | only items with no reasons |
-| foundation | imports.rs | `POST /imports` multipart `profile`, `files[]` | returns `{items: ImportItem[]}`; action `import` |
-| foundation | imports.rs | `GET /jobs?ids=1,2` | |
+| foundation | imports.rs | `POST /imports` multipart `profile`, `files[]`, `timezone?` | returns `{items: ImportItem[]}`; action `import`. `timezone` is the browser's IANA zone: a CGM export's job carries it and reads the file's times in it when the server has no `OWNHEALTH_TIMEZONE` or one Postgres does not know. A name Postgres knows travels as it is (`Europe/Oslo`), an old name Postgres lacks (`Asia/Calcutta`) travels as its current one (`Asia/Kolkata`), and a zone Postgres does not know travels as none; a zone never refuses an upload |
+| foundation | imports.rs | `GET /jobs?ids=1,2` | the `result` of an `import.fit`, `import.gadgetbridge` or `import.cgm_csv` job (`WEARABLE_JOBS`) is `null` without `read:wearables` on the job's profile; the job itself stays visible |
 | — | app.rs | `GET /healthz`, `GET /readyz` (outside `/api`) | |
 | A | observations.rs | `GET /profiles/{p}/observations?q=&loinc=&alias_group=&category=&from=&to=&units=&lang=` | `{items: ObservationOut[]}` |
 | A | observations.rs | `GET /profiles/{p}/trend?code=&window=P3Y&units=&lang=` | `Trend` (mcp.md 5.3 shape) |
 | A | observations.rs | `POST /aliases` | `{profile, alias, alias_group, lang?, loinc?, unit?, specimen?}`, action `review`; re-derives the household |
 | B | documents.rs | `GET /profiles/{p}/documents?q=&type=&limit=&latest=fhir` ; `GET /documents/{id}` | `latest=fhir`: only documents a FHIR import read, newest stored first |
-| B | documents.rs | `GET /documents/{id}/file` ; `/pages/{n}.png` ; `/pages/{n}/words` | words need `read:documents_text` for tokens |
-| B | documents.rs | `POST /documents/{id}/assign` `{profile}` ; `POST /documents/{id}/retract` `{reason}` | |
+| B | documents.rs | `GET /documents/{id}/file` ; `/pages/{n}.png` ; `/pages/{n}/words` | words need `read:documents_text` for tokens; a document whose flags hold a CGM import (`cgm_csv`) needs `read:wearables` whatever its `doc_type`, in the list too |
+| B | documents.rs | `POST /documents/{id}/assign` `{profile}` ; `POST /documents/{id}/retract` `{reason}` | a moved CGM export (`flags.cgm_csv`) is imported again on its new profile by `import.cgm_csv`, in the zone its file keeps |
 | C | records.rs | `GET`/`POST /profiles/{p}/records/{kind}` ; `POST .../{kind}/{id}/correct` ; `.../{id}/retract` | |
 | C | records.rs | `POST /profiles/{p}/manual-observations` | |
 | C | records.rs | `POST /profiles/{p}/records/medication/{id}/label` multipart `file` | a label photo (PNG, JPEG or WebP, at most 15 MiB) stored as a document (doc_type `other`, no job) and linked to the current version; write role; medication reads list `labels` |
@@ -104,7 +104,7 @@ never collide:
 | 1260-1269 | v1.0 Connected, break-glass |
 | 1270-1279 | v1.0 Connected, sharing: SMART Health Links and the ICE card |
 | 1280-1289 | v1.0 Connected, ops: languages, partitions and other operations |
-| 1290-1299 | v1.0 Connected, keys (after 1280): per-profile and pending-item data keys |
+| 1290-1299 | v1.0 Connected, after 1280: per-profile and pending-item data keys (1290, 1291), CGM CSV exports as wearables documents (1292) |
 
 H and I have no migrations. Every new phase numbers after the highest shipped file: the migrator applies
 missing files in number order, so a lower number would run before files it depends on. Inside a phase,

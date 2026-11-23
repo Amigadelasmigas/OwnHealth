@@ -1,12 +1,14 @@
 <script lang="ts">
 	// Upload into the current profile: lab PDF or photo, Apple Health export.zip, FHIR / IPS bundle,
-	// or OwnGenome output (genome-facts.json plus its VCF and index, as files or the whole folder).
-	// Each file becomes an import job; this panel polls the jobs until they finish.
+	// a LibreView or Dexcom Clarity CSV export, or OwnGenome output (genome-facts.json plus its VCF and
+	// index, as files or the whole folder). Each file becomes an import job; this panel polls the jobs
+	// until they finish, and shows what a CGM export brought under its row.
 	import { listJobs, uploadFiles } from '#lib/api';
 	import type { ImportItem, JobInfo } from '#lib/api/types';
 	import { t } from '#lib/i18n/index.svelte';
 	import { errRaw, errText, tf, tp } from '#lib/components/pages1/util.svelte';
 	import { poller } from '#lib/logic/poll';
+	import { cgmLines, type CgmLine } from '#lib/logic/cgm_import';
 	import { fitDocId, fitHidden, fitLines } from '#lib/logic/fit_import';
 	import FitResult from './FitResult.svelte';
 
@@ -51,6 +53,8 @@
 		busy = true;
 		try {
 			const res = await uploadFiles(profile, files);
+			// the panel closed or moved to another profile while the files travelled: their rows stay out
+			if (gone) return;
 			items = res.items;
 			poll();
 		} catch (e) {
@@ -73,11 +77,17 @@
 		onfail: (e) => (error = { text: errText(e), raw: errRaw(e) })
 	});
 	const poll = () => jobPoll.start();
-	// The document each upload made, from the upload answer or its finished job.
+	// The document each upload made, from the upload answer or its finished job (a FIT or CGM export's
+	// job names it in its result, which reaches only those who may read wearables).
 	const docOf = (i: ImportItem) =>
-		i.document_id ?? (i.job_id != null ? (jobs[i.job_id]?.document_id ?? fitDocId(jobs[i.job_id])) : undefined);
+		i.document_id ?? (i.job_id != null ? (jobs[i.job_id]?.document_id ?? fitDocId(jobs[i.job_id]) ?? cgmDocument(jobs[i.job_id]?.result)) : undefined);
+	const cgmDocument = (r: unknown) => (cgmLines(r) && typeof (r as { document_id?: unknown }).document_id === 'string' ? (r as { document_id: string }).document_id : undefined);
 	const docIds = () => items.filter((i) => (i.job_id == null || jobs[i.job_id]?.state === 'done')).map(docOf).filter((x): x is string => !!x);
-	$effect(() => jobPoll.stop);
+	let gone = false;
+	$effect(() => () => {
+		gone = true;
+		jobPoll.stop();
+	});
 
 	function stateOf(i: ImportItem): { word: string; cls: string } {
 		// A file sent again whose first import failed is not "already imported": its reason is in Other items.
@@ -88,7 +98,14 @@
 		if (!j) return { word: t('i2_job_queued'), cls: 'p-info' };
 		return { word: t('i2_job_' + j.state), cls: j.state === 'done' ? 'p-ok' : j.state === 'failed' || j.state === 'dead' ? 'p-out' : 'p-info' };
 	}
-	const files = (e: Event) => Array.from((e.currentTarget as HTMLInputElement).files ?? []);
+	// the picked files, then an empty picker, so picking the same file again is a new pick
+	const files = (e: Event) => {
+		const input = e.currentTarget as HTMLInputElement;
+		const list = Array.from(input.files ?? []);
+		input.value = '';
+		return list;
+	};
+	const lineText = (l: CgmLine) => (l.n != null ? tp(l.key, l.n, l.vars) : tf(l.key, l.vars ?? {}));
 </script>
 
 <section
@@ -106,12 +123,12 @@
 		send(Array.from(e.dataTransfer?.files ?? []));
 	}}
 >
-	<h3>{tf('i2_up_t', { name: profileName })}<span class="r">{t('i2_up_kinds')}</span></h3>
+	<h3>{tf('i2_up_t', { name: profileName })}<span class="r kinds">{t('i2_up_kinds')}</span></h3>
 	<div class="p2row">
 		<button class="btn pri" onclick={() => fileEl?.click()} disabled={busy}>{t('i2_up_files')}</button>
 		<button class="btn" onclick={() => dirEl?.click()} disabled={busy}>{t('i2_up_folder')}</button>
 		<span class="muted" style="font-size:12px">{t('i2_up_drop')}</span>
-		<input bind:this={fileEl} type="file" multiple hidden accept=".pdf,image/*,.heic,.zip,.json,.ndjson,.fit,.gz,.bgz,.tbi,.db,.sqlite,.sqlite3,application/vnd.sqlite3,application/x-sqlite3,application/octet-stream" onchange={(e) => send(files(e))} />
+		<input bind:this={fileEl} type="file" multiple hidden accept=".pdf,image/*,.heic,.zip,.json,.ndjson,.fit,.gz,.bgz,.tbi,.db,.sqlite,.sqlite3,.csv,text/csv,application/vnd.sqlite3,application/x-sqlite3,application/octet-stream" onchange={(e) => send(files(e))} />
 		<input bind:this={dirEl} type="file" hidden {...{ webkitdirectory: true }} onchange={(e) => send(files(e), true)} />
 	</div>
 	<div class="note" style="margin-top:8px">
@@ -129,6 +146,7 @@
 					{@const j = i.job_id != null ? jobs[i.job_id] : undefined}
 					{@const d = docOf(i)}
 					{@const n = d && j?.state === 'done' ? rowsOf(d) : 0}
+					{@const cgm = j?.state === 'done' ? cgmLines(j.result) : null}
 					{@const fit = j?.state === 'done' ? fitLines(j.result) : null}
 					<tr>
 						<td class="fname">{#if d && (j?.state === 'done' || i.duplicate)}<a href="?doc={d}">{i.filename}</a>{:else}{i.filename}{/if}</td>
@@ -138,6 +156,15 @@
 					</tr>
 					{#if fit}<tr><td colspan="4"><FitResult lines={fit} label={i.filename} /></td></tr>
 					{:else if fitHidden(j)}<tr><td colspan="4" class="dim" style="font-size:12px">{t('i2_fit_hidden')}</td></tr>{/if}
+					{#if cgm}
+						<tr>
+							<td colspan="4">
+								<ul class="cgm-lines" role="list" aria-label={i.filename}>
+									{#each cgm as l}<li class:dim={l.key !== 'i2_cgm_imported'}>{lineText(l)}</li>{/each}
+								</ul>
+							</td>
+						</tr>
+					{/if}
 				{/each}
 			</tbody>
 		</table>
@@ -159,6 +186,7 @@
 	   when a refusal shares its row */
 	.up h3 .r {
 		white-space: normal;
+		min-width: 0;
 	}
 	.fname {
 		overflow-wrap: anywhere;
@@ -168,5 +196,15 @@
 		.up h3 .r {
 			margin-left: 0;
 		}
+	}
+	.cgm-lines {
+		margin: 0;
+		padding: 0 0 4px 0;
+		list-style: none;
+		font-size: 12px;
+		overflow-wrap: anywhere;
+	}
+	.cgm-lines li + li {
+		margin-top: 2px;
 	}
 </style>
