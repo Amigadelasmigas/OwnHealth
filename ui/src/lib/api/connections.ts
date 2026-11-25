@@ -18,6 +18,8 @@ export const listSourceHealth = () => get<ConnectionRow[]>('/inboxes/health');
 export const reconnectConnector = (id: Uuid) => post<{ authorize_url: string }>(`/connectors/${id}/reconnect`);
 /** Revoke at the vendor when it offers that, then delete the tokens and the cursor. */
 export const disconnectConnector = (id: Uuid) => del<DisconnectOut>(`/connectors/${id}`);
+/** Hide a switched-off connection whose client was deleted. */
+export const hideConnection = (id: Uuid) => post<{ id: Uuid }>(`/connectors/${id}/hide`);
 
 /** The US connection wizard was opened: makes the household's directory source on the first call. */
 export const openBrands = () => post<BrandsOpened>('/brands');

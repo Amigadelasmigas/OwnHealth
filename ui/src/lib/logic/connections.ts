@@ -38,6 +38,9 @@ export interface ConnectionRow {
 	grant_expires_at?: string | null;
 	/** When the current access token ends (it is refreshed by itself before that). */
 	access_expires_at?: string | null;
+	/** OAuth sources lose their client when its registration is deleted. */
+	has_client?: boolean;
+	hidden_from_connections?: boolean;
 	/** Open sync-gap alerts of this source on its own profile, in the review queue. */
 	open_gaps?: number;
 	/** The server the connection talks to (SMART: the FHIR base URL); null for an inbox. */
@@ -96,7 +99,7 @@ export const wantsReconnect = (s: ConnectionState): boolean => s === 'reconsent'
 export const renewsItself = (s: ConnectionState): boolean => s !== 'reconsent' && s !== 'expired' && s !== 'off';
 
 /** The vendor has a sign-in to send the person back to, and the person manages the profile. */
-export const canReconnect = (r: ConnectionRow): boolean => OAUTH_KINDS.includes(r.kind) && r.can_manage === true;
+export const canReconnect = (r: ConnectionRow): boolean => OAUTH_KINDS.includes(r.kind) && r.can_manage === true && r.has_client !== false;
 
 /** The problem an Open Wearables poll records when an allowlisted vendor's connection ended or was
  * revoked there (openwearables.rs CONNECTION_ENDED): `ow_connection_ended: oura, polar`. */
@@ -117,15 +120,13 @@ export function endedVendors(r: Pick<ConnectionRow, 'kind' | 'last_run_problem'>
 export const cardTitle = (r: Pick<ConnectionRow, 'kind' | 'label'>, t: (k: string) => string): string =>
 	r.kind === 'brands' ? t('con_t_brands') : r.label;
 
-/** The person owns or guards a profile, so the Connections screen offers the wearables setup guide.
- * GET /wearables/setup checks it again (connectors.rs manager); a guardian whose profile was claimed
- * still sees the button and gets the refusal there. */
-export const mayManageConnections = (profiles: readonly { role: string }[] | undefined): boolean =>
-	(profiles ?? []).some((p) => p.role === 'owner' || p.role === 'guardian');
+/** The same management permission that GET /wearables/setup requires. */
+export const mayManageConnections = (profiles: readonly { can_manage: boolean }[] | undefined): boolean =>
+	profiles?.some((p) => p.can_manage) ?? false;
 
 /** The rows the screen lists: connections (not inboxes) of profiles the person manages. */
 export function shownConnections<T extends ConnectionRow>(rows: T[]): T[] {
-	return rows.filter((r) => (CONNECTOR_KINDS as readonly string[]).includes(r.kind) && r.can_manage === true);
+	return rows.filter((r) => (CONNECTOR_KINDS as readonly string[]).includes(r.kind) && r.can_manage === true && !r.hidden_from_connections);
 }
 
 /** After a connect, how often the screen reads the rows again while the first pull runs, and how many times at most (3 minutes). */

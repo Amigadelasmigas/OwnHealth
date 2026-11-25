@@ -251,14 +251,14 @@ test('a launch at an address that is not a SMART server says to check the addres
 	expect(errors).toEqual([]);
 });
 
-/** A new member of the household who only views Alex, signed in with a password. */
-async function viewer(browser: Browser) {
+/** A new member of the household with one grant on Alex, signed in with a password. */
+async function member(browser: Browser, role: 'viewer' | 'guardian') {
 	const headers = { Origin: app };
 	const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
 	const invite = await owner.request.post('/api/household/invites', { headers, data: { display_name: `Pat Rivera ${Date.now()}`, locale: 'en' } });
 	expect(invite.status()).toBe(201);
 	const { user_id, code } = await invite.json();
-	const grant = await owner.request.put('/api/grants', { headers, data: { user_id, profile: 'alex', role: 'viewer' } });
+	const grant = await owner.request.put('/api/grants', { headers, data: { user_id, profile: 'alex', role } });
 	expect(grant.status(), await grant.text()).toBe(200);
 	await owner.close();
 	const ctx = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
@@ -268,7 +268,7 @@ async function viewer(browser: Browser) {
 }
 
 test('a person who only views a record gets no Add connection button, and the wizard says who connects', async ({ browser }) => {
-	const ctx = await viewer(browser);
+	const ctx = await member(browser, 'viewer');
 	const page = await ctx.newPage();
 	const errors = collectPageErrors(page);
 	await page.goto('/connections?lang=en');
@@ -281,6 +281,40 @@ test('a person who only views a record gets no Add connection button, and the wi
 	await expect(page.getByText('Not shared with you')).toHaveCount(0);
 	expect(errors).toEqual([]);
 	await ctx.close();
+});
+
+test('a guardian can set up connections only for unclaimed profiles', async ({ browser }) => {
+	const ctx = await member(browser, 'guardian');
+	const page = await ctx.newPage();
+	try {
+		await page.goto('/connections?lang=en');
+		await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Add connection' })).toHaveCount(0);
+
+		// Alex has a login. Give this member a second grant on Lucía, who has yet to claim her profile.
+		const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
+		try {
+			const { user } = await (await ctx.request.get('/api/me')).json();
+			const grant = await owner.request.put('/api/grants', {
+				headers: { Origin: app },
+				data: { user_id: user.id, profile: 'lucia', role: 'guardian' }
+			});
+			expect(grant.status(), await grant.text()).toBe(200);
+		} finally {
+			await owner.close();
+		}
+		await page.reload();
+		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toBeVisible();
+		await page.getByRole('link', { name: 'Add connection' }).click();
+		await page.locator('label[data-vendor="healow"]').click();
+		await page.getByText('Another server address', { exact: true }).click();
+		await page.getByLabel('The FHIR base address the facility gives').fill(fake);
+		const whose = page.getByLabel('Whose record');
+		await expect(whose.locator('option')).toHaveText(['Lucía Rivera']);
+	} finally {
+		await ctx.close();
+	}
 });
 
 for (const language of ['en', 'es'] as const) {
@@ -310,6 +344,11 @@ for (const language of ['en', 'es'] as const) {
 		await row.getByRole('button', { name: words.cancel }).click();
 		await expect(row.getByRole('button', { name: words.remove })).toBeFocused();
 
+		const staleTab = await page.context().newPage();
+		await staleTab.goto('/connections/add?lang=' + language);
+		const staleRow = staleTab.getByRole('listitem').filter({ hasText: clientId });
+		await staleRow.getByRole('button', { name: words.remove }).click();
+
 		await row.getByRole('button', { name: words.remove }).click();
 		if (process.env.OWNHEALTH_E2E_SHOTS) {
 			await list.screenshot({ path: `${process.env.OWNHEALTH_E2E_SHOTS}/saved-client-${language}.png` });
@@ -319,6 +358,15 @@ for (const language of ['en', 'es'] as const) {
 		await expect(done).toBeFocused();
 		await expect(row).toHaveCount(0);
 		expect(sql(`select count(*) from secret where id = '${sealedId}'`)).toBe('0');
+		const gone = staleTab.waitForResponse((r) =>
+			r.url().endsWith('/api/connectors/clients/' + client.id) && r.request().method() === 'DELETE'
+		);
+		await staleRow.getByRole('button', { name: words.remove }).click();
+		expect((await gone).status()).toBe(404);
+		await expect(staleTab.getByRole('status').filter({ hasText: words.done })).toBeFocused();
+		await expect(staleRow).toHaveCount(0);
+		await staleTab.close();
+
 
 		const connected = list.getByRole('listitem').filter({ hasText: 'e2e-healow' });
 		await connected.getByRole('button', { name: words.remove }).click();
@@ -327,3 +375,36 @@ for (const language of ['en', 'es'] as const) {
 		await expect(connected).toBeVisible();
 	});
 }
+
+test('deleting a client lets a person hide its switched-off connection and keeps its imports', async ({ page }) => {
+	const issuer = 'https://old.labnorte.example/fhir';
+	const label = 'Historic LabNorte Clinic';
+	const headers = { Origin: app };
+	const saved = await page.request.post('/api/connectors/clients', {
+		headers,
+		data: { vendor: 'oracle', issuer, client_id: 'e2e-orphan' }
+	});
+	expect(saved.status()).toBe(201);
+	const { client } = await saved.json();
+	const source = sql(`insert into source (household_id, profile_id, kind, label, enabled, connector_client_id)
+		select household_id, id, 'smart', '${label}', false, '${client.id}' from profile where slug = 'alex' returning id`);
+	sql(`insert into source_item (source_id, external_id) values ('${source}', 'previous-import')`);
+	try {
+		await page.goto('/connections?lang=en');
+		const card = page.getByRole('article', { name: label });
+		await expect(card.getByRole('button', { name: 'Reconnect' })).toBeVisible();
+		expect((await page.request.delete('/api/connectors/clients/' + client.id, { headers })).status()).toBe(200);
+		await page.reload();
+		await expect(card).toContainText('This client was deleted. Add a new connection to connect again.');
+		await expect(card.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+		await card.getByRole('button', { name: 'Hide connection' }).click();
+		await expect(card).toHaveCount(0);
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
+		await expect(card).toHaveCount(0);
+		expect(sql(`select count(*) from source_item where source_id = '${source}' and external_id = 'previous-import'`)).toBe('1');
+	} finally {
+		sql(`delete from source where id = '${source}'`);
+		sql(`delete from connector_client where id = '${client.id}'`);
+	}
+});

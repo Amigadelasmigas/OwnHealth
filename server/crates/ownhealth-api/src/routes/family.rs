@@ -169,7 +169,6 @@ async fn get_household(State(rt): State<Runtime>, SessionCaller(p): SessionCalle
         .map(|mut row| {
             let id = row["id"].as_str().and_then(|i| Uuid::parse_str(i).ok());
             if let (Some(perm), Some(obj)) = (perms.iter().find(|x| Some(x.profile.id) == id), row.as_object_mut()) {
-                obj.insert("can_manage".into(), json!(managed.contains(&perm.profile.id)));
                 obj.insert("claimed".into(), json!(perm.profile.user_id.is_some()));
                 let locks: Vec<String> = perm.profile.locks().into_iter().collect();
                 obj.insert("locks".into(), json!(locks));

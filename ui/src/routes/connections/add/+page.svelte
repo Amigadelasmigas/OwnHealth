@@ -72,7 +72,7 @@
 	// The connection: whose record, its name, the launch.
 	const mine = $derived(manageable(app.me?.profiles ?? []));
 	let profileId = $state('');
-	const whose = $derived(profileId || (mine.find((p) => p.is_self) ?? mine[0])?.id || '');
+	const whose = $derived((mine.find((p) => p.id === profileId) ?? mine.find((p) => p.is_self) ?? mine[0])?.id ?? '');
 	let label = $state('');
 	let launching = $state(false);
 	let launchError = $state<{ text: string; raw: string } | null>(null);
@@ -184,7 +184,9 @@
 		removing = true;
 		deleteError = null;
 		try {
-			await deleteConnectorClient(id);
+			await deleteConnectorClient(id).catch((err: unknown) => {
+				if (!(err instanceof ApiError && err.status === 404)) throw err;
+			});
 			if (client?.id === id) {
 				replacing = false;
 				clientId = '';

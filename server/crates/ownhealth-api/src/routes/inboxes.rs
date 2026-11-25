@@ -814,6 +814,8 @@ mod tests {
                 reconsent_needed_at: None,
                 grant_expires_at: None,
                 access_expires_at: None,
+                has_client: None,
+                hidden_from_connections: None,
                 open_gaps: 0,
                 server: Some("https://fhir.labnorte.example/r4".into()),
                 claim_count: (kind == "bluebutton").then_some(42),

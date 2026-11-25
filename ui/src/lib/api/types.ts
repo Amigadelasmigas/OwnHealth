@@ -40,6 +40,7 @@ export interface ProfileSummary {
 	display_name: string;
 	initials: string;
 	role: Role;
+	can_manage: boolean;
 	relationship: string | null;
 	age: number | null;
 	sex_at_birth: 'female' | 'male' | 'unknown' | null;
@@ -576,8 +577,8 @@ export interface Household {
 		own_profile?: string | null; // slug of the profile this login claimed
 		is_me?: boolean;
 	}[];
-	// profiles carry, beyond ProfileSummary: can_manage, claimed, locks, genome_sensitive_agents
-	profiles: (ProfileSummary & { can_manage?: boolean; claimed?: boolean; locks?: Scope[]; genome_sensitive_agents?: boolean })[];
+	// profiles carry, beyond ProfileSummary: claimed, locks, genome_sensitive_agents
+	profiles: (ProfileSummary & { claimed?: boolean; locks?: Scope[]; genome_sensitive_agents?: boolean })[];
 	grants: { user_id: Uuid; profile: string; role: Role; categories: Scope[]; expires_at: IsoDateTime | null; granted_at?: IsoDateTime }[];
 	// the household's age of majority in force (its own setting, else the server's)
 	age_of_majority?: number;

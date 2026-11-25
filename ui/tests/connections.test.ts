@@ -351,10 +351,23 @@ test('the Open Wearables stops read in English and Spanish', () => {
 	assert.equal(runWords('PermanentJobError: too_large: Open Wearables answers for one day passed the size limit', hasKey, sayIn('es')), 'Las respuestas de esta ejecución pasaron el límite de tamaño, así que el resto no se leyó.');
 });
 
-test('the wearables setup button shows only to an owner or guardian (GET /wearables/setup refuses the rest)', () => {
-	assert.equal(mayManageConnections([{ role: 'viewer' }, { role: 'caregiver' }]), false);
+test('wearables setup requires at least one profile the caller can manage', () => {
+	const claimed = { role: 'guardian', can_manage: false };
+	const unclaimed = { role: 'guardian', can_manage: true };
+	const viewer = { role: 'viewer', can_manage: false };
+	const owner = { role: 'owner', can_manage: true };
+	assert.equal(mayManageConnections([claimed, viewer]), false);
 	assert.equal(mayManageConnections([]), false);
 	assert.equal(mayManageConnections(undefined), false);
-	assert.equal(mayManageConnections([{ role: 'viewer' }, { role: 'owner' }]), true);
-	assert.equal(mayManageConnections([{ role: 'guardian' }]), true);
+	assert.equal(mayManageConnections([viewer, owner]), true);
+	assert.equal(mayManageConnections([claimed, unclaimed]), true);
+});
+
+test('an off connection whose client was deleted can no longer reconnect and can be hidden', () => {
+	const off = conn({ enabled: false, has_client: true });
+	const orphan = conn({ enabled: false, has_client: false });
+	assert.equal(canReconnect(off), true);
+	assert.equal(canReconnect(orphan), false);
+	assert.deepEqual(shownConnections([orphan]), [orphan]);
+	assert.deepEqual(shownConnections([{ ...orphan, hidden_from_connections: true }]), []);
 });

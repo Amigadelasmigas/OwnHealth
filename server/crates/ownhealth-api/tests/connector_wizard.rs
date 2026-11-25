@@ -764,6 +764,48 @@ async fn deleting_a_saved_client_in_use_refuses_and_keeps_its_secret() -> R {
         (StatusCode::CONFLICT, "connector_client_in_use")
     );
 
+    let (secret, access_token, access_expiry): (Uuid, Vec<u8>, chrono::DateTime<chrono::Utc>) =
+        sqlx::query_as("select secret_id, oauth_access_token, access_expires_at from source where id = $1")
+            .bind(source)
+            .fetch_one(env.pool())
+            .await?;
+    for (state, enabled, refresh, access, expiry) in [
+        ("enabled without credentials", true, None, None, None),
+        ("disabled with only a refresh secret", false, Some(secret), None, None),
+        // The source CHECK requires an expiry whenever an access token is stored.
+        (
+            "disabled with an access token",
+            false,
+            None,
+            Some(&access_token),
+            Some(access_expiry),
+        ),
+        ("disabled with an access expiry", false, None, None, Some(access_expiry)),
+    ] {
+        sqlx::query(
+            "update source set enabled = $2, secret_id = $3, oauth_access_token = $4, \
+             access_expires_at = $5, grant_expires_at = null where id = $1",
+        )
+        .bind(source)
+        .bind(enabled)
+        .bind(refresh)
+        .bind(access)
+        .bind(expiry)
+        .execute(env.pool())
+        .await?;
+        let response = owner.delete(&path).await?;
+        assert_eq!(
+            (response.status, response.code()),
+            (StatusCode::CONFLICT, "connector_client_in_use"),
+            "{state}: {}",
+            response.json
+        );
+    }
+    sqlx::query("update source set secret_id = $2 where id = $1")
+        .bind(source)
+        .bind(secret)
+        .execute(env.pool())
+        .await?;
     let disconnected = owner.delete(&format!("/api/connectors/{source}")).await?;
     assert_eq!(disconnected.status, StatusCode::OK, "{}", disconnected.json);
     let deleted = owner.delete(&path).await?;
@@ -835,5 +877,163 @@ async fn deleting_a_saved_client_removes_its_sealed_secret_and_audits_the_delete
     .fetch_all(env.pool())
     .await?;
     assert_eq!(rows, [(Some(env.user("alex")), vec![client.to_string()])]);
+    Ok(())
+}
+
+/// A switched-off source remains in use by the profile for the next reconnect.
+#[tokio::test]
+async fn a_manager_cannot_delete_a_client_on_someone_elses_disconnected_source() -> R {
+    let env = env().await?;
+    let mut owner = alex(&env).await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let issuer = "https://labnorte.example/fhir";
+    let client = save_client_for_delete(&mut owner, issuer, CLIENT_SECRET).await?;
+    let source: Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label, enabled, connector_client_id) \
+         values ($1, $2, 'smart', 'LabNorte', false, $3) returning id",
+    )
+    .bind(env.fam().household_id)
+    .bind(env.profile("alex"))
+    .bind(client)
+    .fetch_one(env.pool())
+    .await?;
+    let replace = sam
+        .post(
+            "/api/connectors/clients",
+            &json!({"vendor": "healow", "issuer": issuer, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}),
+        )
+        .await?;
+    assert_eq!(refusal(&replace), "403 client_in_use");
+    let deleted = sam.delete(&format!("/api/connectors/clients/{client}")).await?;
+    assert_eq!(refusal(&deleted), "403 client_in_use");
+    let linked: Option<Uuid> = sqlx::query_scalar("select connector_client_id from source where id = $1")
+        .bind(source)
+        .fetch_one(env.pool())
+        .await?;
+    assert_eq!(linked, Some(client));
+    assert_eq!(
+        count(
+            &env,
+            "select count(*) from audit_event where action = 'connector.client.delete'"
+        )
+        .await?,
+        0
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_client_deleted_from_disconnected_sources_is_audited_once_per_profile() -> R {
+    let env = env().await?;
+    let mut owner = alex(&env).await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let client = save_client_for_delete(&mut owner, "https://labnorte.example/fhir", CLIENT_SECRET).await?;
+    for (profile, label) in [("alex", "Alex"), ("lucia", "Lucía 1"), ("lucia", "Lucía 2")] {
+        sqlx::query(
+            "insert into source (household_id, profile_id, kind, label, enabled, connector_client_id) \
+             values ($1, $2, 'smart', $3, false, $4)",
+        )
+        .bind(env.fam().household_id)
+        .bind(env.profile(profile))
+        .bind(label)
+        .bind(client)
+        .execute(env.pool())
+        .await?;
+    }
+    let deleted = owner.delete(&format!("/api/connectors/clients/{client}")).await?;
+    assert_eq!(deleted.status, StatusCode::OK, "{}", deleted.json);
+    let rows = sam.get("/api/audit?via=ui").await?;
+    assert_eq!(rows.status, StatusCode::OK, "{}", rows.json);
+    let deletes: Vec<_> = rows.json["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["action"] == "connector.client.delete")
+        .collect();
+    assert_eq!(deletes.len(), 1, "{}", rows.json);
+    assert_eq!(deletes[0]["profile"], "lucia");
+    assert_eq!(deletes[0]["resource_ids"], json!([client]));
+    assert_eq!(
+        count(
+            &env,
+            "select count(*) from audit_event where action = 'connector.client.delete'"
+        )
+        .await?,
+        2
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn just_a_guardian_of_a_claimed_profile_cannot_set_up_connections() -> R {
+    let env = env().await?;
+    let lucia = env.profile("lucia");
+    let mut conn = env.pool().acquire().await?;
+    let pat = ownhealth_core::access::create_user(&mut conn, env.fam().household_id, "Pat Rivera", "en", None).await?;
+    let login =
+        ownhealth_core::access::create_user(&mut conn, env.fam().household_id, "Lucía Rivera", "es", None).await?;
+    ownhealth_core::access::set_grant(&mut conn, pat, lucia, "guardian", None, Some(env.user("alex")), None).await?;
+    let mut pat = env.as_user(pat).await?;
+    let profile = |me: Value| me["profiles"][0].clone();
+    let before = profile(pat.get("/api/me").await?.json);
+    assert_eq!(before["role"], "guardian");
+    assert_eq!(before["can_manage"], true);
+    sqlx::query("update profile set user_id = $2 where id = $1")
+        .bind(lucia)
+        .bind(login)
+        .execute(&mut *conn)
+        .await?;
+    let after = profile(pat.get("/api/me").await?.json);
+    assert_eq!(after["role"], "guardian");
+    assert_eq!(after["can_manage"], false);
+    for path in [
+        "/api/connectors/profiles",
+        "/api/connectors/clients",
+        "/api/wearables/setup",
+    ] {
+        assert_eq!(pat.get(path).await?.status, StatusCode::FORBIDDEN, "{path}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_orphaned_connection_can_be_hidden_without_removing_its_history() -> R {
+    let env = env().await?;
+    let mut owner = alex(&env).await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let client = save_client_for_delete(&mut owner, "https://labnorte.example/fhir", CLIENT_SECRET).await?;
+    let source: Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label, enabled, connector_client_id) \
+         values ($1, $2, 'smart', 'LabNorte', false, $3) returning id",
+    )
+    .bind(env.fam().household_id)
+    .bind(env.profile("alex"))
+    .bind(client)
+    .fetch_one(env.pool())
+    .await?;
+    sqlx::query("insert into source_item (source_id, external_id) values ($1, 'previous-import')")
+        .bind(source)
+        .execute(env.pool())
+        .await?;
+    let health = format!("/api/inboxes/{source}/health");
+    let hide = format!("/api/connectors/{source}/hide");
+    assert_eq!(owner.get(&health).await?.json["has_client"], true);
+    assert_eq!(refusal(&owner.post0(&hide).await?), "409 connection_not_orphaned");
+    assert_eq!(
+        owner.delete(&format!("/api/connectors/clients/{client}")).await?.status,
+        StatusCode::OK
+    );
+    assert_eq!(owner.get(&health).await?.json["has_client"], false);
+    assert_eq!(owner.get(&health).await?.json["hidden_from_connections"], false);
+    assert!(sam.get(&health).await?.json.get("has_client").is_none());
+    assert_eq!(sam.post0(&hide).await?.status, StatusCode::FORBIDDEN);
+    assert_eq!(owner.post0(&hide).await?.status, StatusCode::OK);
+    assert_eq!(owner.post0(&hide).await?.status, StatusCode::OK);
+    assert_eq!(owner.get(&health).await?.json["hidden_from_connections"], true);
+    let retained: bool = sqlx::query_scalar("select exists(select from source_item where source_id = $1)")
+        .bind(source)
+        .fetch_one(env.pool())
+        .await?;
+    assert!(retained);
     Ok(())
 }

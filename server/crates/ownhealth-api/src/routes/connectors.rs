@@ -6,11 +6,13 @@
 //! |---|---|
 //! | `POST /connectors/launch/{kind}` | `{profile_id, client_id, issuer?, label?}`: `{authorize_url}` and the binder cookie; 502 `not_a_smart_server` when the address has no SMART configuration (no such name, or no document) |
 //! | `GET /connectors/callback?state=&code=` | where the vendor sends the browser back: 302 to `/connections?connected=<id>` or `/connections?connector_error=<code>`; a connect or reconnect of a polled kind queues its first pull |
-//! | `POST /connectors/{id}/reconnect` | `{authorize_url}` for a new grant on the same source; clears the reconsent flag on return |
+//! | `POST /connectors/{id}/reconnect` | `{authorize_url}` for a new grant on the same source. Clears the reconsent flag on return. 409 `connector_client_deleted` after the client is deleted |
+//! | `POST /connectors/{id}/hide` | Hide a switched-off source whose client was deleted. Returns `{id}` and keeps the import history. 409 `connection_not_orphaned` while the source is enabled or still has a client |
 //! | `DELETE /connectors/{id}` | revoke at the vendor when it offers it, then delete the tokens and the cursor: `{id, revocation, revoke_page}`; `revoke_page` is the vendor's own page when the revocation failed or is not offered, and always for Blue Button |
 //! | `GET /connectors/profiles` | the add wizard's vendors (`data/connectors/connectors.yaml`) and this instance's redirect URI: `{redirect_uri, vendors}` |
 //! | `GET /connectors/clients` | the household's registered vendor clients, never a secret: `{clients}` |
 //! | `POST /connectors/clients` | `{vendor, client_id, client_secret?, issuer?}`: save the household's client for that vendor and server, the secret sealed; 201 `{client, replaced: false}`, or 200 `{client, replaced: true}` when it replaced the one saved for the same vendor and server; 403 `client_in_use` when connections of profiles the caller does not manage use that one |
+//! | `DELETE /connectors/clients/{id}` | Delete the registration and its sealed secret. Returns `{id}`. 403 `client_in_use` if a source on the client belongs to a profile the caller cannot manage. 409 `connector_client_in_use` if a source is still enabled or retains grant details |
 //!
 //! An owner or guardian of the household who manages the profile. The callback counts only in the
 //! browser and the session that started the launch, for a profile that person still manages. No
@@ -24,6 +26,7 @@
 //! the same, so a person can try the flow against a local fake; a release build ignores it, as it
 //! does without dev auth.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
@@ -70,6 +73,7 @@ pub fn router() -> Router<Runtime> {
         .route("/connectors/launch/{kind}", post(launch))
         .route("/connectors/callback", get(callback))
         .route("/connectors/{id}/reconnect", post(reconnect))
+        .route("/connectors/{id}/hide", post(hide_connection))
         .route("/connectors/{id}", delete(disconnect))
         .route("/connectors/profiles", get(vendor_profiles))
         .route("/connectors/clients", get(list_clients).post(save_client))
@@ -472,8 +476,8 @@ async fn callback(State(rt): State<Runtime>, meta: Meta, Query(q): Params, o: Op
     }
     let sb = SecretBox::from_settings(&rt.settings)?.with_keys(rt.blobs.keyring());
     let mut tx = conn.begin().await?;
-    // Keep the client through the bounded exchange and until the source holds the grant.
-    // A delete cannot remove it between the exchange at the vendor and our commit.
+    // The bounded vendor exchange keeps this pool connection and can delay a save or delete of
+    // the same client. The lock keeps the registration available until the new grant commits.
     let kept: Option<Uuid> =
         sqlx::query_scalar("select id from connector_client where id = $1 and household_id = $2 for key share")
             .bind(pending.client)
@@ -567,6 +571,31 @@ async fn disconnect(
     )
     .await?;
     ok(json!({"id": c.id, "revocation": outcome, "revoke_page": revoke_page(&c.kind, outcome)}))
+}
+
+/// Hide a switched-off connection after its client was deleted. Keep the source and its history.
+async fn hide_connection(State(rt): State<Runtime>, SessionCaller(p): SessionCaller, Path(id): Path<String>) -> R {
+    let mut tx = rt.pool.begin().await?;
+    let (_, c) = managed(&mut tx, &p, &id).await?;
+    let hidden = sqlx::query(
+        "update source set config = config || jsonb_build_object('hidden_from_connections', true) \
+         where id = $1 and profile_id = $2 and not enabled and connector_client_id is null",
+    )
+    .bind(c.id)
+    .bind(c.profile_id)
+    .execute(&mut *tx)
+    .await?;
+    if hidden.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "connection_not_orphaned",
+            "You can hide a switched-off connection after deleting its client.",
+        )
+        .into());
+    }
+    audit(&mut tx, &p, "connector.hide", c.profile_id, c.id, None, false).await?;
+    tx.commit().await?;
+    ok(json!({"id": c.id}))
 }
 
 /// Before a profile delete: revoke each of the profile's connections at its vendor, best effort and
@@ -689,27 +718,9 @@ fn unfit(code: &str, message: &str) -> Fail {
 /// The longest server address a client is saved for.
 const MAX_ISSUER_BYTES: usize = 2048;
 
-/// A saved client that connections of profiles the caller does not manage use is not the caller's to
-/// replace: the new id and secret would break those connections at their next refresh, and their
-/// next reconnect would consent to the caller's vendor app. The caller holds the advisory lock
-/// for this key. If a row exists, lock it until commit so no new source can reference it in between.
-async fn in_use_elsewhere(
-    conn: &mut PgConnection,
-    p: &Principal,
-    household: Uuid,
-    vendor: &str,
-    issuer: Option<&str>,
-) -> R<()> {
-    let existing: Option<Uuid> = sqlx::query_scalar(
-        "select id from connector_client where household_id = $1 and vendor = $2 \
-         and issuer is not distinct from $3 for update",
-    )
-    .bind(household)
-    .bind(vendor)
-    .bind(issuer)
-    .fetch_optional(&mut *conn)
-    .await?;
-    let Some(client) = existing else { return Ok(()) };
+/// A change to the registration could break refresh or reconnect for all its sources, including
+/// disconnected ones. The caller holds a lock on the client so no new source can reference it.
+async fn in_use_elsewhere(conn: &mut PgConnection, p: &Principal, household: Uuid, client: Uuid) -> R<()> {
     let mine: Vec<Uuid> = accessible_profiles(&mut *conn, p)
         .await?
         .iter()
@@ -728,7 +739,7 @@ async fn in_use_elsewhere(
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "client_in_use",
-            "Connections of profiles you do not manage use this client. Only someone who manages them can replace it.",
+            "Connections of profiles you do not manage use this client. Only someone who manages them can change it.",
         )
         .into());
     }
@@ -842,7 +853,18 @@ async fn save_client(
         .bind(key)
         .execute(&mut *tx)
         .await?;
-    in_use_elsewhere(&mut tx, &p, household, &vendor.key, issuer.as_deref()).await?;
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "select id from connector_client where household_id = $1 and vendor = $2 \
+         and issuer is not distinct from $3 for update",
+    )
+    .bind(household)
+    .bind(&vendor.key)
+    .bind(&issuer)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(client) = existing {
+        in_use_elsewhere(&mut tx, &p, household, client).await?;
+    }
     let sb = SecretBox::from_settings(&rt.settings)?;
     let secret_id = match secret {
         Some(s) => Some(
@@ -913,15 +935,17 @@ async fn delete_client(State(rt): State<Runtime>, SessionCaller(p): SessionCalle
     let Some(client) = client else {
         return Err(unknown().into());
     };
+    in_use_elsewhere(&mut tx, &p, household, client).await?;
     // Disconnect keeps the source and its import history. Unlink only sources with no usable
     // grant or stored credentials. The transaction rolls back these updates if any source remains.
-    sqlx::query(
+    let unlinked: Vec<Option<Uuid>> = sqlx::query_scalar(
         "update source set connector_client_id = null where connector_client_id = $1 and household_id = $2 and not enabled \
-         and secret_id is null and oauth_access_token is null and grant_expires_at is null and access_expires_at is null",
+         and secret_id is null and oauth_access_token is null and grant_expires_at is null and access_expires_at is null \
+         returning profile_id",
     )
     .bind(client)
     .bind(household)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
     let used: bool = sqlx::query_scalar("select exists(select from source where connector_client_id = $1)")
         .bind(client)
@@ -940,17 +964,24 @@ async fn delete_client(State(rt): State<Runtime>, SessionCaller(p): SessionCalle
         .bind(client)
         .execute(&mut *tx)
         .await?;
-    write_audit(
-        &mut tx,
-        &AuditEvent {
-            actor_id: p.user_id,
-            tool: Some("connectors".into()),
-            resource_type: Some("connector_client".into()),
-            resource_ids: Some(vec![client.to_string()]),
-            ..AuditEvent::new(p.actor_kind(), "ui", "connector.client.delete")
-        },
-    )
-    .await?;
+    let mut profiles: BTreeSet<_> = unlinked.into_iter().collect();
+    if profiles.is_empty() {
+        profiles.insert(None);
+    }
+    for profile_id in profiles {
+        write_audit(
+            &mut tx,
+            &AuditEvent {
+                actor_id: p.user_id,
+                tool: Some("connectors".into()),
+                profile_id,
+                resource_type: Some("connector_client".into()),
+                resource_ids: Some(vec![client.to_string()]),
+                ..AuditEvent::new(p.actor_kind(), "ui", "connector.client.delete")
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     ok(json!({"id": client}))
 }
