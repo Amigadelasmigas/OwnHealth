@@ -2911,3 +2911,101 @@ fn round_4_truncated_original_text_goes_to_review_even_when_used_as_the_label() 
     assert_eq!(c.sections[0].not_read.len(), 1);
     Ok(())
 }
+
+// ------------------------------------------------------ slice 21, round 5 ----
+
+/// What the converter lists as not read in every section, in document order.
+fn unread_lines(bytes: &[u8]) -> anyhow::Result<Vec<String>> {
+    let c = convert(bytes)?;
+    Ok(c.sections.iter().flat_map(|s| s.not_read.clone()).collect())
+}
+
+/// R4-M1: original text of a coded element the converter never reads (a method, a target site, an
+/// indication's own code, an interpretation) exists only in the XML, so it goes to review. Text
+/// inside a part already held whole, a bare reference to the section narrative and blank text add
+/// no line.
+#[test]
+fn round_5_original_text_of_unread_coded_elements_goes_to_review() -> R {
+    let kept = |tag: &str| format!("{tag} (original text kept in the uploaded file)");
+    let method = procedures(
+        r#"<entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <methodCode code="X" codeSystem="1.2.3" displayName="Method"><originalText>Done under sedation after HIV test</originalText></methodCode>
+             <approachSiteCode code="Y" codeSystem="1.2.3" displayName="Approach"/>
+             <priorityCode code="EM" codeSystem="2.16.840.1.113883.5.7" displayName="Emergency"/>
+           </procedure></entry>"#,
+    );
+    let site = procedures(
+        r#"<entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.13"/>
+             <code code="274025005" codeSystem="2.16.840.1.113883.6.96" displayName="Colonic polypectomy"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <targetSiteCode code="71854001" codeSystem="2.16.840.1.113883.6.96" displayName="Colon"><originalText>Rectum near prior anal fistula</originalText></targetSiteCode>
+             <methodCode code="X" codeSystem="1.2.3" displayName="Method"/>
+           </observation></entry>"#,
+    );
+    let indication = encounters(
+        r#"<entry><encounter moodCode="EVN"><code code="99213" codeSystem="2.16.840.1.113883.6.12"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <entryRelationship typeCode="RSON"><observation classCode="OBS" moodCode="EVN">
+               <templateId root="2.16.840.1.113883.10.20.22.4.19"/>
+               <code code="404684003" codeSystem="2.16.840.1.113883.6.96" displayName="Finding"><originalText>Seen after assault by partner</originalText></code>
+               <statusCode code="completed"/>
+               <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96" displayName="Pneumonia"/>
+             </observation></entryRelationship>
+           </encounter></entry>"#,
+    );
+    let interpretation = document(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.3.1"/><title>Results</title>
+             <entry><observation classCode="OBS" moodCode="EVN">
+               <code code="2345-7" codeSystem="2.16.840.1.113883.6.1" displayName="Glucose"/>
+               <statusCode code="completed"/><effectiveTime value="20210301"/><value xsi:type="PQ" value="300" unit="mg/dL"/>
+               <interpretationCode code="HH" codeSystem="2.16.840.1.113883.5.83" displayName="Critical high"><originalText>Critical, phoned to Dr Ruiz who said patient is pregnant</originalText></interpretationCode>
+             </observation></entry></section></component>"#,
+    );
+    let held_part = procedures(
+        r#"<entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <entryRelationship typeCode="COMP"><observation classCode="OBS" moodCode="EVN">
+               <code code="X" codeSystem="1.2.3" displayName="Finding"><originalText>Held with its observation</originalText></code>
+             </observation></entryRelationship>
+           </procedure></entry>
+           <entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+             <statusCode code="cancelled"/><effectiveTime value="20210301"/>
+             <methodCode code="X" codeSystem="1.2.3"><originalText>Held with its procedure</originalText></methodCode>
+           </procedure></entry>"#,
+    );
+    let no_words = procedures(
+        r##"<text><paragraph ID="m1">Under sedation</paragraph></text>
+           <entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <methodCode code="X" codeSystem="1.2.3"><originalText><reference value="#m1"/></originalText></methodCode>
+             <approachSiteCode code="Y" codeSystem="1.2.3"><originalText>
+             </originalText></approachSiteCode>
+           </procedure></entry>"##,
+    );
+    assert_eq!(unread_lines(&method)?, [kept("methodCode")]);
+    assert_eq!(unread_lines(&site)?, [kept("targetSiteCode")]);
+    assert_eq!(unread_lines(&indication)?, [kept("code")]);
+    assert_eq!(unread_lines(&interpretation)?, [kept("interpretationCode")]);
+    assert_eq!(
+        unread_lines(&held_part)?,
+        [
+            "observation without a templateId",
+            "procedure without a templateId (status cancelled)"
+        ]
+    );
+    assert_eq!(unread_lines(&no_words)?, Vec::<String>::new());
+    // the record still carries what it read
+    let c = convert(&indication)?;
+    assert_eq!(resources(&c, "Encounter")[0]["reasonCode"][0]["text"], "Pneumonia");
+    let c = convert(&interpretation)?;
+    assert_eq!(
+        resources(&c, "Observation")[0]["interpretation"][0]["coding"][0]["code"],
+        "HH"
+    );
+    Ok(())
+}

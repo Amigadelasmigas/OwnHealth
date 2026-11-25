@@ -4,7 +4,7 @@ use roxmltree::Node;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Conv, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements, has_template,
+    Conv, Section, SectionReport, attr, attr_ts, child, children, coded, digits, elements, has_template,
     is_security_observation, is_true, lookup, ordered_period, path, put, status_of, templates, xml,
 };
 
@@ -117,16 +117,17 @@ fn assigned_reference(entity: Node<'_, '_>) -> Option<Value> {
     (!reference.is_empty()).then_some(Value::Object(reference))
 }
 
-/// Anything other than a note, a security label or a relationship the caller reads waits in review.
-fn unread_relationships(n: Node<'_, '_>, rep: &mut SectionReport) {
-    for part in children(n, "entryRelationship").flat_map(elements) {
-        if !is_note_activity(part) && !is_security_observation(part) {
-            rep.not_read.push(describe(part));
+impl Conv<'_, '_> {
+    /// Anything other than a note, a security label or a relationship the caller reads waits in review.
+    fn unread_relationships(&mut self, n: Node<'_, '_>, rep: &mut SectionReport) {
+        for part in children(n, "entryRelationship").flat_map(elements) {
+            if !is_note_activity(part) && !is_security_observation(part) {
+                let line = self.hold(part);
+                rep.not_read.push(line);
+            }
         }
     }
-}
 
-impl Conv<'_, '_> {
     pub(super) fn encounter(&mut self, enc: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         if !event(enc, &[ENCOUNTER_ACTIVITY]) || is_true(enc, "negationInd") {
             return false;
@@ -158,9 +159,12 @@ impl Conv<'_, '_> {
                 match indication.then(|| self.concept(child(part, "value"))).flatten() {
                     Some(reason) => {
                         reasons.push(reason);
-                        unread_relationships(part, rep);
+                        self.unread_relationships(part, rep);
                     }
-                    None => rep.not_read.push(describe(part)),
+                    None => {
+                        let line = self.hold(part);
+                        rep.not_read.push(line);
+                    }
                 }
             }
         }
@@ -237,14 +241,16 @@ impl Conv<'_, '_> {
         // A procedure not done, cancelled or not started yet is no record of care, and the FHIR
         // mapper would only count it: it waits in review, as a refused vaccine does.
         if is_true(n, "negationInd") {
-            rep.not_read.push(format!("{} (not done)", describe(n)));
+            let line = format!("{} (not done)", self.hold(n));
+            rep.not_read.push(line);
             return true;
         }
         let status = match status_of(n) {
             Some("active") => "in-progress",
             Some("aborted") => "stopped",
             Some(s @ ("cancelled" | "new")) => {
-                rep.not_read.push(format!("{} (status {s})", describe(n)));
+                let line = format!("{} (status {s})", self.hold(n));
+                rep.not_read.push(line);
                 return true;
             }
             Some("nullified") => "entered-in-error",
@@ -284,7 +290,7 @@ impl Conv<'_, '_> {
         put(&mut r, "performer", (!performers.is_empty()).then(|| json!(performers)));
         put(&mut r, "note", self.activity_note(n));
         self.push(Some(rep), at, Value::Object(r));
-        unread_relationships(n, rep);
+        self.unread_relationships(n, rep);
         true
     }
 
@@ -303,12 +309,13 @@ impl Conv<'_, '_> {
         // An aborted procedure observation is kept for a person to read, never skipped: the FHIR
         // Observation has no status for it but cancelled, which the mapper only counts.
         if let Some(s @ ("aborted" | "cancelled")) = status_of(obs) {
-            rep.not_read.push(format!("{} (status {s})", describe(obs)));
+            let line = format!("{} (status {s})", self.hold(obs));
+            rep.not_read.push(line);
             return true;
         }
         let read = self.observation(obs, None, category, at, rep).is_some();
         if read {
-            unread_relationships(obs, rep);
+            self.unread_relationships(obs, rep);
         }
         read
     }

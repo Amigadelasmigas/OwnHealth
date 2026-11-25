@@ -245,6 +245,8 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
         source_labels: HashMap::new(),
         narrative_labels: Vec::new(),
         unread_concepts: Vec::new(),
+        read_originals: HashSet::new(),
+        held: HashSet::new(),
         ids: HashMap::new(),
         patient: None,
         labels: doc_labels.clone(),
@@ -645,6 +647,10 @@ struct Conv<'a, 'i> {
     narrative_labels: Vec<Value>,
     /// Omitted original text in the header or the current section.
     unread_concepts: Vec<String>,
+    /// Every `originalText` a coded concept read or compared with what it kept.
+    read_originals: HashSet<NodeId>,
+    /// Elements sent to review whole: the original text inside them is counted with them.
+    held: HashSet<NodeId>,
     /// `<type>/<id>` given so far, to tell apart entries of one file that share an `id`.
     ids: HashMap<String, usize>,
     patient: Option<String>,
@@ -737,6 +743,44 @@ impl<'a, 'i> Conv<'a, 'i> {
             }
         }
         (!out.is_empty()).then_some(Value::Array(out))
+    }
+
+    /// Sends a whole element to review: the line that lists it.
+    fn hold(&mut self, el: Node<'_, '_>) -> String {
+        self.held.insert(el.id());
+        describe(el)
+    }
+
+    /// Lists the original text written inside an entry element that no coded concept read: a method,
+    /// a target site, an interpretation. Its words exist only in the uploaded file. A bare reference
+    /// adds no words of its own (they are in the section narrative), and text inside a part already
+    /// held whole is counted with that part.
+    fn unread_original_texts(&mut self, el: Node<'_, '_>, rep: &mut SectionReport) {
+        for original in el.descendants().filter(|n| n.has_tag_name((xml::NS, "originalText"))) {
+            if self.read_originals.contains(&original.id())
+                || !original
+                    .descendants()
+                    .any(|n| n.is_text() && n.text().is_some_and(|t| !t.trim().is_empty()))
+            {
+                continue;
+            }
+            let mut counted = false;
+            for n in std::iter::successors(Some(original), Node::parent_element) {
+                if self.held.contains(&n.id()) || activities::is_note_activity(n) || is_security_observation(n) {
+                    counted = true;
+                }
+                if counted || n == el {
+                    break;
+                }
+            }
+            if !counted {
+                let parent = original
+                    .parent_element()
+                    .map_or("originalText", |p| p.tag_name().name());
+                rep.not_read
+                    .push(format!("{parent} (original text kept in the uploaded file)"));
+            }
+        }
     }
 
     fn subject(&self) -> Option<Value> {
@@ -836,11 +880,11 @@ impl<'a, 'i> Conv<'a, 'i> {
     fn reported_concept(&mut self, n: Option<Node<'_, '_>>, skip: &[&str], prefer_original: bool) -> Option<Value> {
         let n = n?;
         let concept = self.concept_data(n, skip, prefer_original)?;
-        let mut originals = std::iter::once(n)
+        let originals: Vec<_> = std::iter::once(n)
             .chain(children(n, "translation"))
             .filter_map(|code| Some((code.tag_name().name(), child(code, "originalText")?)))
-            .peekable();
-        if originals.peek().is_some() {
+            .collect();
+        if !originals.is_empty() {
             let displays: HashSet<_> = concept["text"]
                 .as_str()
                 .into_iter()
@@ -854,6 +898,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 .map(normalized_text)
                 .collect();
             for (field, original) in originals {
+                self.read_originals.insert(original.id());
                 if self.unread_original_text(original, &displays) {
                     self.unread_concepts
                         .push(format!("{field} (original text kept in the uploaded file)"));
@@ -1039,8 +1084,10 @@ impl<'a, 'i> Conv<'a, 'i> {
                     }
                     _ => false,
                 };
-                if !read {
-                    rep.not_read.push(describe(el));
+                if read {
+                    self.unread_original_texts(el, &mut rep);
+                } else {
+                    rep.not_read.push(self.hold(el));
                 }
             }
         }
@@ -1074,7 +1121,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             if roots.is_empty() || roots.contains(&ALLERGY_OBSERVATION) {
                 allergies.push(obs);
             } else if !(roots.contains(&SEVERITY_OBSERVATION) && severity_of(obs).is_some()) {
-                left.push(describe(obs));
+                left.push(self.hold(obs));
             }
         }
         for (i, obs) in allergies.iter().enumerate() {
@@ -1211,7 +1258,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             // con-4: an abated condition is never active. The status observation and the end date
             // disagree, so a person decides
             rep.not_read
-                .push(format!("{} (status active with an end date)", describe(obs)));
+                .push(format!("{} (status active with an end date)", self.hold(obs)));
             return None;
         }
         let nothing = negated && self.names_nothing(value);
@@ -1382,7 +1429,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             {
                 as_needed = Some(cc);
             } else {
-                unread.push(describe(criterion));
+                unread.push(self.hold(criterion));
             }
         }
         put(&mut dosage, "asNeededCodeableConcept", as_needed);
@@ -1401,7 +1448,8 @@ impl<'a, 'i> Conv<'a, 'i> {
         self.push(Some(rep), at, Value::Object(r));
         // a supply order or a dispense of the medicine is no record this version reads
         for supply in children(sa, "entryRelationship").flat_map(|er| children(er, "supply")) {
-            rep.not_read.push(describe(supply));
+            let line = self.hold(supply);
+            rep.not_read.push(line);
         }
         rep.not_read.extend(unread);
     }
@@ -1490,7 +1538,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 };
                 match id {
                     Some(id) => refs.push(json!({"reference": format!("Observation/{id}")})),
-                    None => rep.not_read.push(describe(el)),
+                    None => rep.not_read.push(self.hold(el)),
                 }
             }
         }
@@ -1546,7 +1594,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 if read {
                     any = true;
                 } else {
-                    rep.not_read.push(describe(el));
+                    rep.not_read.push(self.hold(el));
                 }
             }
         }
