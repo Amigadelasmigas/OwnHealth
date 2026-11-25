@@ -1085,8 +1085,6 @@ mod tests {
         );
     }
 
-    /// "exp": a number of seconds, which may have a fraction; a link that has not expired yet by
-    /// that fraction is read.
     #[test]
     fn a_manifest_lists_its_files_or_says_why_not() {
         let files = |v: Value| manifest_files(v.to_string().as_bytes());
@@ -1144,6 +1142,8 @@ mod tests {
         );
     }
 
+    /// "exp": a number of seconds, which may have a fraction; a link that has not expired yet by
+    /// that fraction is read.
     #[test]
     fn a_fractional_exp_is_compared_with_its_fraction() {
         let url = "https://share.rivera.test/api/shl/abc";
