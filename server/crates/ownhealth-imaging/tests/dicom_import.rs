@@ -674,6 +674,39 @@ async fn a_damaged_copy_of_a_repeated_image_is_damaged_and_the_disc_imports() ->
     Ok(())
 }
 
+/// A second copy of an image whose deflate stream is corrupt or cut short after the head the scan reads
+/// first is damaged in the upload, not a failed read: it never heals, so the disc imports without it.
+#[tokio::test]
+async fn a_repeated_image_whose_copy_does_not_inflate_is_damaged_and_the_disc_imports() -> R {
+    for (what, cut) in [("corrupt", false), ("cut short", true)] {
+        let e = env().await?;
+        let st = Study::new(U1, ALEX);
+        let mut disc = study_files(&st, "DICOM");
+        disc[0].1.resize((1 << 20) + (1 << 17), 0);
+        let image = disc[0].1.clone();
+        disc.push(("DICOM/COPY/I0000".into(), image.clone()));
+        let stream = if cut {
+            let mut stream = support::deflate_stored_blocks(&image);
+            stream.truncate(stream.len() - 1000);
+            stream
+        } else {
+            let mut stream = support::deflate_stored_blocks(&image[..image.len() - 1000]);
+            // BFINAL=1 with the reserved block type 11: the decoder reads a corrupt stream
+            stream.push(0x07);
+            stream
+        };
+        let zip = support::zip_last_entry_as_deflated(&disc, stream, image.len())?;
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{what}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{what}: {result}");
+        assert_eq!(result["instances"], st.images(), "{what}: {result}");
+        assert_eq!(e.orthanc.posts(), st.images(), "{what}");
+    }
+    Ok(())
+}
+
 /// The first copy of a repeated image can be damaged past the head the scan reads and still carry a
 /// header that reads, here with another date and description. Nothing of it reaches the study: the
 /// copies that read stand for the image, on the record and on a study held for review alike, and the
