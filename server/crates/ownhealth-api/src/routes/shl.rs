@@ -74,7 +74,6 @@ pub const PASSCODE_MAX: usize = 64;
 pub const LOCATION_SECONDS: i64 = 3600;
 /// Answers per link per rolling hour ("Polling Manifest for Changes": 429 with Retry-After).
 pub const RATE_PER_HOUR: i64 = 60;
-const RECIPIENT_MAX: usize = 200;
 const ROLES: [&str; 2] = ["owner", "guardian"];
 
 fn msg(key: &str) -> &'static str {
@@ -309,14 +308,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The recipient as the access log keeps it: trimmed, without control characters, at most 200
-/// characters. "SMART Health Link Manifest Request": recipient is required (1..1).
-fn recipient(v: &Value) -> Option<String> {
-    let clean: String = v.as_str()?.chars().filter(|c| !c.is_control()).collect();
-    let clean = clean.trim();
-    (!clean.is_empty()).then(|| clean.chars().take(RECIPIENT_MAX).collect())
-}
-
 async fn manifest(State(rt): State<Runtime>, meta: Meta, Path(id): Path<String>, body: Bytes) -> Response {
     cors(match serve_manifest(&rt, &id, &meta, &body).await {
         Ok(r) => r,
@@ -329,8 +320,8 @@ async fn serve_manifest(rt: &Runtime, id: &str, meta: &Meta, body: &[u8]) -> Res
     let share_url = rt.settings.share_url.clone().ok_or_else(gone)?;
     let mut tx = rt.pool.begin().await?;
     let link = live(&mut tx, id, false).await?.ok_or_else(gone)?;
-    let input: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    let Some(recipient) = recipient(&input["recipient"]) else {
+    let input = share::ManifestRequest::read(body);
+    let Some(recipient) = input.recipient.clone() else {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "bad_request", msg("recipient")));
     };
     if let Some(res) = rate_limited(&mut tx, link.id).await? {
@@ -339,7 +330,7 @@ async fn serve_manifest(rt: &Runtime, id: &str, meta: &Meta, body: &[u8]) -> Res
     let who = Asker::of(rt, meta);
     if let Some(hash) = &link.passcode_hash {
         let left = link.attempts_left.unwrap_or(0);
-        let given = input["passcode"].as_str().filter(|p| !p.is_empty());
+        let given = input.passcode.as_deref();
         let right = match given {
             Some(p) => check_password_async(p, Some(hash.clone())).await?,
             None => false,
@@ -513,7 +504,7 @@ async fn serve_direct(rt: &Runtime, id: &str, meta: &Meta, recipient_in: Option<
     }
     let mut tx = rt.pool.begin().await?;
     let link = live(&mut tx, id, true).await?.ok_or_else(gone)?;
-    let recipient = recipient(&json!(recipient_in))
+    let recipient = share::recipient(&json!(recipient_in))
         .ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "bad_request", msg("recipient")))?;
     if let Some(res) = rate_limited(&mut tx, link.id).await? {
         return Ok(res);
@@ -928,14 +919,6 @@ pub fn router() -> Router<Runtime> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_recipient_is_trimmed_text_without_control_characters_and_never_empty() {
-        assert_eq!(recipient(&json!("  Dr. Ortega\u{7}\n ")).as_deref(), Some("Dr. Ortega"));
-        assert_eq!(recipient(&json!(" \n ")), None);
-        assert_eq!(recipient(&json!(7)), None);
-        assert_eq!(recipient(&json!("x".repeat(500))).map(|r| r.len()), Some(RECIPIENT_MAX));
-    }
 
     #[test]
     fn hex_is_lowercase_two_digits_per_byte() {
