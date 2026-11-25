@@ -466,7 +466,7 @@ const ALEX_SERIES: Series = &[
 ];
 
 /// The citation ids the docs use (architecture.md section 16). Everything else gets a generated id.
-const ALEX_SRC_IDS: [((&str, &str), &str); 9] = [
+const ALEX_SRC_IDS: [((&str, &str), &str); 13] = [
     (("vitamin_d_25oh", "2026-09-14"), "src_a12"),
     (("lpa", "2025-09-08"), "src_a07"),
     (("tsh", "2025-01-20"), "src_a05"),
@@ -475,7 +475,11 @@ const ALEX_SRC_IDS: [((&str, &str), &str); 9] = [
     (("ldl_c", "2023-03-21"), "src_2c1"),
     (("ldl_c", "2023-10-04"), "src_3c8"),
     (("ldl_c", "2024-05-22"), "src_3d2"),
+    (("ldl_c", "2025-01-20"), "src_a04"),
+    (("ldl_c", "2025-09-08"), "src_a06"),
     (("ldl_c", "2026-03-02"), "src_9f3"),
+    (("ldl_c", ALEX_LIPID_DRAW), "src_a11"),
+    (("platelets", "2026-09-14"), "src_a14"),
 ];
 /// Direct LDL, LOINC 18262-6.
 const DIRECT_LDL_DATES: [&str; 2] = ["2023-10-04", "2024-05-22"];
@@ -1537,6 +1541,7 @@ mod tests {
                 "lpa" => &["Lp(a)", "\"lpa\""],
                 "tsh" => &["TSH", "\"tsh\""],
                 "ldl_c" => &["LDL"],
+                "platelets" => &["Platelets"],
                 other => panic!("no doc name for {other}"),
             }
         };
