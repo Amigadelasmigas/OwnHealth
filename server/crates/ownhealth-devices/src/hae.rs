@@ -323,7 +323,13 @@ pub async fn import_push(
         if let Some(metric) = key.strip_prefix("metric:") {
             skipped.insert(metric.to_string(), *count);
         }
-        if key == "bad_time" || key.starts_with("unit:") || key.starts_with("bad_point:") {
+        if key == "bad_time" {
+            // its own code, so the screens can point at the phone's clock
+            problems.push(RunProblem {
+                code: "points_ahead".into(),
+                message: format!("{count} points dated more than a day ahead"),
+            });
+        } else if key.starts_with("unit:") || key.starts_with("bad_point:") {
             problems.push(RunProblem {
                 code: "points_skipped".into(),
                 message: format!("{key} x{count}"),

@@ -2356,6 +2356,8 @@ export const dict = {
 		con_run_token_unreachable: "The vendor's token server could not be reached.",
 		con_run_undeclared_host: "A next page on a server this connection did not declare was not read.",
 		con_run_unreachable: "The server could not be reached.",
+		// Health Auto Export (hae.rs): points dated more than a day ahead are left out
+		con_run_points_ahead: "Readings dated more than a day ahead were left out ({n}). Check the phone's clock.",
 		con_run_search_failed: "The server answered {n}.",
 		con_run_not_fhir: "The server returned an unexpected FHIR response.",
 		con_run_medication_id_mismatch: "The server returned a different medication ID, so the result was skipped.",
@@ -4902,6 +4904,7 @@ export const dict = {
 		con_run_token_unreachable: "No se pudo contactar con el servidor de tokens del proveedor.",
 		con_run_undeclared_host: "No se leyó una página siguiente en un servidor que esta conexión no declaró.",
 		con_run_unreachable: "No se pudo contactar con el servidor.",
+		con_run_points_ahead: "Se dejaron fuera lecturas con fecha de más de un día en el futuro ({n}). Revisa la hora del teléfono.",
 		con_run_search_failed: "El servidor respondió {n}.",
 		con_run_not_fhir: "El servidor devolvió una respuesta FHIR inesperada.",
 		con_run_medication_id_mismatch: "El servidor devolvió un identificador de medicamento distinto, así que se omitió el resultado.",

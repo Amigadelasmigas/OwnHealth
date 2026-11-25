@@ -465,8 +465,8 @@ async fn a_push_drops_points_more_than_a_day_ahead() -> R {
     assert_eq!((out.seen, out.new, out.duplicate), (1, 1, 0));
     assert_eq!(
         out.problems.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
-        ["points_skipped"]
+        ["points_ahead"]
     );
-    assert_eq!(out.problems[0].message, "bad_time x3");
+    assert_eq!(out.problems[0].message, "3 points dated more than a day ahead");
     Ok(())
 }
