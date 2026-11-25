@@ -639,6 +639,41 @@ async fn a_member_that_does_not_inflate_is_damaged_and_the_rest_is_sent() -> R {
     Ok(())
 }
 
+/// A second copy of an image (one SOP Instance UID, the same bytes) whose full read fails its CRC is
+/// damaged, whichever copy it is: the disc imports with the copy that reads. The image is larger than
+/// the head the scan reads first, so only the full read finds the damage.
+#[tokio::test]
+async fn a_damaged_copy_of_a_repeated_image_is_damaged_and_the_disc_imports() -> R {
+    for damaged in ["DICOM/S00/I0000", "DICOM/COPY/I0000"] {
+        let e = env().await?;
+        let st = Study {
+            size: 1100,
+            ..Study::new(U1, ALEX)
+        };
+        let mut disc = study_files(&st, "DICOM");
+        disc.push(("DICOM/COPY/I0000".into(), disc[0].1.clone()));
+        let mut zip = zip_files(&disc);
+        let central = zip
+            .windows(4)
+            .enumerate()
+            .filter(|(_, w)| *w == b"PK\x01\x02")
+            .map(|(at, _)| at)
+            .find(|&at| {
+                let n = usize::from(u16::from_le_bytes([zip[at + 28], zip[at + 29]]));
+                zip.get(at + 46..at + 46 + n) == Some(damaged.as_bytes())
+            })
+            .ok_or_else(|| anyhow::anyhow!("no central header for {damaged}"))?;
+        zip[central + 16] ^= 1;
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{damaged}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{damaged}: {result}");
+        assert_eq!(result["instances"], disc.len() - 1, "{damaged}: {result}");
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_header_past_the_read_cap_is_damaged_and_not_sent() -> R {
     let e = env().await?;
@@ -833,7 +868,9 @@ async fn round3_duplicate_instances_are_counted_once() -> R {
 }
 
 #[tokio::test]
-async fn a_duplicate_entry_with_a_bad_crc_fails_the_import_on_the_first_attempt() -> R {
+/// The damaged copy never reaches Orthanc, so it is counted as damaged and the copy that reads is sent,
+/// on the first attempt.
+async fn a_duplicate_entry_with_a_bad_crc_is_damaged_and_the_other_copy_imports() -> R {
     let e = env().await?;
     let mut image = support::image(&Study::new(U1, ALEX), 0, 0, support::EXPLICIT_LE);
     // The header scan reads only the first MiB. Hashing the duplicate reads through to its CRC.
@@ -843,14 +880,10 @@ async fn a_duplicate_entry_with_a_bad_crc_fails_the_import_on_the_first_attempt(
     let up = e.upload_zip("alex", &zip, 2).await?;
 
     assert_eq!(e.run().await?, 1);
-    let (state, _, error) = e.job(up.job_id).await?;
-    assert_eq!(state, "dead", "{error:?}");
-    assert!(
-        error
-            .as_deref()
-            .is_some_and(|e| e.contains("a duplicate DICOM entry could not be read"))
-    );
-    assert_eq!(e.orthanc.posts(), 0);
+    let (state, result, error) = e.job(up.job_id).await?;
+    assert_eq!(state, "done", "{error:?}");
+    assert_eq!(result["damaged"], 1, "{result}");
+    assert_eq!(e.orthanc.posts(), 1);
     Ok(())
 }
 

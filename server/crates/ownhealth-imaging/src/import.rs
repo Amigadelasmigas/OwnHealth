@@ -295,11 +295,21 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
                 let (first, digest) = sops.entry(h.sop_instance_uid.clone()).or_insert((i, None));
                 if *first != i {
                     let original = match digest {
-                        Some(hash) => *hash,
-                        None => *digest.insert(entry_hash(zip, *first)?),
+                        Some(hash) => Some(*hash),
+                        None => entry_hash(zip, *first)?,
                     };
-                    if original != entry_hash(zip, i)? {
-                        return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
+                    let Some(copy) = entry_hash(zip, i)? else {
+                        s.damaged += 1;
+                        continue;
+                    };
+                    match original {
+                        Some(original) if original != copy => {
+                            return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
+                        }
+                        Some(original) => *digest = Some(original),
+                        // The first copy is damaged: this one stands for the SOP, and the first
+                        // counts as damaged when it fails to stage.
+                        None => (*first, *digest) = (i, Some(copy)),
                     }
                 }
                 add(&mut s, i, h);
@@ -312,24 +322,32 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
 }
 
 /// Only repeated SOPs require a full read during the scan. Verify the ZIP CRC and compare hashes
-/// of the original bytes before any study is sent.
-fn entry_hash(zip: &mut Archive, index: usize) -> Result<[u8; 32], JobError> {
-    let read_error = |error: ZipError| {
-        let message = format!("a duplicate DICOM entry could not be read: {error}");
+/// of the original bytes before any study is sent. A copy that does not read in full is damaged
+/// (`None`); a failed read of the stored upload retries.
+fn entry_hash(zip: &mut Archive, index: usize) -> Result<Option<[u8; 32]>, JobError> {
+    let damaged = |error: ZipError| {
         if entry_io_failed(&error) {
-            JobError::retry(message)
+            Err(JobError::retry(format!(
+                "a duplicate DICOM entry could not be read: {error}"
+            )))
         } else {
-            JobError::permanent(message)
+            Ok(None)
         }
     };
-    let entry = zip.by_index(index).map_err(read_error)?;
+    let entry = match zip.by_index(index) {
+        Ok(entry) => entry,
+        Err(error) => return damaged(error),
+    };
     let expected = entry.size();
     let mut entry = entry.take(MAX_FILE_BYTES + 1);
     let mut digest = Sha256::new();
     let mut count = 0;
     let mut buf = [0; FILE_CHUNK];
     loop {
-        let n = entry.read(&mut buf).map_err(|e| read_error(e.into()))?;
+        let n = match entry.read(&mut buf) {
+            Ok(n) => n,
+            Err(error) => return damaged(error.into()),
+        };
         if n == 0 {
             break;
         }
@@ -337,9 +355,9 @@ fn entry_hash(zip: &mut Archive, index: usize) -> Result<[u8; 32], JobError> {
         digest.update(&buf[..n]);
     }
     if count != expected || count > MAX_FILE_BYTES {
-        return Err(JobError::permanent("a duplicate DICOM entry could not be read"));
+        return Ok(None);
     }
-    Ok(digest.finalize().into())
+    Ok(Some(digest.finalize().into()))
 }
 
 fn add(s: &mut Scan, i: usize, h: Header) {
