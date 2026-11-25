@@ -676,3 +676,164 @@ async fn a_first_launch_at_an_address_with_no_smart_configuration_says_so() -> R
     assert_eq!(r.status, StatusCode::OK, "{}", r.json);
     Ok(())
 }
+
+async fn save_client_for_delete(c: &mut Client, issuer: &str, secret: &str) -> anyhow::Result<Uuid> {
+    let response = c
+        .post(
+            "/api/connectors/clients",
+            &json!({"vendor": "healow", "client_id": CLIENT_ID, "issuer": issuer,
+                    "client_secret": secret}),
+        )
+        .await?;
+    assert_eq!(response.status, StatusCode::CREATED, "{}", response.json);
+    Ok(response.json["client"]["id"].as_str().unwrap_or_default().parse()?)
+}
+
+#[tokio::test]
+async fn deleting_a_saved_client_in_use_refuses_and_keeps_its_secret() -> R {
+    let env = env().await?;
+    let fake = Fake::recorded("healow").await;
+    let mut owner = alex(&env).await?;
+    let client = save_client_for_delete(&mut owner, &fake.issuer(), CLIENT_SECRET).await?;
+    let launch = owner
+        .post(
+            "/api/connectors/launch/smart",
+            &json!({"profile_id": env.profile("alex"), "client_id": client, "issuer": fake.issuer()}),
+        )
+        .await?;
+    assert_eq!(launch.status, StatusCode::OK, "{}", launch.json);
+    let url = launch.json["authorize_url"].as_str().unwrap_or_default();
+    let code = fake.consent(url);
+    let state = param(url, "state").unwrap_or_default();
+    fake.set(|b| b.delay_ms = 600);
+    let mut browser = owner.clone();
+    let callback = tokio::spawn(async move {
+        browser
+            .get(&format!("/api/connectors/callback?state={state}&code={code}"))
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while fake.book().in_flight == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let path = format!("/api/connectors/clients/{client}");
+    let response = owner.delete(&path).await?;
+    let back = callback.await??;
+    assert!(
+        back.location().starts_with("/connections?connected="),
+        "{}",
+        back.location()
+    );
+    assert_eq!(
+        (response.status, response.code()),
+        (StatusCode::CONFLICT, "connector_client_in_use"),
+        "{}",
+        response.json
+    );
+    let still_in_use = owner.delete(&path).await?;
+    assert_eq!(
+        (still_in_use.status, still_in_use.code()),
+        (StatusCode::CONFLICT, "connector_client_in_use")
+    );
+    assert_eq!(
+        count(
+            &env,
+            "select count(*) from secret where purpose = 'connector_client_secret'"
+        )
+        .await?,
+        1
+    );
+    assert_eq!(
+        count(
+            &env,
+            "select count(*) from audit_event where action = 'connector.client.delete'"
+        )
+        .await?,
+        0
+    );
+    let source: Uuid = back.location().trim_start_matches("/connections?connected=").parse()?;
+    sqlx::query("update source set enabled = false where id = $1")
+        .bind(source)
+        .execute(env.pool())
+        .await?;
+    let disabled_with_grant = owner.delete(&path).await?;
+    assert_eq!(
+        (disabled_with_grant.status, disabled_with_grant.code()),
+        (StatusCode::CONFLICT, "connector_client_in_use")
+    );
+
+    let disconnected = owner.delete(&format!("/api/connectors/{source}")).await?;
+    assert_eq!(disconnected.status, StatusCode::OK, "{}", disconnected.json);
+    let deleted = owner.delete(&path).await?;
+    assert_eq!(deleted.status, StatusCode::OK, "{}", deleted.json);
+    let registration: Option<Uuid> = sqlx::query_scalar("select connector_client_id from source where id = $1")
+        .bind(source)
+        .fetch_one(env.pool())
+        .await?;
+    assert_eq!(registration, None, "the source and its history stay");
+    let reconnect = owner.post0(&format!("/api/connectors/{source}/reconnect")).await?;
+    assert_eq!(
+        (reconnect.status, reconnect.code()),
+        (StatusCode::CONFLICT, "connector_client_deleted")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_a_saved_client_removes_its_sealed_secret_and_audits_the_delete() -> R {
+    let env = env().await?;
+    let mut owner = alex(&env).await?;
+    let client = save_client_for_delete(
+        &mut owner,
+        "https://mistyped.labnorte.example/fhir",
+        &ownhealth_core::ids::token_hex(32),
+    )
+    .await?;
+    let path = format!("/api/connectors/clients/{client}");
+    let secret: Uuid = sqlx::query_scalar("select client_secret_id from connector_client where id = $1")
+        .bind(client)
+        .fetch_one(env.pool())
+        .await?;
+
+    let mut conn = env.pool().acquire().await?;
+    let other = ownhealth_core::demo::create_rivera_family(&mut conn, "Other Rivera").await?;
+    let viewer =
+        ownhealth_core::access::create_user(&mut conn, env.fam().household_id, "Pat Rivera", "en", None).await?;
+    ownhealth_core::access::set_grant(
+        &mut conn,
+        viewer,
+        env.profile("alex"),
+        "viewer",
+        None,
+        Some(env.user("alex")),
+        None,
+    )
+    .await?;
+    drop(conn);
+    let mut outsider = env.as_user(other.user("alex")).await?;
+    let outside = outsider.delete(&path).await?;
+    let mut viewer = env.as_user(viewer).await?;
+    let viewer = viewer.delete(&path).await?;
+
+    let response = owner.delete(&path).await?;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.json);
+    assert_eq!(outside.status, StatusCode::NOT_FOUND);
+    assert_eq!(viewer.status, StatusCode::FORBIDDEN);
+    assert_eq!(response.json, json!({"id": client}));
+    assert_eq!(owner.get("/api/connectors/clients").await?.json["clients"], json!([]));
+    assert_eq!(owner.delete(&path).await?.status, StatusCode::NOT_FOUND);
+    let still_sealed: bool = sqlx::query_scalar("select exists(select from secret where id = $1)")
+        .bind(secret)
+        .fetch_one(env.pool())
+        .await?;
+    assert!(!still_sealed);
+    let rows: Vec<(Option<Uuid>, Vec<String>)> = sqlx::query_as(
+        "select actor_id, resource_ids from audit_event where action = 'connector.client.delete'          and resource_type = 'connector_client' and actor_kind = 'user' and via = 'ui'",
+    )
+    .fetch_all(env.pool())
+    .await?;
+    assert_eq!(rows, [(Some(env.user("alex")), vec![client.to_string()])]);
+    Ok(())
+}

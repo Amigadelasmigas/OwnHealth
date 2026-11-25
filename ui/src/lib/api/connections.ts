@@ -31,6 +31,8 @@ export const listConnectorClients = () => get<{ clients: SavedClient[] }>('/conn
 /** Save the household's client for one vendor (and server): the secret is sealed and never comes back. */
 export const saveConnectorClient = (body: { vendor: string; client_id: string; client_secret?: string; issuer?: string | null }) =>
 	post<{ client: SavedClient; replaced: boolean }>('/connectors/clients', body);
+/** Remove an unused client and its sealed secret. */
+export const deleteConnectorClient = (id: Uuid) => del<{ id: Uuid }>(`/connectors/clients/${encodeURIComponent(id)}`);
 /** Where to send the browser for the first grant of a new connection. */
 export const launchConnector = (kind: string, body: { profile_id: Uuid; client_id: Uuid; issuer?: string; label?: string }) =>
 	post<{ authorize_url: string }>(`/connectors/launch/${encodeURIComponent(kind)}`, body);

@@ -44,7 +44,7 @@ use ownhealth_core::sources;
 use ownhealth_core::{Error, Runtime};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::PgConnection;
+use sqlx::{Connection as _, PgConnection};
 use uuid::Uuid;
 
 use super::auth::{Body, Fail, Meta, Params, R, answer, ok, set_cookie};
@@ -73,6 +73,7 @@ pub fn router() -> Router<Runtime> {
         .route("/connectors/{id}", delete(disconnect))
         .route("/connectors/profiles", get(vendor_profiles))
         .route("/connectors/clients", get(list_clients).post(save_client))
+        .route("/connectors/clients/{id}", delete(delete_client))
 }
 
 /// Tests point the connector egress at a fake vendor on loopback with this request extension.
@@ -145,7 +146,7 @@ struct Connection {
     kind: String,
     label: String,
     profile_id: Uuid,
-    client_id: Uuid,
+    client_id: Option<Uuid>,
     config: Value,
 }
 
@@ -166,7 +167,7 @@ async fn managed(conn: &mut PgConnection, p: &Principal, id: &str) -> R<(Uuid, C
     .bind(&kinds)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((kind, label, Some(profile_id), Some(client_id), config)) = row else {
+    let Some((kind, label, Some(profile_id), client_id, config)) = row else {
         return Err(unknown().into());
     };
     manages_profile(conn, p, profile_id).await?;
@@ -373,7 +374,14 @@ async fn reconnect(
     let (c, client) = {
         let mut tx = rt.pool.begin().await?;
         let (household, c) = managed(&mut tx, &p, &id).await?;
-        let client = oauth::load_client(&mut tx, None, household, c.client_id)
+        let client_id = c.client_id.ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "connector_client_deleted",
+                "This client was deleted. Add a new connection to connect again.",
+            )
+        })?;
+        let client = oauth::load_client(&mut tx, None, household, client_id)
             .await
             .map_err(fail)?
             .ok_or_else(|| Error::NotFound("The vendor client of this connection is gone.".into()))?;
@@ -463,13 +471,24 @@ async fn callback(State(rt): State<Runtime>, meta: Meta, Query(q): Params, o: Op
         return Ok(back(&state, "forbidden"));
     }
     let sb = SecretBox::from_settings(&rt.settings)?.with_keys(rt.blobs.keyring());
-    let Some(client) = oauth::load_client(&mut conn, Some(&sb), household, pending.client)
+    let mut tx = conn.begin().await?;
+    // Keep the client through the bounded exchange and until the source holds the grant.
+    // A delete cannot remove it between the exchange at the vendor and our commit.
+    let kept: Option<Uuid> =
+        sqlx::query_scalar("select id from connector_client where id = $1 and household_id = $2 for key share")
+            .bind(pending.client)
+            .bind(household)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if kept.is_none() {
+        return Ok(back(&state, "client_gone"));
+    }
+    let Some(client) = oauth::load_client(&mut tx, Some(&sb), household, pending.client)
         .await
         .map_err(fail)?
     else {
         return Ok(back(&state, "client_gone"));
     };
-    drop(conn);
     let tokens = match oauth::exchange(&pending, &client, &code, &egress(&rt, &o)).await {
         Ok(t) => t,
         Err(e) => {
@@ -478,7 +497,6 @@ async fn callback(State(rt): State<Runtime>, meta: Meta, Query(q): Params, o: Op
         }
     };
     let now = Utc::now();
-    let mut tx = rt.pool.begin().await?;
     let id = match oauth::save_connection(&mut tx, &sb, &pending, &client, &tokens, now).await {
         Ok(id) => id,
         Err(OAuthError::Refused { code, .. }) => return Ok(back(&state, code)),
@@ -877,6 +895,64 @@ async fn save_client(
     tx.commit().await?;
     let status = if inserted { StatusCode::CREATED } else { StatusCode::OK };
     Ok(answer(status, json!({"client": client, "replaced": !inserted}), &[]))
+}
+
+/// Delete a saved registration once every source using it has been disconnected.
+async fn delete_client(State(rt): State<Runtime>, SessionCaller(p): SessionCaller, Path(id): Path<String>) -> R {
+    let unknown = || Error::NotFound("Unknown client.".into());
+    let id: Uuid = id.parse().map_err(|_| unknown())?;
+    let mut tx = rt.pool.begin().await?;
+    let household = manager(&mut tx, &p).await?;
+    // Also excludes a new callback or a foreign-key reference until this transaction ends.
+    let client: Option<Uuid> =
+        sqlx::query_scalar("select id from connector_client where id = $1 and household_id = $2 for update")
+            .bind(id)
+            .bind(household)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some(client) = client else {
+        return Err(unknown().into());
+    };
+    // Disconnect keeps the source and its import history. Unlink only sources with no usable
+    // grant or stored credentials. The transaction rolls back these updates if any source remains.
+    sqlx::query(
+        "update source set connector_client_id = null where connector_client_id = $1 and household_id = $2 and not enabled \
+         and secret_id is null and oauth_access_token is null and grant_expires_at is null and access_expires_at is null",
+    )
+    .bind(client)
+    .bind(household)
+    .execute(&mut *tx)
+    .await?;
+    let used: bool = sqlx::query_scalar("select exists(select from source where connector_client_id = $1)")
+        .bind(client)
+        .fetch_one(&mut *tx)
+        .await?;
+    if used {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "connector_client_in_use",
+            "Disconnect the connections that use this client before deleting it.",
+        )
+        .into());
+    }
+    // The connector_client_drop_secret trigger deletes the sealed secret in this transaction.
+    sqlx::query("delete from connector_client where id = $1")
+        .bind(client)
+        .execute(&mut *tx)
+        .await?;
+    write_audit(
+        &mut tx,
+        &AuditEvent {
+            actor_id: p.user_id,
+            tool: Some("connectors".into()),
+            resource_type: Some("connector_client".into()),
+            resource_ids: Some(vec![client.to_string()]),
+            ..AuditEvent::new(p.actor_kind(), "ui", "connector.client.delete")
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    ok(json!({"id": client}))
 }
 
 #[cfg(test)]
