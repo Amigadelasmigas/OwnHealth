@@ -30,6 +30,7 @@ pub mod scores;
 pub mod store;
 pub mod strava_zip;
 pub mod synthetic;
+pub mod takeout_fitbit;
 
 use chrono::{DateTime, NaiveDate, Utc};
 
@@ -43,6 +44,7 @@ pub fn register() {
     fit::register();
     garmin_zip::register();
     strava_zip::register();
+    takeout_fitbit::register();
     ownhealth_core::demo::register_demo_hook("devices_cgm", demo::ORDER, demo::seed_boxed);
 }
 

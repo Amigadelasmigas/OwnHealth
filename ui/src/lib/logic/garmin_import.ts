@@ -1,4 +1,4 @@
-// Results shared by Garmin and Strava activity exports. GarminResult.svelte renders the counts
+// Results shared by Garmin, Strava and Fitbit Takeout exports. GarminResult.svelte renders the counts
 // and the files left out with their reasons.
 
 export type ActivityExportSummary = {
@@ -6,24 +6,32 @@ export type ActivityExportSummary = {
 	gps_left_out: boolean;
 	rows_without_file?: number;
 	files_without_row?: number;
+	rows_left_out?: number;
 	not_imported: { member: string; reason: string }[];
 };
 
 /** The archive details of a job result or a document's flags. */
 export function exportSummary(value: unknown): ActivityExportSummary | null {
-	const details = value as { garmin?: unknown; strava?: unknown } | null | undefined;
-	const summary = (details?.strava ?? details?.garmin) as Partial<ActivityExportSummary> | undefined;
+	const details = value as { garmin?: unknown; strava?: unknown; fitbit_takeout?: unknown } | null | undefined;
+	const summary = (details?.strava ?? details?.fitbit_takeout ?? details?.garmin) as Partial<ActivityExportSummary> | undefined;
 	if (typeof summary?.files_imported !== 'number' || !Array.isArray(summary.not_imported)) return null;
 	return {
 		files_imported: summary.files_imported,
 		gps_left_out: summary.gps_left_out === true,
 		not_imported: summary.not_imported,
 		...(typeof summary.rows_without_file === 'number' && { rows_without_file: summary.rows_without_file }),
-		...(typeof summary.files_without_row === 'number' && { files_without_row: summary.files_without_row })
+		...(typeof summary.files_without_row === 'number' && { files_without_row: summary.files_without_row }),
+		...(rowsLeftOut(summary) > 0 && { rows_left_out: rowsLeftOut(summary) })
 	};
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** The rows a Fitbit Takeout import left out because their time could not be read or placed
+ * (`rows_left_out` of its details); 0 for anything else. */
+export function rowsLeftOut(details: unknown): number {
+	return num((details as Record<string, unknown> | null | undefined)?.rows_left_out);
+}
 
 /** What an import added: the new readings, or that every reading was already there (the same export
  * sent again). Null when the result counts no reading (a document's flags, or nothing usable). */
@@ -37,7 +45,7 @@ export function garminReadings(result: unknown): { key: string; n: number } | nu
 }
 
 export function isActivityExportJob(kind: string | undefined): boolean {
-	return kind === 'import.garmin_zip' || kind === 'import.strava_zip';
+	return kind === 'import.garmin_zip' || kind === 'import.strava_zip' || kind === 'import.fitbit_takeout';
 }
 
 /** A finished import that read no file of readings: its pill says so instead of "Imported". */

@@ -28,6 +28,7 @@
 	{#if summary.files_without_row}
 		<div class="dim">{tp('i2_strava_files_without_row', summary.files_without_row)}</div>
 	{/if}
+	{#if summary.rows_left_out}<div class="dim">{tp('i2_fitbit_rows_left_out', summary.rows_left_out)}</div>{/if}
 	{#if summary.not_imported.length}
 		<details>
 			<summary>{tp('i2_garmin_omitted', summary.not_imported.length)}</summary>

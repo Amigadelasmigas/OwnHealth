@@ -19,7 +19,8 @@ use crate::ids::token_hex;
 use crate::jobs::{EnqueueOptions, enqueue};
 
 /// pdf | image | apple_health_zip | fhir_json | fhir_ndjson | genome_facts | vcf | tbi | gadgetbridge_db |
-/// libreview_csv | dexcom_clarity_csv | garmin_zip | strava_zip | broken_zip | zip_directory_limit | ccda | unknown
+/// libreview_csv | dexcom_clarity_csv | garmin_zip | strava_zip | fitbit_takeout | broken_zip | zip_directory_limit |
+/// ccda | unknown
 pub type UploadKind = &'static str;
 
 /// Job kind per upload kind. Handlers: import.pdf (lane B), import.fhir_bundle and
@@ -31,6 +32,7 @@ pub fn job_kind(kind: &str) -> Option<&'static str> {
         "apple_health_zip" => "import.apple_health",
         "garmin_zip" => "import.garmin_zip",
         "strava_zip" => "import.strava_zip",
+        "fitbit_takeout" => "import.fitbit_takeout",
         "fhir_json" | "fhir_ndjson" => "import.fhir_bundle",
         "genome_facts" => "import.genome_facts",
         "gadgetbridge_db" => "import.gadgetbridge",
@@ -47,7 +49,7 @@ pub fn mime(kind: &str) -> Option<&'static str> {
         "fit_gz" => "application/gzip",
         "fhir_json" => "application/fhir+json",
         "fhir_ndjson" => "application/fhir+ndjson",
-        "apple_health_zip" | "garmin_zip" | "strava_zip" => "application/zip",
+        "apple_health_zip" | "garmin_zip" | "strava_zip" | "fitbit_takeout" => "application/zip",
         "genome_facts" => "application/json",
         "vcf" => "application/gzip",
         "tbi" => "application/octet-stream",
@@ -64,11 +66,15 @@ pub const GARMIN_READINGS_MIME: &str = "application/x-ndjson";
 /// The mime of the projected Strava readings, used to route moves and replays.
 pub const STRAVA_READINGS_MIME: &str = "application/vnd.ownhealth.strava+ndjson";
 
-/// The stored mime of an upload. Garmin and Strava exports keep a projection of the archive.
+/// The mime of the projected Fitbit Takeout readings, used to route moves and replays.
+pub const FITBIT_READINGS_MIME: &str = "application/vnd.ownhealth.fitbit-readings+ndjson";
+
+/// The stored mime of an upload. Garmin, Strava and Fitbit Takeout exports keep a projection of the archive.
 pub fn stored_mime(kind: &str) -> Option<&'static str> {
     match kind {
         "garmin_zip" => Some(GARMIN_READINGS_MIME),
         "strava_zip" => Some(STRAVA_READINGS_MIME),
+        "fitbit_takeout" => Some(FITBIT_READINGS_MIME),
         _ => mime(kind),
     }
 }
@@ -78,8 +84,30 @@ pub(crate) fn projected_export(kind: &str) -> Option<&'static str> {
     match kind {
         "garmin_zip" => Some("garmin"),
         "strava_zip" => Some("strava"),
+        "fitbit_takeout" => Some("fitbit_takeout"),
         _ => None,
     }
+}
+
+/// The service folder and relative member path of a Fitbit or Google Health Takeout export.
+/// The archive may contain the service folder directly or inside a Takeout directory. The
+/// AppleDouble twins a Mac adds (`__MACOSX/…`, `._name`) hold no readings and are not members.
+pub fn fitbit_takeout_path(name: &str) -> Option<(&str, &str)> {
+    if name.starts_with("__MACOSX/") || name.rsplit('/').next().is_some_and(|base| base.starts_with("._")) {
+        return None;
+    }
+    let mut start = 0;
+    let mut parent: &str = "";
+    for (end, _) in name.match_indices('/') {
+        let part = &name[start..end];
+        let service = part.eq_ignore_ascii_case("Fitbit") || part.eq_ignore_ascii_case("Google Health");
+        if service && (start == 0 || parent.eq_ignore_ascii_case("Takeout")) {
+            return Some((&name[..end], &name[end + 1..]));
+        }
+        start = end + 1;
+        parent = part;
+    }
+    None
 }
 
 /// Recognized outer members of a Garmin account export. The leading directories vary between
@@ -134,14 +162,19 @@ fn classify_zip(reader: impl Read + Seek) -> UploadKind {
         Err(_) => return "broken_zip",
     };
     let mut kind = "unknown";
+    let mut fitbit = false;
     for name in archive.file_names().flatten() {
         // Preserve Apple Health's existing marker and precedence.
         if name.ends_with("export.xml") {
             return "apple_health_zip";
         }
+        fitbit |= fitbit_takeout_path(&name).is_some();
         if GarminMember::from_name(&name).is_some() {
             kind = "garmin_zip";
         }
+    }
+    if fitbit {
+        return "fitbit_takeout";
     }
     if kind == "unknown" && strava_manifest(&archive).is_some() {
         return "strava_zip";

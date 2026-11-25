@@ -59,7 +59,7 @@ export function fitDocLines(flags: unknown): FitLine[] | null {
 }
 
 /** The imports whose result the panel explains as shared only with people who can see Wearables. */
-const HIDDEN_LINE_KINDS = ['import.fit', 'import.garmin_zip', 'import.strava_zip'];
+const HIDDEN_LINE_KINDS = ['import.fit', 'import.garmin_zip', 'import.strava_zip', 'import.fitbit_takeout'];
 
 /** An activity import whose finished result is hidden from a member without read:wearables. */
 export function fitHidden(job: { kind?: string; state?: string; result?: unknown } | undefined): boolean {

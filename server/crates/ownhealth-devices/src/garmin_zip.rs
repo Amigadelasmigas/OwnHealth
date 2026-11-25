@@ -26,17 +26,17 @@ use zip::ZipArchive;
 use zip::result::ZipError;
 
 use crate::store::{self, Conflict, Sample, Touched, Written};
-use crate::{fit, strava_zip};
+use crate::{fit, strava_zip, takeout_fitbit};
 
 pub const JOB: &str = "import.garmin_zip";
 pub const PROVIDER: &str = "garmin_export";
 
 const MAX_MEMBERS: usize = GARMIN_MAX_FILES;
 const MAX_NAMES_BYTES: usize = GARMIN_MAX_NAME_BYTES;
-const MAX_EXPANDED: u64 = 4 * 1024 * 1024 * 1024;
+pub(crate) const MAX_EXPANDED: u64 = 4 * 1024 * 1024 * 1024;
 pub(crate) const MAX_JSON: u64 = 16 * 1024 * 1024;
 const MAX_FIT_ZIP: u64 = 1024 * 1024 * 1024;
-const MAX_READINGS: usize = 500_000;
+pub(crate) const MAX_READINGS: usize = 500_000;
 
 const UNREADABLE: &str = "garmin_zip_unreadable";
 const LIMIT: &str = "garmin_zip_limit";
@@ -129,9 +129,29 @@ pub(crate) struct Report {
     not_imported: Vec<Omission>,
     pub(crate) gps_left_out: bool,
     readings: Vec<Readings>,
+    /// Rows of a read file whose time could not be read or placed (Fitbit Takeout).
+    pub(crate) rows_left_out: usize,
 }
 
 impl Report {
+    /// The details of an archive whose files hold rows of readings (Fitbit Takeout).
+    pub(crate) fn archive_details(&self) -> Value {
+        json!({
+            "files_imported": self.files_imported,
+            "not_imported": self.not_imported,
+            "rows_left_out": self.rows_left_out,
+        })
+    }
+
+    pub(crate) fn add_member(&mut self, member: String, samples: Vec<Sample>) {
+        self.files_imported += 1;
+        self.readings.push(Readings {
+            member,
+            fit: false,
+            samples,
+        });
+    }
+
     pub(crate) fn omit(&mut self, member: String, reason: &'static str) {
         self.not_imported.push(Omission { member, reason });
     }
@@ -236,10 +256,15 @@ pub(crate) fn read_member(reader: impl Read, size: u64, out: &mut impl Write) ->
     }
 }
 
+/// The ZIP reader is built with deflate only. A member in any other compression method fails on
+/// its first read with `Unsupported`, so that kind marks the member as unreadable too.
 fn damaged_member(error: &io::Error) -> bool {
     matches!(
         error.kind(),
-        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof
+        io::ErrorKind::InvalidData
+            | io::ErrorKind::InvalidInput
+            | io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::Unsupported
     )
 }
 
@@ -658,17 +683,20 @@ fn prepare(ctx: &JobContext, owner: BlobOwner, sha: &str, export: &ExportSetting
     let mut zip = open(ctx.blobs.open_seek(owner, sha)?, export)?;
     let mut report = Report::default();
     let mut budget = Budget::new(export.limit);
-    let counts = if export.flag == strava_zip::EXPORT.flag {
-        Some(strava_zip::scan(&mut zip, &mut budget, &mut report)?)
-    } else {
-        scan(&mut zip, None, &mut budget, &mut report)?;
-        None
-    };
-    let mut details = report.details();
-    if let Some(counts) = counts {
+    let details = if export.flag == strava_zip::EXPORT.flag {
+        let counts = strava_zip::scan(&mut zip, &mut budget, &mut report)?;
+        let mut details = report.details();
         details["rows_without_file"] = json!(counts.rows_without_file);
         details["files_without_row"] = json!(counts.files_without_row);
-    }
+        details
+    } else if export.flag == takeout_fitbit::EXPORT.flag {
+        // A Takeout export spends its own budget: its heart-rate CSV files are larger than a JSON file.
+        takeout_fitbit::scan(&mut zip, &mut report)?;
+        report.archive_details()
+    } else {
+        scan(&mut zip, None, &mut budget, &mut report)?;
+        report.details()
+    };
     if report.readings.is_empty() {
         return Ok(Prepared {
             readings: report.readings,
@@ -789,13 +817,14 @@ async fn import_document(
     let mut tx = ctx.pool.begin().await?;
     lock_export_of(&mut tx, doc).await?;
     let row: Option<(Option<Uuid>, String, Value, String)> = sqlx::query_as(
-        "select profile_id, encode(blob_sha256, 'hex'), flags, status from document where id = $1 for update",
+        "select profile_id, encode(blob_sha256, 'hex'), flags, status from document where id = $1 and mime = $2 for update",
     )
     .bind(doc)
+    .bind(export.mime)
     .fetch_optional(&mut *tx)
     .await?;
     let Some((profile, sha, flags, status)) = row else {
-        return Err(JobError::permanent("the export document is gone"));
+        return Err(JobError::permanent(format!("the {} document is gone", export.label)));
     };
     let mut summary = ImportSummary::new(doc.to_string());
     let details = flags.get(export.flag).cloned().unwrap_or_else(|| json!({}));
@@ -820,7 +849,8 @@ async fn import_document(
             .map(|m| m.iter().map(|(k, c)| (k.clone(), c.as_i64().unwrap_or(0))).collect())
             .unwrap_or_default();
     } else {
-        let profile = profile.ok_or_else(|| JobError::permanent("the export document has no profile"))?;
+        let profile =
+            profile.ok_or_else(|| JobError::permanent(format!("the {} document has no profile", export.label)))?;
         let blobs = ctx.blobs.clone();
         let readings = tokio::task::spawn_blocking(move || {
             read_stored(blobs.open_seek(BlobOwner::Profile(profile), &sha)?, &export)
@@ -1023,6 +1053,12 @@ mod tests {
         let damaged = || io::Error::new(io::ErrorKind::InvalidData, "invalid bytes");
         assert!(!read_member(FailedRead(damaged), 10, &mut Vec::new()).expect("damaged member"));
         let storage = ArchiveReader(FailedRead(damaged));
+        assert!(read_member(storage, 10, &mut Vec::new()).is_err());
+
+        // The reader is built with deflate only and reports any other method on the first read.
+        let method = || io::Error::new(io::ErrorKind::Unsupported, "compression method not supported");
+        assert!(!read_member(FailedRead(method), 10, &mut Vec::new()).expect("member in another method"));
+        let storage = ArchiveReader(FailedRead(method));
         assert!(read_member(storage, 10, &mut Vec::new()).is_err());
     }
 

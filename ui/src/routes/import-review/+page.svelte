@@ -502,6 +502,11 @@
 				<div class="note" style="margin-top:6px">{t('i2_no_pages_image')}</div>
 			{:else if doc.data && docId && doc.data.id === docId && fitDoc}
 				<FitResult lines={fitDoc} label={plain(doc.data.filename)} />
+			{:else if doc.data && docId && doc.data.id === docId && exportDoc && doc.data.flags?.fitbit_takeout}
+				<div class="empty cgmdoc">
+					<div>{t('i2_ik_fitbit_takeout')}</div>
+					<GarminResult summary={exportDoc} />
+				</div>
 			{:else if doc.data && docId && doc.data.id === docId && exportDoc}
 				<GarminResult summary={exportDoc} />
 			{:else if doc.data && !doc.data.pages_info.length}
