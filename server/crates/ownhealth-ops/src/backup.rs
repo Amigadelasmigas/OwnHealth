@@ -1751,7 +1751,8 @@ async fn force_drop(admin: &mut PgConnection, scratch: &str) -> Result<()> {
 
 /// Drop the database at the scratch name only when verify-restore made it ([`SCRATCH_MARKER`]). Any
 /// other database there stops the check and stays as it is: an operator's database that happens to
-/// have this name is never dropped.
+/// have this name is never dropped. A check stopped between `create database` and its comment leaves
+/// an unmarked one too: PostgreSQL cannot do both in one statement.
 async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     let comment: Option<Option<String>> = sqlx::query_scalar(
         "select pg_catalog.shobj_description(oid, 'pg_database') from pg_catalog.pg_database where datname = $1",
@@ -1763,10 +1764,11 @@ async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
         None => Ok(()),
         Some(Some(marker)) if marker == SCRATCH_MARKER => force_drop(admin, scratch).await,
         Some(_) => Err(ops_error(format!(
-            "a database named {scratch:?} exists, and verify-restore did not make it (it has no \
-             comment {SCRATCH_MARKER:?}). The check stopped and left that database as it is. Rename or \
-             drop it, then run the check again. A scratch database left by a version before 1.0 has no \
-             comment either: drop it once you know it holds nothing else"
+            "a database named {scratch:?} exists without the comment {SCRATCH_MARKER:?}: \
+             verify-restore did not make it, or a check stopped while it created it. The check stopped \
+             and left that database as it is. Rename or drop it, then run the check again. A scratch \
+             database left by a version before 1.0 has no comment either: drop it once you know it \
+             holds nothing else"
         ))),
     }
 }
@@ -2322,7 +2324,9 @@ mod tests {
         let error = result.expect_err("the check must stop at a database it did not make");
         let error = error.to_string();
         assert!(
-            error.contains(&format!("{scratch:?}")) && error.contains("verify-restore did not make it"),
+            error.contains(&format!("{scratch:?}"))
+                && error.contains("verify-restore did not make it")
+                && error.contains("a check stopped while it created it"),
             "{error}"
         );
         Ok(())
