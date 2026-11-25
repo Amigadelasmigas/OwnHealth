@@ -277,7 +277,7 @@ test('a person who only views a record gets no Add connection button, and the wi
 	await expect(page.getByRole('link', { name: 'Add connection' })).toHaveCount(0);
 	// a typed address reaches the wizard, which says who may connect instead of "not shared"
 	await page.goto('/connections/add?lang=en');
-	await expect(page.getByText('Only an owner or guardian of a profile connects its records.')).toBeVisible();
+	await expect(page.getByText('You can connect records for profiles you manage.')).toBeVisible();
 	await expect(page.getByText('Not shared with you')).toHaveCount(0);
 	expect(errors).toEqual([]);
 	await ctx.close();
@@ -291,6 +291,10 @@ test('a guardian can set up connections only for unclaimed profiles', async ({ b
 		await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toHaveCount(0);
 		await expect(page.getByRole('link', { name: 'Add connection' })).toHaveCount(0);
+		await page.goto('/connections/wearables?lang=en');
+		await expect(page.getByText('You can set up wearables for profiles you manage.')).toBeVisible();
+		await page.goto('/connections/add?lang=en');
+		await expect(page.getByText('You can connect records for profiles you manage.')).toBeVisible();
 
 		// Alex has a login. Give this member a second grant on Lucía, who has yet to claim her profile.
 		const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
@@ -304,7 +308,7 @@ test('a guardian can set up connections only for unclaimed profiles', async ({ b
 		} finally {
 			await owner.close();
 		}
-		await page.reload();
+		await page.goto('/connections?lang=en');
 		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toBeVisible();
 		await page.getByRole('link', { name: 'Add connection' }).click();
 		await page.locator('label[data-vendor="healow"]').click();
