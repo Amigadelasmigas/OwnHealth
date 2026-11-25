@@ -623,6 +623,11 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     // stays (a held mail released, a profile deleted or a document moved meanwhile leaves its files
     // for later), so the copy has every one of them.
     blobs::hold_for_copy(&mut lock).await?;
+    // The accepted losses, read before the snapshot: a profile deleted after it is still in the dump,
+    // and the keyring rewrites below (its delete's and this backup's) drop its losses from the record.
+    // Only a restore adds losses, and it never runs beside a backup of the same install, so this read
+    // holds every loss of the snapshot's profiles.
+    let lost = blobs::read_restore_losses(settings)?;
     let anchored = read_anchor(&anchor_path)?;
     let mut conn = PgConnection::connect(&url).await?;
     let mut tx = conn.begin_with("begin isolation level repeatable read").await?;
@@ -719,10 +724,11 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     }
     // The dump holds no row of it, so a restore never has the same count.
     tables.remove("profile_key");
+    #[cfg(test)]
+    let _ = tests::AFTER_SNAPSHOT.try_with(|observe| observe());
     keyfile::rewrite(&mut lock, settings)
         .await
         .map_err(|e| ops_error(e.0))?;
-    let lost = blobs::read_restore_losses(settings)?;
 
     // Blobs are written before the rows that reference them commit, so every blob the snapshot can
     // see exists by now, and none of them went since (the copy lock above). Later blobs are harmless
@@ -1787,6 +1793,7 @@ mod tests {
         pub(super) static OBSERVE_PG_RESTORE: Box<dyn Fn(&str) -> Result<()> + Send>;
         pub(super) static BEFORE_CLEAR_REPAIRED: Box<dyn Fn() + Send>;
         pub(super) static BEFORE_SCRATCH_STEP: Box<dyn Fn() -> Result<()> + Send>;
+        pub(super) static AFTER_SNAPSHOT: Box<dyn Fn() + Send>;
     }
 
     async fn connect_outcome(url: &str) -> String {
@@ -2270,6 +2277,77 @@ mod tests {
             error.contains(&format!("{scratch:?}")) && error.contains("verify-restore did not make it"),
             "{error}"
         );
+        Ok(())
+    }
+
+    /// Delete `profile` through the household delete, on its own thread and runtime, for a
+    /// synchronous hook.
+    fn delete_profile_blocking(url: &str, profile: Uuid) {
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime for the delete")
+                .block_on(async {
+                    let mut conn = PgConnection::connect(&url).await.expect("connect for the delete");
+                    ownhealth_auth::household::delete_profile(&mut conn, profile)
+                        .await
+                        .expect("delete the profile");
+                    conn.close().await.expect("close the delete's connection");
+                });
+        })
+        .join()
+        .expect("the delete thread panicked");
+    }
+
+    /// A profile whose files a restore accepted as lost is deleted while a backup runs, after its
+    /// snapshot. The snapshot still holds the profile's rows, so the manifest must still list those
+    /// files as accepted omissions, or no restore of that archive can succeed.
+    #[tokio::test]
+    async fn a_profile_deleted_during_a_backup_keeps_its_accepted_losses_in_the_manifest() -> anyhow::Result<()> {
+        use ownhealth_core::{demo::seed_demo, testing::TestDb};
+
+        crate::register();
+        let live = TestDb::new().await?;
+        let dir = tempfile::tempdir()?;
+        let settings = live.settings(&dir.path().join("live"))?;
+        let store = BlobStore::for_settings(&settings)?;
+        assert!(seed_demo(&live.pool, &settings, &store, false).await?);
+        let alex: Uuid = sqlx::query_scalar("select id from profile where slug = 'alex'")
+            .fetch_one(&live.pool)
+            .await?;
+        let first = backup(&settings, &dir.path().join("first")).await?;
+        // A keyring copy without Alex's key: the restore loads his records and accepts his files as lost.
+        let mut ring = keyfile::read_for_install(&settings)?.expect("the backup wrote the keyring");
+        assert!(ring.profiles.remove(&alex).is_some());
+        let stale = dir.path().join("stale-keyring");
+        keyfile::write(&stale, &ring)?;
+        let restored_db = TestDb::empty().await?;
+        let mut restored = restored_db.settings(&dir.path().join("restored"))?;
+        restored.secrets_key = settings.secrets_key.clone();
+        restored.keyring_dir = Some(stale.clone());
+        restore_with(&restored, &first, true).await?;
+        let lost = blobs::read_restore_losses(&restored)?;
+        assert!(lost.get(&alex).is_some_and(|files| !files.is_empty()), "{lost:?}");
+
+        let url = restored_db.url.clone();
+        let second = AFTER_SNAPSHOT
+            .scope(
+                Box::new(move || delete_profile_blocking(&url, alex)),
+                backup(&restored, &dir.path().join("second")),
+            )
+            .await?;
+        let (m, _) = read_manifest(&second)?;
+        let omitted = m["blobs"]["accepted_omissions"][alex.to_string()].clone();
+        assert!(omitted.as_array().is_some_and(|files| !files.is_empty()), "{m:#}");
+
+        let target_db = TestDb::empty().await?;
+        let mut target = target_db.settings(&dir.path().join("target"))?;
+        target.secrets_key = settings.secrets_key.clone();
+        target.keyring_dir = Some(stale);
+        let report = restore_with(&target, &second, true).await?;
+        assert_eq!(report["blobs"]["missing"], json!([]), "{report:#}");
         Ok(())
     }
 
