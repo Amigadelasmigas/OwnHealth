@@ -2722,11 +2722,11 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
     as_isabella(&mut tx, &fam, "lucia").await?;
     let entries = [
         r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.1"/>"#,
-        r#"<code code="local" codeSystem="1.2.3"><translation code="86645-9" codeSystem="2.16.840.1.113883.6.1"/></code>"#,
+        r#"<code code="local" codeSystem="1.2.3"><translation code="8665-2" codeSystem="2.16.840.1.113883.6.1"/></code>"#,
         r#"<code code="44261-6" codeSystem="2.16.840.1.113883.6.1"/>"#,
         r#"<code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>"#,
         r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.96"/>"#,
-        r#"<code code="11449-6" codeSystem="2.16.840.1.113883.6.1"/>"#,
+        r#"<code code="86649-1" codeSystem="2.16.840.1.113883.6.1"/>"#,
     ]
     .map(|code| {
         format!(
@@ -2761,11 +2761,11 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
         by_loinc,
         BTreeMap::from([
             (None, json!([])),
-            (Some("11449-6"), json!(["reproductive"])),
             (Some("44261-6"), json!(["mental_health"])),
             (Some("72166-2"), json!([])),
-            (Some("86645-9"), json!(["reproductive"])),
+            (Some("8665-2"), json!(["reproductive"])),
             (Some("86647-5"), json!(["sexual_health"])),
+            (Some("86649-1"), json!(["reproductive"])),
         ])
     );
     Ok(())
@@ -3521,5 +3521,42 @@ fn round_7_trailing_whitespace_and_empty_markup_do_not_cut_a_note() -> R {
             assert_eq!(c.sections[0].not_read.len(), unread, "{rtype}: {tail:?}");
         }
     }
+    Ok(())
+}
+
+// ------------------------------------------------------ slice 21, round 10 ----
+
+/// CR10-SENSITIVE: pregnancy status and sexual orientation wait in review by their LOINC code too, in
+/// the code or a translation, when the observation declares only the generic Social History
+/// template. Smoking status keeps its path.
+#[test]
+fn round_10_pregnancy_and_sexual_orientation_codes_wait_in_review_on_a_generic_template() -> R {
+    let entry = |code: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+                 {code}<statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="ST">Synthetic answer</value></observation></entry>"#
+        )
+    };
+    for loinc in ["82810-3", "76690-7"] {
+        let plain = format!(r#"<code code="{loinc}" codeSystem="2.16.840.1.113883.6.1"/>"#);
+        let translated = format!(
+            r#"<code code="X1" codeSystem="1.2.3.4.5"><translation code="{loinc}" codeSystem="2.16.840.1.113883.6.1"/></code>"#
+        );
+        for code in [plain, translated] {
+            let c = convert(&social_history(&entry(&code)))?;
+            assert!(resources(&c, "Observation").is_empty(), "{code}");
+            assert_eq!(
+                c.sections[0].not_read,
+                ["observation 2.16.840.1.113883.10.20.22.4.38"],
+                "{code}"
+            );
+        }
+    }
+    let c = convert(&social_history(&entry(
+        r#"<code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>"#,
+    )))?;
+    assert_eq!(resources(&c, "Observation").len(), 1);
+    assert!(c.sections[0].not_read.is_empty());
     Ok(())
 }

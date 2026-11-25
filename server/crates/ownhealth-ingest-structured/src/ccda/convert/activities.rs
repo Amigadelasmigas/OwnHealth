@@ -4,8 +4,8 @@ use roxmltree::Node;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Conv, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements, has_template,
-    is_security_observation, is_true, lookup, ordered_period, path, put, status_of, templates, xml,
+    Conv, OID_LOINC, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements,
+    has_template, is_security_observation, is_true, lookup, ordered_period, path, put, status_of, templates, xml,
 };
 
 const ENCOUNTER_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.49";
@@ -20,6 +20,14 @@ const EXCLUDED_SOCIAL_OBSERVATIONS: &[&str] = &[
     "2.16.840.1.113883.10.20.15.3.8",   // Pregnancy Status
     "2.16.840.1.113883.10.20.22.4.281", // Pregnancy Intention in Next Year
     "2.16.840.1.113883.10.20.15.3.1",   // Estimated Date of Delivery
+];
+// The LOINC questions of those templates wait in review on a generic Social History template too.
+const EXCLUDED_SOCIAL_CODES: &[&str] = &[
+    "76690-7", // Sexual orientation
+    "82810-3", // Pregnancy status
+    "11449-6", // Pregnancy status (earlier code)
+    "86645-9", // Pregnancy intention in the next year
+    "11778-8", // Estimated date of delivery
 ];
 const SOCIAL_OBSERVATIONS: &[&str] = &[
     "2.16.840.1.113883.10.20.22.4.38", // Social History Observation
@@ -38,6 +46,16 @@ const SOCIAL_OBSERVATIONS: &[&str] = &[
 
 pub(super) fn is_note_activity(n: Node<'_, '_>) -> bool {
     n.has_tag_name((xml::NS, "act")) && has_template(n, &[NOTE_ACTIVITY])
+}
+
+/// Whether the code, or one of its translations, is a LOINC question of [`EXCLUDED_SOCIAL_CODES`].
+fn excluded_social_code(code: Option<Node<'_, '_>>) -> bool {
+    code.into_iter()
+        .flat_map(|c| std::iter::once(c).chain(children(c, "translation")))
+        .any(|c| {
+            attr(c, "codeSystem") == Some(OID_LOINC)
+                && attr(c, "code").is_some_and(|v| EXCLUDED_SOCIAL_CODES.contains(&v))
+        })
 }
 
 fn supported(n: Node<'_, '_>, roots: &[&str]) -> bool {
@@ -307,7 +325,7 @@ impl Conv<'_, '_> {
 
     pub(super) fn activity_observation(&mut self, obs: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         let (roots, category) = if rep.kind == Some(Section::SocialHistory) {
-            if has_template(obs, EXCLUDED_SOCIAL_OBSERVATIONS) {
+            if has_template(obs, EXCLUDED_SOCIAL_OBSERVATIONS) || excluded_social_code(child(obs, "code")) {
                 return false;
             }
             (SOCIAL_OBSERVATIONS, "social-history")
