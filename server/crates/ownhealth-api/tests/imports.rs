@@ -1345,6 +1345,88 @@ async fn a_moved_ccda_document_retracted_before_its_import_runs_writes_nothing()
     Ok(())
 }
 
+async fn finished_wearable_job_read_is_audited(kind: &str) -> R {
+    let a = app().await?;
+    let profile = a.family.profile("alex");
+    let job: i64 = sqlx::query_scalar(
+        "insert into job (kind, state, payload) values ($1, 'queued', \
+         jsonb_build_object('profile_id', $2::text)) returning id",
+    )
+    .bind(kind)
+    .bind(profile.to_string())
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let uri = format!("/jobs?ids={job}");
+    let audit = "select count(*) from audit_event where tool = 'GET /api/jobs' and action = 'read'";
+    let (status, body) = a.get("alex", &uri).await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["jobs"][0]["result"].is_null(), "{body}");
+    assert_eq!(a.count(audit).await?, 0, "polling an unfinished job");
+
+    let result = json!({"accepted": 1});
+    sqlx::query("update job set state = 'done', result = $2 where id = $1")
+        .bind(job)
+        .bind(&result)
+        .execute(&a.rt.pool)
+        .await?;
+
+    sqlx::query(
+        "update profile_grant set categories = array_remove(categories, 'read:wearables') \
+         where user_id = $1 and profile_id = $2",
+    )
+    .bind(a.family.user("sam"))
+    .bind(profile)
+    .execute(&a.rt.pool)
+    .await?;
+    let (status, body) = a.get("sam", &uri).await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["jobs"][0]["id"], job, "{body}");
+    assert!(body["jobs"][0]["result"].is_null(), "{body}");
+    assert_eq!(a.count(audit).await?, 0, "polling a withheld result");
+
+    let (status, body) = a.get("alex", &uri).await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["jobs"][0]["result"], result, "{body}");
+    let rows: Vec<(uuid::Uuid, Option<uuid::Uuid>, i32, Vec<String>)> = sqlx::query_as(
+        "select actor_id, profile_id, rows_out, resource_ids from audit_event \
+         where tool = 'GET /api/jobs' and action = 'read'",
+    )
+    .fetch_all(&a.rt.pool)
+    .await?;
+    assert_eq!(rows, [(a.family.user("alex"), Some(profile), 1, vec![job.to_string()])]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_fit() -> R {
+    finished_wearable_job_read_is_audited("import.fit").await
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_gadgetbridge() -> R {
+    finished_wearable_job_read_is_audited("import.gadgetbridge").await
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_cgm_csv() -> R {
+    finished_wearable_job_read_is_audited("import.cgm_csv").await
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_garmin_zip() -> R {
+    finished_wearable_job_read_is_audited("import.garmin_zip").await
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_strava_zip() -> R {
+    finished_wearable_job_read_is_audited("import.strava_zip").await
+}
+
+#[tokio::test]
+async fn a_finished_wearable_job_read_is_audited_for_fitbit_takeout() -> R {
+    finished_wearable_job_read_is_audited("import.fitbit_takeout").await
+}
+
 /// CR2 (round 3): a jobs read that returns a finished C-CDA import's result (what it brought into the
 /// record) writes one read audit row in the same transaction, as a DICOM import's does. A read while
 /// the job has no result yet writes none.
