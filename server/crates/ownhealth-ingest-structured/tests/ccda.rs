@@ -2575,3 +2575,49 @@ fn round_2_notes_with_a_security_entry_are_counted_in_review() -> R {
     assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
     Ok(())
 }
+
+#[test]
+fn round_2_an_encounter_with_reversed_dates_keeps_only_its_start() -> R {
+    let c = convert(&encounters(
+        r#"<entry><encounter moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+             <effectiveTime><low value="2010"/><high value="2009"/></effectiveTime>
+           </encounter></entry>"#,
+    ))?;
+    assert_eq!(resources(&c, "Encounter")[0]["period"], json!({"start": "2010"}));
+    let held = held_items(&c, "test", "enc.xml");
+    assert_eq!(held.len(), 1);
+    assert_eq!(
+        held[0]["notes"],
+        json!({"not read: encounter 2.16.840.1.113883.10.20.22.4.49 (ends before it starts)": 1})
+    );
+    Ok(())
+}
+
+#[test]
+fn round_2_an_activity_period_compares_full_instants_when_available() -> R {
+    let entries = [
+        ("202103021200+0000", "202103021100+0000"),
+        ("202103021200+0200", "202103021100+0000"),
+        ("202103020030+0200", "202103012330+0000"),
+    ]
+    .map(|(low, high)| {
+        format!(
+            r#"<entry><procedure moodCode="EVN">
+                 <code code="73761001" codeSystem="2.16.840.1.113883.6.96"/>
+                 <effectiveTime><low value="{low}"/><high value="{high}"/></effectiveTime>
+               </procedure></entry>"#
+        )
+    })
+    .concat();
+    let c = convert(&procedures(&entries))?;
+    let visits = resources(&c, "Procedure");
+    assert_eq!(visits.len(), 3);
+    assert_eq!(visits[0]["performedPeriod"], json!({"start": "2021-03-02T12:00:00Z"}));
+    assert_eq!(visits[1]["performedPeriod"]["end"], "2021-03-02T11:00:00Z");
+    assert_eq!(visits[2]["performedPeriod"]["end"], "2021-03-01T23:30:00Z");
+    assert_eq!(
+        c.sections[0].not_read,
+        ["procedure without a templateId (ends before it starts)"]
+    );
+    Ok(())
+}

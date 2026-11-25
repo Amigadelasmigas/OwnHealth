@@ -449,17 +449,23 @@ fn period(n: Option<Node<'_, '_>>) -> Option<Value> {
     (!r.is_empty()).then_some(Value::Object(r))
 }
 
-/// [`period`] of an activity. An end before the start is dropped and listed for review (the encounter
-/// mapper checks its own period the same way).
+/// An activity period with any reversed end dropped and listed for review.
 fn ordered_period(n: Option<Node<'_, '_>>, of: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
     let mut p = period(n)?;
-    let date = |key: &str| p.get(key).and_then(Value::as_str).map(String::from);
+    let date = |key: &str| p.get(key).and_then(Value::as_str);
     if let (Some(start), Some(end)) = (date("start"), date("end")) {
-        // the date parts, at the precision both have ("2010" against "2009-01-01")
-        let len = start.len().min(end.len()).min(10);
-        if end.as_bytes()[..len] < start.as_bytes()[..len]
-            && let Value::Object(m) = &mut p
-        {
+        let reversed = match (
+            chrono::DateTime::parse_from_rfc3339(start),
+            chrono::DateTime::parse_from_rfc3339(end),
+        ) {
+            (Ok(start), Ok(end)) => end < start,
+            _ => {
+                // Compare the date parts at the precision both bounds have.
+                let len = start.len().min(end.len()).min(10);
+                end.as_bytes()[..len] < start.as_bytes()[..len]
+            }
+        };
+        if reversed && let Value::Object(m) = &mut p {
             m.shift_remove("end");
             rep.not_read.push(format!("{} (ends before it starts)", describe(of)));
         }

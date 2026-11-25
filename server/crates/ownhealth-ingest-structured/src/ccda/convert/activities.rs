@@ -5,7 +5,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Conv, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements, has_template,
-    is_security_observation, is_true, lookup, ordered_period, path, period, put, status_of, templates, xml,
+    is_security_observation, is_true, lookup, ordered_period, path, put, status_of, templates, xml,
 };
 
 const ENCOUNTER_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.49";
@@ -176,7 +176,7 @@ impl Conv<'_, '_> {
         put(&mut r, "identifier", Self::identifiers(&[enc]));
         put(&mut r, "type", self.encounter_type(code).map(|c| json!([c])));
         put(&mut r, "subject", self.subject());
-        put(&mut r, "period", period(child(enc, "effectiveTime")));
+        put(&mut r, "period", ordered_period(child(enc, "effectiveTime"), enc, rep));
         let participants: Vec<_> = children(enc, "performer")
             .filter_map(|p| {
                 let individual = child(p, "assignedEntity").and_then(assigned_reference)?;
