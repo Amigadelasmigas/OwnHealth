@@ -14,7 +14,8 @@
 #
 # A provider moves from withheld to served only when its connector page, docs/connectors/<provider>.md,
 # quotes the vendor's primary terms and they show no ban on AI processing and no ban on passing the
-# data to software the person chooses. A withheld provider's page names the clause that holds it back.
+# data to software the person chooses. A withheld provider's page names the clause that holds it back,
+# and a served provider's page says whose agents it is served for.
 # The ownhealth-core providers tests check both. File exports of a person's own data are that
 # person's files; API terms do not reach them.
 version: 1
@@ -37,7 +38,8 @@ providers:
   oura: {ingest: allow, mcp: withheld, path: "Open Wearables"}
   whoop: {ingest: allow, mcp: withheld, path: "Open Wearables"}
   # Served: Polar's AccessLink licence (3.1.1) and Withings' terms (6.4) let the member pass the data
-  # to software they choose, and neither bans AI processing.
+  # to software they choose, and neither bans AI processing. Served for the member's own agent and the
+  # agents of people the member grants read:wearables (docs/connectors/polar.md, withings.md).
   polar: {ingest: allow, mcp: served, path: "Open Wearables"}
   withings: {ingest: allow, mcp: served, path: "Open Wearables"}
   # Vendor APIs we connect to ourselves. Withheld: Dexcom's data licence is shown only at registration.

@@ -2,6 +2,8 @@
 
 **MCP policy:** served. Withings readings reach MCP, the rule-pack markers and the calculators.
 
+**Served for:** the member's own agent, and the agent of a person the member gives a `read:wearables` grant (section 6.4: the member's own data, for their own needs).
+
 ## What the connector does
 
 OwnHealth reads Withings through the Open Wearables sidecar (the `wearables` Compose profile, pinned
@@ -60,5 +62,15 @@ shown at registration, and decide whether that fits your use.
 ## AI and machine learning
 
 Neither text bans AI or machine learning. Section 6.4 names an AI-based assistant that queries the
-member's data at their request as one way to share it. A household that runs OwnHealth for its own
-data falls under that section. So Withings is served.
+member's data at their request as one way to share it. So Withings is served, on this reading:
+
+- **The member's own agent.** A member connects their own Withings account and points their own
+  agent at their own profile. That is the use section 6.4 describes.
+- **Another person's agent.** A person with a grant on the member's profile that includes
+  `read:wearables` can create an MCP token for that profile, and their agent then reads the
+  readings. The grant is the member's choice, so give it only to someone whose agent the member
+  agrees may read them. Item (ii) of the 2023 terms asks for the user's express prior consent.
+- **One app for the household.** One person registers the Withings app for the whole household.
+  Section 6.4 covers a tool built for your own needs. If you run the instance for people outside your
+  household, or use the data for other purposes, the partner terms shown at registration apply
+  instead. Read them before you do that.

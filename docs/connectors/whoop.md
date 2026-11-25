@@ -47,6 +47,17 @@ Fetched: 2026-11-25 (plain HTTP)
 OwnHealth keeps the readings it pulls, to show them on the Wearables page. Read this item and decide
 whether that fits your use.
 
+Another item limits who sees the data:
+
+> Expose WHOOP Data to other users or to third parties without explicit opt-in consent from the user that provided the WHOOP Data and in accordance with the Terms;
+
+Source: <https://developer.whoop.com/api-terms-of-use/>
+
+Fetched: 2026-11-25 (plain HTTP)
+
+The Wearables page shows the readings to anyone with a grant on the member's profile that includes
+`read:wearables`. Give that grant only when the member opts in to it.
+
 ## AI and machine learning
 
 The AI item covers any "application, or system", and training is only one of its verbs. Serving WHOOP Data to an agent

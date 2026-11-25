@@ -179,6 +179,31 @@ mod tests {
         "dexcom_clarity",
     ];
 
+    /// What is wrong with an OWN_FILES list: a key that providers.yaml does not name, or one whose
+    /// `path` is a vendor API (Open Wearables, or a path that says API). Such a provider needs a page.
+    fn own_files_problems(policy: &Policy, own: &[&str]) -> Vec<String> {
+        own.iter()
+            .filter_map(|key| match policy.providers.get(*key) {
+                None => Some(format!("{key}: in OWN_FILES, but providers.yaml does not name it")),
+                Some(p) if p.path.contains("Open Wearables") || p.path.contains("API") => Some(format!(
+                    "{key}: in OWN_FILES, but it arrives through {:?}, a vendor API",
+                    p.path
+                )),
+                Some(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_own_files_list_names_only_exports_the_policy_knows() {
+        let problems = own_files_problems(policy(), &OWN_FILES);
+        assert!(problems.is_empty(), "{problems:#?}");
+        // a vendor API in the list would switch the page check off for it
+        for key in ["polar", "withings", "dexcom", "strava", "no_such_provider"] {
+            assert!(!own_files_problems(policy(), &[key]).is_empty(), "{key}");
+        }
+    }
+
     /// The US record vendors of data/connectors/connectors.yaml. Their records join the person's record,
     /// which agents read; providers.yaml does not name them, and each has a page that says `records`.
     fn record_vendors() -> Vec<String> {
@@ -219,7 +244,8 @@ mod tests {
 
     /// What a connector page lacks. Each quote (a run of `>` lines) is followed, before the next quote
     /// or heading, by `Source: <https://...>` and `Fetched: YYYY-MM-DD`. A page has at least one quote
-    /// and one `**MCP policy:**` line, and a withheld page names the clause on a `**Withheld by:**` line.
+    /// and one `**MCP policy:**` line. A withheld page names the clause on a `**Withheld by:**` line,
+    /// and a served page says whose agents read the data on a `**Served for:**` line.
     fn page_problems(name: &str, text: &str) -> Vec<String> {
         let mut out = Vec::new();
         let policy = stated(text);
@@ -235,6 +261,15 @@ mod tests {
         {
             out.push(format!(
                 "{name}: withheld, but no **Withheld by:** line names the clause"
+            ));
+        }
+        if policy == Some("served")
+            && !text
+                .lines()
+                .any(|l| l.strip_prefix("**Served for:**").is_some_and(|r| r.trim().len() >= 10))
+        {
+            out.push(format!(
+                "{name}: served, but no **Served for:** line says whose agents read the data"
             ));
         }
         let lines: Vec<&str> = text.lines().collect();
@@ -332,6 +367,94 @@ mod tests {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 
+    /// The table of docs/connectors/README.md, one row per page: `| [Name](<key>.md) | connector |
+    /// policy |`. What it gets wrong: a page with no row, a row for no page, a row whose key is in
+    /// neither file, and a policy cell that differs from providers.yaml or connectors.yaml.
+    fn index_problems(
+        policy: &Policy,
+        records: &[String],
+        pages: &BTreeMap<String, String>,
+        readme: &str,
+    ) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rows = Vec::new();
+        for line in readme.lines().filter(|l| l.starts_with("| [")) {
+            let Some(key) = line
+                .split_once("](")
+                .and_then(|(_, r)| r.split_once(".md)"))
+                .map(|(k, _)| k.to_string())
+            else {
+                out.push(format!("README row {line:?} links no page"));
+                continue;
+            };
+            let cell = line
+                .trim_end()
+                .trim_end_matches('|')
+                .rsplit('|')
+                .next()
+                .unwrap_or("")
+                .trim();
+            let want = match policy.providers.get(&key) {
+                Some(p) if p.mcp == Mcp::Served => Some("served"),
+                Some(_) => Some("withheld"),
+                None if records.contains(&key) => Some("records"),
+                None => None,
+            };
+            match want {
+                None => out.push(format!(
+                    "{key}: a README row, but it names no provider in providers.yaml and no vendor in connectors.yaml"
+                )),
+                Some(w) if w != cell => out.push(format!("{key}: the files say {w}, its row says {cell:?}")),
+                Some(_) => {}
+            }
+            if !pages.contains_key(&key) {
+                out.push(format!(
+                    "{key}: a README row, but docs/connectors/{key}.md does not exist"
+                ));
+            }
+            rows.push(key);
+        }
+        for name in pages.keys().filter(|n| !rows.contains(n)) {
+            out.push(format!("{name}: a page with no row in the README table"));
+        }
+        out
+    }
+
+    fn readme() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/connectors/README.md");
+        std::fs::read_to_string(path).unwrap_or_default()
+    }
+
+    #[test]
+    fn the_index_table_states_each_pages_policy() {
+        let problems = index_problems(policy(), &record_vendors(), &pages(), &readme());
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn a_wrong_index_row_is_refused() {
+        let served = parse("version: 1\nproviders:\n  acme: {ingest: allow, mcp: served, path: x}\n").expect("served");
+        let records = ["epic".to_string()];
+        let pages = BTreeMap::from([("acme".to_string(), String::new()), ("epic".to_string(), String::new())]);
+        let table = "| Vendor | Connector | MCP policy |\n|---|---|---|\n| [Acme](acme.md) | Open Wearables | served |\n| [Epic](epic.md) | SMART on FHIR | records |\n";
+        let has = |readme: &str, what: &str| {
+            index_problems(&served, &records, &pages, readme)
+                .iter()
+                .any(|p| p.contains(what))
+        };
+        assert!(index_problems(&served, &records, &pages, table).is_empty());
+        // a policy cell that differs from the files
+        assert!(has(&table.replace("| served |", "| withheld |"), "its row says"));
+        assert!(has(&table.replace("| records |", "| served |"), "its row says"));
+        // a page with no row, and a row for no page or no provider
+        assert!(has(
+            &table.replace("| [Epic](epic.md) | SMART on FHIR | records |\n", ""),
+            "no row"
+        ));
+        let extra = format!("{table}| [Other](other.md) | API | withheld |\n");
+        assert!(has(&extra, "other"));
+    }
+
     #[test]
     fn a_served_vendor_with_no_page_or_a_page_without_its_quote_is_refused() {
         let file = |mcp: &str| {
@@ -343,12 +466,24 @@ mod tests {
         let withheld = file("withheld").expect("withheld");
         let none: &[String] = &[];
         let quote = "> You may pass the data to software the user chooses.\n\nSource: <https://acme.example/terms>\n";
-        let good = format!("# Acme\n\n**MCP policy:** served.\n\n{quote}Fetched: 2026-11-25 (plain HTTP)\n");
+        let served_for = "**Served for:** the member's own agent, and agents of people they grant read:wearables.\n\n";
+        let good =
+            format!("# Acme\n\n**MCP policy:** served.\n\n{served_for}{quote}Fetched: 2026-11-25 (plain HTTP)\n");
         let page = |text: &str| BTreeMap::from([("acme".to_string(), text.to_string())]);
         let has = |problems: Vec<String>, what: &str| problems.iter().any(|p| p.contains(what));
         assert!(policy_problems(&served, none, &page(&good)).is_empty());
         // the control: no page at all
         assert!(has(policy_problems(&served, none, &BTreeMap::new()), "does not exist"));
+        // a served page says whose agents read the data
+        let no_served_for = good.replace(served_for, "");
+        assert!(has(policy_problems(&served, none, &page(&no_served_for)), "Served for"));
+        let short = good.replace(served_for, "**Served for:** all\n\n");
+        assert!(has(policy_problems(&served, none, &page(&short)), "Served for"));
+        // a source that is not https, or not in angle brackets, is no source
+        let http = good.replace("<https://acme", "<http://acme");
+        assert!(has(policy_problems(&served, none, &page(&http)), "no Source"));
+        let bare = good.replace("<https://acme.example/terms>", "acme.example/terms");
+        assert!(has(policy_problems(&served, none, &page(&bare)), "no Source"));
         // a page with no quote, an empty quote, or a quote without its source or date
         let no_quote = "# Acme\n\n**MCP policy:** served\n\nThe terms allow it.\n";
         assert!(has(policy_problems(&served, none, &page(no_quote)), "no quote"));

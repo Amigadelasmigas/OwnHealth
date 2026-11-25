@@ -14,7 +14,9 @@ the text, and the weekly link check (`scripts/cite-links.sh`) reports a link tha
 Every page has one **MCP policy** line:
 
 - **served**: MCP, the rule-pack markers and the calculators read this vendor's data. The quoted
-  terms show no ban on AI use, and no ban on passing the data to software the person chooses.
+  terms show no ban on AI use, and no ban on passing the data to software the person chooses. A
+  **Served for** line says whose agents the reading covers: a person with a `read:wearables` grant on
+  a profile can point their own agent at it, so the page says what the terms ask of that grant.
 - **withheld**: the data shows on the Wearables page and through its REST routes only. MCP, the
   rule-pack markers and the calculators leave it out, and an MCP answer counts the days it left out
   in `withheld.vendor_terms`. The page names the clause that keeps it withheld.
@@ -24,8 +26,9 @@ Every page has one **MCP policy** line:
 
 `data/connectors/providers.yaml` holds the policy for wearable providers. A provider moves from
 withheld to served only when its page quotes the vendor's terms and they allow it. A test in
-`providers.rs` checks three things. Every served provider and every record vendor has a page here.
-Each page states the same policy as the files. Each quote has its link and date.
+`providers.rs` checks four things. Every served provider and every record vendor has a page here.
+Each page, and its row in the table below, states the same policy as the files. A withheld page has
+a **Withheld by** line and a served page a **Served for** line. Each quote has its link and date.
 
 Some sources carry the person's own data: an Apple Health export, a Garmin or Strava account export,
 a LibreView or Dexcom Clarity CSV, Gadgetbridge and the person's own Nightscout. These are that
