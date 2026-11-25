@@ -63,6 +63,8 @@ struct Fake {
     repeat_cursor: bool,
     /// Time-series requests for this provider answer 200 with a body that is not a page.
     broken_for: Option<String>,
+    /// Time-series requests for this provider answer 503.
+    unavailable_for: Option<String>,
     /// SQL run once, keyed by route ("put" at the first disable PUT, "scores" at the first score read).
     hooks: HashMap<&'static str, (PgPool, String)>,
     /// Whether each hook's SQL succeeded.
@@ -164,7 +166,8 @@ async fn connections(State(s): State<Shared>, Path(user): Path<Uuid>) -> Json<Ve
             .iter()
             .map(|v| {
                 json!({"user_id": user, "provider": v[0], "status": v[1], "id": Uuid::nil(),
-            "last_synced_at": s.t, "created_at": s.t, "updated_at": s.t})
+            "last_synced_at": v.get(2).cloned().unwrap_or_else(|| json!(s.t)),
+            "created_at": s.t, "updated_at": s.t})
             })
             .collect(),
     )
@@ -222,6 +225,12 @@ async fn series(State(s): State<Shared>, Query(q): Query<Vec<(String, String)>>)
     }
     if s.broken_for.as_deref().is_some_and(|p| one(&q, "provider") == Some(p)) {
         return "not a page".into_response();
+    }
+    if s.unavailable_for
+        .as_deref()
+        .is_some_and(|p| one(&q, "provider") == Some(p))
+    {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     // Cursors carry characters a query must escape.
     let offset = one(&q, "cursor").map_or(0, |c| {
@@ -337,6 +346,7 @@ impl Env {
             malformed: None,
             repeat_cursor: false,
             broken_for: None,
+            unavailable_for: None,
             hooks: HashMap::new(),
             hooked: vec![],
             asked: vec![],
@@ -1262,4 +1272,927 @@ fn a_base_address_that_is_not_an_http_origin_is_an_error() {
             .as_str(),
         "http://ow-app:8000/api/v1/users/u"
     );
+}
+
+/// Give scripts the same health/run updates as a poll completing on the injected clock.
+async fn record_gap_test_run(env: &Env, source: Uuid, now: DateTime<Utc>, failed: bool) -> anyhow::Result<()> {
+    let mut tx = env.ctx.pool.begin().await?;
+    let run = sources::begin_run(&mut tx, source, "poll", None).await?;
+    let ok = RunOutcome::default();
+    sources::finish_run(&mut tx, run, if failed { Err("vendor unavailable") } else { Ok(&ok) }).await?;
+    sqlx::query("update source_run set started_at = $2, finished_at = $2 where id = $1")
+        .bind(run)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "update source set last_run_at = $2,
+         last_error_at = case when $3 then $2 else last_error_at end,
+         last_success_at = case when $3 then last_success_at else $2 end where id = $1",
+    )
+    .bind(source)
+    .bind(now)
+    .bind(failed)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thirty_days_of_sync_gaps_open_once_and_close_on_recovery() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let ow = env.seed_source().await?;
+    gaps::register();
+    let registered = &env.ctx;
+    let start = instant("2026-01-01T00:00:00Z");
+    let household: Uuid = sqlx::query_scalar("select household_id from source where id = $1")
+        .bind(ow)
+        .fetch_one(&registered.pool)
+        .await?;
+    let mut conn = registered.pool.acquire().await?;
+    let dexcom = sources::create_source(
+        &mut conn,
+        &NewSource {
+            profile_id: Some(env.profile),
+            poll_seconds: Some(900),
+            ..NewSource::new(household, "dexcom", "Dexcom")
+        },
+    )
+    .await?;
+    drop(conn);
+
+    let mut observed = BTreeMap::new();
+    let mut missed = Vec::new();
+    let mut false_alerts = Vec::new();
+    for tick in 0..30 * 24 * 4 {
+        let now = start + Duration::minutes(tick * 15);
+        let hour = tick / 4;
+        let failed = (250 * 4..251 * 4).contains(&tick) || tick == 300 * 4;
+        let dexcom_failed = (360 * 4..361 * 4).contains(&tick);
+        if tick == 300 * 4 + 1 {
+            // One scheduler pass queues the retry of the poll that failed and then checks for gaps,
+            // so the check runs before the retry can end. One failed poll is not a gap.
+            sources::scheduler_tick_at(registered, now + Duration::seconds(10)).await?;
+            let open: i64 =
+                sqlx::query_scalar("select count(*) from review_item where kind = 'source_gap' and status = 'open'")
+                    .fetch_one(&registered.pool)
+                    .await?;
+            assert_eq!(open, 0, "one failed poll opened an alert before its retry ran");
+        }
+        // The sidecar stays up when a vendor stops sending data or needs a new sign-in.
+        if !failed && (tick % 48 == 0 || [126, 127, 198, 251].contains(&hour) && tick % 4 == 0 || tick == 300 * 4 + 1) {
+            let (polar, synced) = match hour {
+                48..72 => ("active", start + Duration::hours(48)),
+                120..126 => ("expired", start + Duration::hours(119)),
+                126 => ("active", start + Duration::hours(105)),
+                _ => ("active", now),
+            };
+            let whoop = if (192..198).contains(&hour) {
+                "revoked"
+            } else {
+                "active"
+            };
+            {
+                let mut fake = env.fake();
+                fake.connections = json!([["polar", polar, synced], ["whoop", whoop, now]]);
+                fake.rows.clear();
+                fake.scores.clear();
+            }
+            poll(registered, &env.base, ow).await?;
+        }
+        if failed || [0, 251 * 4, 300 * 4 + 1].contains(&tick) {
+            record_gap_test_run(&env, ow, now, failed).await?;
+        }
+        if tick % 4 == 0 || (360 * 4..361 * 4).contains(&tick) {
+            // Only failed Dexcom pulls are checked until its connector reports vendor freshness (slice 38).
+            record_gap_test_run(&env, dexcom, now, dexcom_failed).await?;
+        }
+
+        let expected = if (68 * 4 + 1..72 * 4).contains(&tick)
+            || (120..127).contains(&hour)
+            || (192..198).contains(&hour)
+            || (250 * 4 + 2..251 * 4).contains(&tick)
+        {
+            Some(ow)
+        } else if (360 * 4 + 2..361 * 4).contains(&tick) {
+            Some(dexcom)
+        } else {
+            None
+        };
+        if tick == 68 * 4 + 1 {
+            tokio::try_join!(
+                sources::scheduler_tick_at(registered, now),
+                sources::scheduler_tick_at(registered, now),
+            )?;
+            // A concurrent scheduler may have captured its clock before the alert was due.
+            sources::scheduler_tick_at(registered, now - Duration::minutes(15)).await?;
+        } else {
+            sources::scheduler_tick_at(registered, now).await?;
+        }
+        let rows: Vec<(Uuid, Uuid, Value)> =
+            sqlx::query_as("select ref_id, id, payload from review_item where kind = 'source_gap' and status = 'open'")
+                .fetch_all(&registered.pool)
+                .await?;
+        if let Some(source) = expected
+            && !rows.iter().any(|(id, _, _)| *id == source)
+        {
+            missed.push((hour, tick % 4 * 15));
+        }
+        if rows.len() > usize::from(expected.is_some()) || rows.iter().any(|(id, _, _)| Some(*id) != expected) {
+            false_alerts.push((hour, tick % 4 * 15));
+        }
+        for (source, id, payload) in rows {
+            let expected_name = match hour {
+                192..198 => "WHOOP",
+                250 => "Open Wearables",
+                360 => "Dexcom",
+                _ => "Polar",
+            };
+            // A sidecar that does not answer needs the service checked, not the accounts reconnected.
+            let advice = if expected_name == "Open Wearables" {
+                [("en", "is running"), ("es", "está en marcha")]
+            } else {
+                [("en", "reconnect"), ("es", "volver a conectar")]
+            };
+            for (lang, words) in advice {
+                let text = payload["message"][lang].as_str().unwrap_or_default();
+                assert!(text.contains(expected_name), "{source} at {now}: {text}");
+                assert!(text.contains(words), "{text}");
+            }
+            observed.entry(id).or_insert(tick);
+        }
+    }
+    assert!(
+        missed.is_empty(),
+        "{} missed ticks, first {:?}",
+        missed.len(),
+        missed.first()
+    );
+    assert!(
+        false_alerts.is_empty(),
+        "{} false ticks, first {:?}",
+        false_alerts.len(),
+        false_alerts.first()
+    );
+    let mut opened: Vec<_> = observed.into_values().collect();
+    opened.sort();
+    assert_eq!(opened, [68 * 4 + 1, 120 * 4, 192 * 4, 250 * 4 + 2, 360 * 4 + 2]);
+    let decided: Vec<DateTime<Utc>> = sqlx::query_scalar(
+        "select decided_at from review_item where kind = 'source_gap' and status = 'dismissed' order by decided_at",
+    )
+    .fetch_all(&registered.pool)
+    .await?;
+    assert_eq!(
+        decided,
+        [72, 127, 198, 251, 361].map(|hour| start + Duration::hours(hour))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_source_gap_ends_when_a_device_is_disabled_or_deleted() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    env.fake().connections = json!([["polar", "expired"]]);
+    poll(&env.ctx, &env.base, id).await?;
+
+    let open = || async {
+        sqlx::query_scalar::<_, Uuid>(
+            "select id from review_item where kind = 'source_gap' and ref_id = $1 and status = 'open'",
+        )
+        .bind(id)
+        .fetch_one(&env.ctx.pool)
+        .await
+    };
+    sources::scheduler_tick(&env.ctx).await?;
+    let first = open().await?;
+    let mut conn = env.ctx.pool.acquire().await?;
+    let user: Uuid = sqlx::query_scalar(
+        "select u.id from app_user u join source s on s.household_id = u.household_id where s.id = $1 limit 1",
+    )
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    ownhealth_core::review::dismiss(&mut conn, first, user, Some("acknowledged")).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(
+        matches!(open().await, Err(sqlx::Error::RowNotFound)),
+        "the gap is still in progress"
+    );
+    for enabled in [false, true] {
+        sources::update_source(
+            &mut conn,
+            id,
+            &sources::SourcePatch {
+                enabled: Some(enabled),
+                ..sources::SourcePatch::default()
+            },
+        )
+        .await?;
+        sources::scheduler_tick(&env.ctx).await?;
+        if !enabled {
+            assert!(matches!(open().await, Err(sqlx::Error::RowNotFound)));
+        }
+    }
+    assert_ne!(first, open().await?);
+    assert!(sources::delete_source(&mut conn, id).await?);
+    assert!(matches!(open().await, Err(sqlx::Error::RowNotFound)));
+    let unavailable: i64 = sqlx::query_scalar(
+        "select count(*) from review_item where ref_id = $1 and status = 'dismissed'
+         and (decision_reason = 'source_unavailable' or (decision_reason = 'acknowledged' and payload ? 'ended_at'))",
+    )
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    assert_eq!(unavailable, 2);
+    Ok(())
+}
+
+async fn open_gaps(env: &Env, source: Uuid) -> anyhow::Result<Vec<Uuid>> {
+    Ok(sqlx::query_scalar(
+        "select id from review_item where kind = 'source_gap' and ref_id = $1 and status = 'open' order by created_at",
+    )
+    .bind(source)
+    .fetch_all(&env.ctx.pool)
+    .await?)
+}
+
+/// The scheduler queues the retry of a failed poll and checks for gaps in the same pass, so the check
+/// always runs before that retry ends. A single failed poll must not open an alert.
+#[tokio::test]
+async fn one_failed_poll_opens_no_alert_before_its_retry() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let ow = env.seed_source().await?;
+    gaps::register();
+    let t0 = instant("2026-01-01T00:00:00Z");
+    record_gap_test_run(&env, ow, t0, false).await?;
+    sources::scheduler_tick_at(&env.ctx, t0).await?;
+    // the next poll starts 15 min later and fails after 2 s
+    let start = t0 + Duration::minutes(15);
+    record_gap_test_run(&env, ow, start, true).await?;
+    sqlx::query("update source_run set finished_at = $2 where source_id = $1 and started_at = $3")
+        .bind(ow)
+        .bind(start + Duration::seconds(2))
+        .bind(start)
+        .execute(&env.ctx.pool)
+        .await?;
+    // the first 30 s tick after last_run_at + 900 s: it queues the retry, then checks for gaps
+    let check = start + Duration::minutes(15) + Duration::seconds(10);
+    sources::scheduler_tick_at(&env.ctx, check).await?;
+    assert!(open_gaps(&env, ow).await?.is_empty(), "one failed poll is not a gap");
+    // the retry fails too: now the pull has failed for longer than the interval
+    record_gap_test_run(&env, ow, check, true).await?;
+    sources::scheduler_tick_at(&env.ctx, check + Duration::seconds(30)).await?;
+    assert_eq!(open_gaps(&env, ow).await?.len(), 1, "a failed retry confirms the gap");
+    Ok(())
+}
+
+/// A source delete that waits on a gap check holding the source row: the alert that check filed must
+/// not stay open for a source that no longer exists.
+#[tokio::test]
+async fn a_delete_that_waits_on_a_gap_check_closes_the_alert_it_filed() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let id = env.seed_source().await?;
+    let household: Uuid = sqlx::query_scalar("select household_id from source where id = $1")
+        .bind(id)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    // what the gap check does: lock the source row, then file the alert
+    let mut check = env.ctx.pool.begin().await?;
+    sqlx::query("select 1 from source where id = $1 for no key update")
+        .bind(id)
+        .execute(&mut *check)
+        .await?;
+    let pool = env.ctx.pool.clone();
+    let delete = tokio::spawn(async move {
+        let mut c = pool.acquire().await?;
+        anyhow::Ok(sources::delete_source(&mut c, id).await?)
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    assert!(!delete.is_finished(), "the delete waits on the check's row lock");
+    sqlx::query(
+        "insert into review_item (household_id, profile_id, kind, ref_table, ref_id, payload) \
+         values ($1, $2, 'source_gap', 'source', $3, '{}')",
+    )
+    .bind(household)
+    .bind(env.profile)
+    .bind(id)
+    .execute(&mut *check)
+    .await?;
+    check.commit().await?;
+    assert!(delete.await??);
+    assert!(
+        open_gaps(&env, id).await?.is_empty(),
+        "an open alert outlived its deleted source"
+    );
+    Ok(())
+}
+
+/// Open Wearables may report an active connection without a sync time. The last known one is kept,
+/// so the staleness of a vendor keeps counting from it.
+#[tokio::test]
+async fn an_active_connection_without_a_sync_time_keeps_the_last_known_one() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let id = env.seed_source().await?;
+    let synced = instant("2026-01-01T00:00:00Z");
+    for reported in [json!(synced), Value::Null] {
+        env.fake().connections = json!([["polar", "active", reported]]);
+        poll(&env.ctx, &env.base, id).await?;
+    }
+    let kept: Value =
+        sqlx::query_scalar("select cursor #> '{connections,polar,last_synced_at}' from source where id = $1")
+            .bind(id)
+            .fetch_one(&env.ctx.pool)
+            .await?;
+    assert_eq!(serde_json::from_value::<Option<DateTime<Utc>>>(kept)?, Some(synced));
+    Ok(())
+}
+
+/// A gap that ends because the vendor syncs again closes as recovered; one that ends because the
+/// person switched the device off closes as unavailable.
+#[tokio::test]
+async fn an_alert_closes_with_the_reason_its_gap_ended() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let reason = |item: Uuid| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query_as::<_, (String, Option<String>)>(
+                "select status, decision_reason from review_item where id = $1",
+            )
+            .bind(item)
+            .fetch_one(&pool)
+            .await
+        }
+    };
+    env.fake().connections = json!([["polar", "expired"]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [first] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    env.fake().connections = json!([["polar", "active"]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(
+        reason(first).await?,
+        ("dismissed".into(), Some("sync_recovered".into()))
+    );
+
+    env.fake().connections = json!([["polar", "expired"]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [second] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    let mut conn = env.ctx.pool.acquire().await?;
+    let off = sources::SourcePatch {
+        enabled: Some(false),
+        ..sources::SourcePatch::default()
+    };
+    sources::update_source(&mut conn, id, &off).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(
+        reason(second).await?,
+        ("dismissed".into(), Some("source_unavailable".into()))
+    );
+    Ok(())
+}
+
+/// OwnHealth opens and closes a sync alert itself, so a rejected one cannot be reopened by hand.
+#[tokio::test]
+async fn a_rejected_sync_alert_cannot_be_reopened() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    env.fake().connections = json!([["polar", "expired"]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    let mut conn = env.ctx.pool.acquire().await?;
+    let user: Uuid = sqlx::query_scalar(
+        "select u.id from app_user u join source s on s.household_id = u.household_id where s.id = $1 limit 1",
+    )
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    ownhealth_core::review::reject(&mut conn, item, user, "not mine").await?;
+    let refused = ownhealth_core::review::reopen(&mut conn, item, user).await;
+    assert!(refused.is_err(), "a sync alert was reopened by hand");
+    let status: String = sqlx::query_scalar("select status from review_item where id = $1")
+        .bind(item)
+        .fetch_one(&mut *conn)
+        .await?;
+    assert_eq!(status, "rejected");
+    Ok(())
+}
+
+/// Open Wearables can drop a vendor from its connection list, as when the connection is deleted in the
+/// sidecar. No data flows for that vendor any more, so it has not recovered: its alert stays open.
+#[tokio::test]
+async fn a_vendor_that_drops_out_of_the_report_keeps_its_alert() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    env.fake().connections = json!([["polar", "active", now - Duration::hours(22)], ["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    env.fake().connections = json!([["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(
+        open_gaps(&env, id).await?,
+        [item],
+        "a vendor missing from the report has not recovered"
+    );
+    Ok(())
+}
+
+/// A connection Open Wearables reports active but never synced counts its staleness from the first poll
+/// that saw it, so a vendor that never sends data still raises an alert once its window passes.
+#[tokio::test]
+async fn a_connection_that_never_synced_alerts_once_its_window_passes() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let seen = Utc::now();
+    env.fake().connections = json!([["polar", "active", null]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick_at(&env.ctx, seen + Duration::hours(19)).await?;
+    assert!(open_gaps(&env, id).await?.is_empty(), "inside the 20 h Polar window");
+    sources::scheduler_tick_at(&env.ctx, seen + Duration::hours(21)).await?;
+    assert_eq!(
+        open_gaps(&env, id).await?.len(),
+        1,
+        "a vendor that never synced is a gap after its window"
+    );
+    Ok(())
+}
+
+/// A later poll keeps the time a never-synced connection was first seen, so the clock does not restart
+/// at every poll.
+#[tokio::test]
+async fn a_never_synced_connection_keeps_its_first_seen_time_across_polls() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    env.fake().connections = json!([["polar", "active", null]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sqlx::query(
+        "update source set cursor = jsonb_set(cursor, '{connections,polar,seen_since}', to_jsonb($2::timestamptz)) where id = $1",
+    )
+    .bind(id)
+    .bind(Utc::now() - Duration::hours(21))
+    .execute(&env.ctx.pool)
+    .await?;
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(
+        open_gaps(&env, id).await?.len(),
+        1,
+        "a later poll restarted the never-synced clock"
+    );
+    Ok(())
+}
+
+/// A vendor removed in Open Wearables while it still syncs has no gap to report: it is not kept, and no
+/// alert opens once its window would have passed.
+#[tokio::test]
+async fn a_healthy_vendor_removed_in_open_wearables_raises_no_alert() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    env.fake().connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    env.fake().connections = json!([["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    for later in [1, 21, 30] {
+        sources::scheduler_tick_at(&env.ctx, now + Duration::hours(later)).await?;
+        assert!(open_gaps(&env, id).await?.is_empty(), "alert at +{later} h");
+    }
+    let kept: Option<Value> = sqlx::query_scalar("select cursor #> '{connections,polar}' from source where id = $1")
+        .bind(id)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert_eq!(kept, None, "a removed healthy vendor stays in the cursor");
+    Ok(())
+}
+
+/// Open Wearables can report a recent sync for a vendor whose data reads fail on every poll, while the
+/// other vendors sync. That vendor stalls, so it alerts once its reads have failed for its window. A
+/// WHOOP success does not clear Polar's failures, and the alert closes when Polar reads again.
+#[tokio::test]
+async fn a_vendor_whose_reads_keep_failing_alerts_while_the_others_sync() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        let now = Utc::now();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        fake.unavailable_for = Some("polar".into());
+    }
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(env.mark(id, "polar").await?, None, "polar read nothing");
+    assert!(env.mark(id, "whoop").await?.is_some(), "whoop synced");
+    // the first failure was 21 h ago; polls since have failed too
+    sqlx::query(
+        "update source set cursor = jsonb_set(cursor, '{connections,polar,failing_since}', to_jsonb($2::timestamptz)) where id = $1",
+    )
+    .bind(id)
+    .bind(Utc::now() - Duration::hours(21))
+    .execute(&env.ctx.pool)
+    .await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    let message: String = sqlx::query_scalar("select payload #>> '{message,en}' from review_item where id = $1")
+        .bind(item)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert!(message.contains("Polar") && !message.contains("WHOOP"), "{message}");
+
+    env.fake().unavailable_for = None;
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(open_gaps(&env, id).await?.is_empty(), "polar reads again");
+    let reason: Option<String> = sqlx::query_scalar("select decision_reason from review_item where id = $1")
+        .bind(item)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert_eq!(reason.as_deref(), Some("sync_recovered"));
+    Ok(())
+}
+
+/// A failed re-read of days a vendor already stored is not stalled progress: the vendor still stores its
+/// newer days, so its failure clock is cleared.
+#[tokio::test]
+async fn a_failing_re_read_of_stored_days_is_not_a_stalled_vendor() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    env.fake().connections = json!([["polar", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    let stored = env.mark(id, "polar").await?.expect("polar stored its days");
+    sqlx::query(
+        "update source set cursor = jsonb_set(cursor, '{connections,polar,failing_since}', to_jsonb($2::timestamptz)) where id = $1",
+    )
+    .bind(id)
+    .bind(now - Duration::hours(21))
+    .execute(&env.ctx.pool)
+    .await?;
+    // only the seven days before the cursor fail
+    env.fake().fail_before = Some(stored);
+    poll(&env.ctx, &env.base, id).await?;
+    assert!(env.mark(id, "polar").await? > Some(stored), "polar moved on");
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(
+        open_gaps(&env, id).await?.is_empty(),
+        "a re-read failure opened an alert"
+    );
+    Ok(())
+}
+
+/// Scheduler passes can reach the source row out of order: a pass that read its clock earlier can get
+/// the row after a later pass. The earlier evaluation must not close an alert the later one kept open.
+#[tokio::test]
+async fn an_older_scheduler_pass_cannot_close_an_alert_a_newer_pass_kept() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(21)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    // ten more hours arrive, then sync stops again: a gap again from +30 h
+    synced(a + Duration::hours(10)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(31)).await?;
+    // a pass that read its clock at +29 h gets the row only now; at +29 h the sync was 19 h old
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(29)).await?;
+    assert_eq!(open_gaps(&env, id).await?, [item], "an older pass closed the alert");
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(32)).await?;
+    assert_eq!(open_gaps(&env, id).await?, [item], "the gap opened a second item");
+    Ok(())
+}
+
+async fn alert_reason(env: &Env, item: Uuid) -> anyhow::Result<(String, Option<String>, bool)> {
+    Ok(
+        sqlx::query_as("select status, decision_reason, payload ? 'ended_at' from review_item where id = $1")
+            .bind(item)
+            .fetch_one(&env.ctx.pool)
+            .await?,
+    )
+}
+
+/// A manager switches a source off and on again before the next gap check. Switching it off ended the
+/// episode: an open alert does not survive it, an acknowledged one keeps its decision and does not hide
+/// the next gap, and switching back on opens a new alert only while a gap still qualifies.
+#[tokio::test]
+async fn switching_a_source_off_and_on_before_a_gap_check_ends_the_episode() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let mut conn = env.ctx.pool.acquire().await?;
+    let switch = |enabled: bool| sources::SourcePatch {
+        enabled: Some(enabled),
+        ..sources::SourcePatch::default()
+    };
+    let user: Uuid = sqlx::query_scalar(
+        "select u.id from app_user u join source s on s.household_id = u.household_id where s.id = $1 limit 1",
+    )
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    env.fake().connections = json!([["polar", "expired"]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [first] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    for enabled in [false, true] {
+        sources::update_source(&mut conn, id, &switch(enabled)).await?;
+    }
+    assert_eq!(
+        alert_reason(&env, first).await?,
+        ("dismissed".into(), Some("source_unavailable".into()), true),
+        "an open alert survived the switch-off"
+    );
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [second] = open[..] else {
+        anyhow::bail!("the gap still qualifies: one new alert expected, got {open:?}");
+    };
+    assert_ne!(first, second);
+
+    ownhealth_core::review::dismiss(&mut conn, second, user, Some("acknowledged")).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(open_gaps(&env, id).await?.is_empty(), "the gap is still in progress");
+    for enabled in [false, true] {
+        sources::update_source(&mut conn, id, &switch(enabled)).await?;
+    }
+    assert_eq!(
+        alert_reason(&env, second).await?,
+        ("dismissed".into(), Some("acknowledged".into()), true),
+        "the switch-off did not end the acknowledged episode"
+    );
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [third] = open[..] else {
+        anyhow::bail!("an acknowledged alert hid the next gap: {open:?}");
+    };
+
+    sources::update_source(&mut conn, id, &switch(false)).await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()]]);
+    sources::update_source(&mut conn, id, &switch(true)).await?;
+    assert_eq!(
+        alert_reason(&env, third).await?,
+        ("dismissed".into(), Some("source_unavailable".into()), true)
+    );
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(
+        open_gaps(&env, id).await?.is_empty(),
+        "no gap qualifies after the switch-on"
+    );
+    Ok(())
+}
+
+/// A poll can commit a new report while a gap check waits for the source row. The check reads its clock
+/// once it holds the row, so the age it judges belongs to the report it reads.
+#[tokio::test]
+async fn a_gap_check_reads_its_clock_once_it_holds_the_source() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let a = instant("2026-01-01T00:00:00Z");
+    let report = |synced: DateTime<Utc>| json!({"connections": {"polar": {"status": "active", "last_synced_at": synced, "observed_at": synced}}});
+    sqlx::query("update source set cursor = $2 where id = $1")
+        .bind(id)
+        .bind(report(a - Duration::hours(10)))
+        .execute(&env.ctx.pool)
+        .await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(11)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected");
+    };
+    // The check starts at 19:59:59. A poll holding the row commits at 20:00:01 a report whose last sync
+    // was at 00:00: Polar is then 20 h and 1 s behind, past its window.
+    let clock = Mutex::new(a + Duration::hours(20) - Duration::seconds(1));
+    let mut poller = env.ctx.pool.begin().await?;
+    sqlx::query("select 1 from source where id = $1 for update")
+        .bind(id)
+        .execute(&mut *poller)
+        .await?;
+    let read = || *clock.lock().expect("clock");
+    let check = sources::scheduler_tick_with_clock(&env.ctx, &read);
+    let commit = async {
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        sqlx::query("update source set cursor = $2 where id = $1")
+            .bind(id)
+            .bind(report(a))
+            .execute(&mut *poller)
+            .await?;
+        *clock.lock().expect("clock") = a + Duration::hours(20) + Duration::seconds(1);
+        poller.commit().await?;
+        anyhow::Ok(())
+    };
+    let (checked, polled) = tokio::join!(check, commit);
+    checked?;
+    polled?;
+    assert_eq!(
+        open_gaps(&env, id).await?,
+        [item],
+        "the check judged the new report by the clock it read before waiting"
+    );
+    Ok(())
+}
+
+/// Begin a poll run, poll, and finish the run as the poll job does, dated `at`.
+async fn record_poll(env: &Env, source: Uuid, at: DateTime<Utc>) -> anyhow::Result<String> {
+    let run = sources::begin_run(&mut *env.ctx.pool.acquire().await?, source, "poll", None).await?;
+    let result = poll(&env.ctx, &env.base, source).await;
+    let mut conn = env.ctx.pool.acquire().await?;
+    match &result {
+        Ok(o) => sources::finish_run(&mut conn, run, Ok(o)).await?,
+        Err(e) => sources::finish_run(&mut conn, run, Err(&e.text())).await?,
+    }
+    let status: String =
+        sqlx::query_scalar("update source_run set started_at = $2, finished_at = $2 where id = $1 returning status")
+            .bind(run)
+            .bind(at)
+            .fetch_one(&mut *conn)
+            .await?;
+    sqlx::query(
+        "update source set last_run_at = $2, \
+         last_success_at = case when $3 then $2 else last_success_at end where id = $1",
+    )
+    .bind(source)
+    .bind(at)
+    .bind(status != "error")
+    .execute(&mut *conn)
+    .await?;
+    Ok(status)
+}
+
+/// Open Wearables answers, but Polar's reads fail and WHOOP sends only a row that does not read: the run
+/// is an error, since nothing arrived. The sidecar responded, so that is no outage of the service; Polar
+/// stays on its own clock. Once the sidecar itself stops answering, the outage alert opens.
+#[tokio::test]
+async fn vendor_read_failures_are_not_an_open_wearables_outage() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let t0 = Utc::now();
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", t0], ["whoop", "active", t0]]);
+        fake.unavailable_for = Some("polar".into());
+        let mut unreadable = sample("raw", "whoop", "workout_effort_score", 0., "score", fake.t);
+        unreadable["value"] = json!("n/a");
+        fake.rows = vec![unreadable];
+        fake.scores.clear();
+    }
+    for minutes in [0, 15, 30] {
+        let status = record_poll(&env, id, t0 + Duration::minutes(minutes)).await?;
+        assert_eq!(status, "error", "nothing arrived");
+    }
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::minutes(31)).await?;
+    assert!(
+        open_gaps(&env, id).await?.is_empty(),
+        "a vendor's read failures raised the outage alert"
+    );
+
+    // positive control: the sidecar refuses every request, so the connection report fails too
+    env.fake().key = token_hex(20);
+    for minutes in [45, 60] {
+        record_poll(&env, id, t0 + Duration::minutes(minutes)).await?;
+    }
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::minutes(61)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one outage alert expected, got {open:?}");
+    };
+    let message: String = sqlx::query_scalar("select payload #>> '{message,en}' from review_item where id = $1")
+        .bind(item)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert!(message.contains("is running"), "{message}");
+    Ok(())
+}
+
+/// While Open Wearables does not answer, no new report says anything about a vendor. The last report
+/// only ages, so the alert keeps asking for the service to be checked, even past a vendor's window, and
+/// closes once the service answers with fresh syncs.
+#[tokio::test]
+async fn an_outage_past_a_vendor_window_still_asks_to_check_the_service() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let t0 = Utc::now();
+    env.fake().connections = json!([["polar", "active", t0]]);
+    assert_eq!(record_poll(&env, id, t0).await?, "ok");
+    let key = std::mem::replace(&mut env.fake().key, token_hex(20));
+    for hours in [1, 2] {
+        assert_eq!(record_poll(&env, id, t0 + Duration::hours(hours)).await?, "error");
+    }
+    let message = || async {
+        let open = open_gaps(&env, id).await?;
+        let [item] = open[..] else {
+            anyhow::bail!("one alert expected, got {open:?}");
+        };
+        let text: String = sqlx::query_scalar("select payload #>> '{message,en}' from review_item where id = $1")
+            .bind(item)
+            .fetch_one(&env.ctx.pool)
+            .await?;
+        anyhow::Ok((item, text))
+    };
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::hours(3)).await?;
+    let (item, text) = message().await?;
+    assert!(text.contains("is running"), "{text}");
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::hours(21)).await?;
+    let (still, text) = message().await?;
+    assert_eq!(still, item);
+    assert!(
+        text.contains("is running") && !text.contains("Polar"),
+        "an outage turned into a vendor problem: {text}"
+    );
+
+    env.fake().key = key;
+    env.fake().connections = json!([["polar", "active", t0 + Duration::hours(21)]]);
+    assert_eq!(record_poll(&env, id, t0 + Duration::hours(21)).await?, "ok");
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::hours(21) + Duration::minutes(1)).await?;
+    assert!(open_gaps(&env, id).await?.is_empty(), "the service answers again");
+    Ok(())
+}
+
+/// A vendor that was inside its window when a poll last saw it, and is missing from the next report, is
+/// dropped even if its window passed in between: it was not in a gap when it was last seen.
+#[tokio::test]
+async fn a_vendor_removed_just_before_its_window_passes_raises_no_alert() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    env.fake().connections = json!([["polar", "active", now - Duration::hours(19)], ["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    // that poll ran two hours ago: Polar's last sync was 19 h old then and is 21 h old now
+    sqlx::query(
+        "update source set cursor = jsonb_set(jsonb_set(cursor, '{connections,polar,last_synced_at}', to_jsonb($2::timestamptz)), \
+         '{connections,polar,observed_at}', to_jsonb($3::timestamptz)) where id = $1",
+    )
+    .bind(id)
+    .bind(now - Duration::hours(21))
+    .bind(now - Duration::hours(2))
+    .execute(&env.ctx.pool)
+    .await?;
+    env.fake().connections = json!([["whoop", "active", now]]);
+    poll(&env.ctx, &env.base, id).await?;
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(
+        open_gaps(&env, id).await?.is_empty(),
+        "a vendor removed while healthy alerts"
+    );
+    let kept: Option<Value> = sqlx::query_scalar("select cursor #> '{connections,polar}' from source where id = $1")
+        .bind(id)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert_eq!(kept, None, "a vendor removed while healthy stays in the cursor");
+    Ok(())
 }

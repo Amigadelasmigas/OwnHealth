@@ -180,6 +180,7 @@ pub async fn update_source(conn: &mut PgConnection, id: Uuid, p: &SourcePatch) -
            poll_seconds = case when $9 then $10 else poll_seconds end \
          where id = $1 returning {COLS}"
     );
+    let mut tx = sqlx::Connection::begin(conn).await?;
     let row: Option<Source> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(id)
         .bind(&p.label)
@@ -191,18 +192,61 @@ pub async fn update_source(conn: &mut PgConnection, id: Uuid, p: &SourcePatch) -
         .bind(p.enabled)
         .bind(p.poll_seconds.is_some())
         .bind(p.poll_seconds.flatten())
-        .fetch_optional(conn)
+        .fetch_optional(&mut *tx)
         .await?;
-    row.ok_or_else(|| Error::NotFound("Unknown source.".into()))
+    let row = row.ok_or_else(|| Error::NotFound("Unknown source.".into()))?;
+    if p.enabled == Some(false) {
+        // The update holds the row lock a gap check takes, and this statement reads with a fresh snapshot,
+        // so it also ends an alert that check filed while the update waited. Switching the source back on
+        // before the next check then starts a new episode.
+        end_gap_episode(&mut tx, id, row.household_id).await?;
+    }
+    tx.commit().await?;
+    Ok(row)
+}
+
+/// End the episode of a switched-off source's sync alert: an open alert closes as unavailable, and a
+/// decided one keeps the person's decision. Either way the next gap opens a new alert. The stamp comes
+/// from the clock the gap checks read, not the database's, since a check compares it with its own.
+async fn end_gap_episode(conn: &mut PgConnection, id: Uuid, household_id: Uuid) -> Result<()> {
+    sqlx::query(
+        "update review_item set payload = jsonb_set(payload, '{ended_at}', to_jsonb($3::timestamptz)), \
+         decided_at = coalesce(decided_at, $3), \
+         decision_reason = case when status = 'open' then 'source_unavailable' else decision_reason end, \
+         status = case when status = 'open' then 'dismissed' else status end \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1 \
+         and payload->>'ended_at' is null and (status = 'open' or decided_by is not null)",
+    )
+    .bind(id)
+    .bind(household_id)
+    .bind(Utc::now())
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 pub async fn delete_source(conn: &mut PgConnection, id: Uuid) -> Result<bool> {
-    let n = sqlx::query("delete from source where id = $1")
+    let mut tx = sqlx::Connection::begin(conn).await?;
+    // Take the row lock a gap check holds first. The next statement then reads with a fresh snapshot,
+    // so it sees any alert that check filed while this delete waited.
+    sqlx::query("select 1 from source where id = $1 for update")
         .bind(id)
-        .execute(conn)
-        .await?
-        .rows_affected();
-    Ok(n == 1)
+        .execute(&mut *tx)
+        .await?;
+    // A review reference is polymorphic. Close the alert in the same statement that removes
+    // the source, so a disconnected device cannot leave an open review item behind.
+    let removed = sqlx::query_scalar(
+        "with removed as (delete from source where id = $1 returning id, household_id), \
+         closed as (update review_item i set status = 'dismissed', decided_at = now(), \
+           decision_reason = 'source_unavailable' from removed s where i.household_id = s.household_id \
+           and i.kind = 'source_gap' and i.ref_table = 'source' and i.ref_id = s.id and i.status = 'open') \
+         select exists (select 1 from removed)",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(removed)
 }
 
 /// Save the position a poller reached, in the caller's transaction (connectors.md 6.3 rule 2: in the
@@ -336,7 +380,8 @@ pub async fn begin_run(conn: &mut PgConnection, source_id: Uuid, trigger: &str, 
 /// Close a run with what it did, or with the error that stopped it (type and message only, cut at
 /// 500 characters). Updates the source's health and cursor only if the grant still matches.
 /// A run with problems where something still arrived is `partial` and counts as a success for "last successful sync"; a run where every item it
-/// saw failed is an `error` (nothing arrived, and the cursor stays so the items are retried).
+/// saw failed is an `error` (nothing arrived, and the cursor stays so the items are retried); its error
+/// is then its first problem, which tells it from a run the poller ended with an error of its own.
 /// The run row and the source row commit together, so a health read never sees one without the other.
 pub async fn finish_run(
     conn: &mut PgConnection,
@@ -675,12 +720,212 @@ pub async fn enqueue_grant_poll(tx: &mut Transaction<'_, Postgres>, source_id: U
     }
 }
 
-/// One scheduler pass: `add_default_sources`, `schedule_due`, then `sweep_link_files`, so a sweep
-/// that waits on a lock or fails never holds back the due polls. Returns the jobs added.
+/// A connector interprets its cursor and returns localized review payload when a gap is present.
+/// The core supplies whether a pull has been failing for longer than the source's interval, its retry
+/// included.
+pub type GapCheck = fn(Option<&Value>, bool, DateTime<Utc>) -> Option<Value>;
+
+static GAP_CHECKS: LazyLock<RwLock<HashMap<String, GapCheck>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+pub fn register_gap_check(kind: &str, check: GapCheck) {
+    if let Ok(mut m) = GAP_CHECKS.write() {
+        m.insert(kind.into(), check);
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct GapSource {
+    household_id: Uuid,
+    profile_id: Option<Uuid>,
+    kind: String,
+    enabled: bool,
+    cursor: Option<Value>,
+    consecutive_failures: i32,
+    poll_seconds: Option<i32>,
+    last_success_at: Option<DateTime<Utc>>,
+    oauth_grant_id: Option<Uuid>,
+}
+
+async fn pull_failed_for_interval(
+    conn: &mut PgConnection,
+    id: Uuid,
+    source: &GapSource,
+    now: DateTime<Utc>,
+) -> Result<bool> {
+    let Some(interval) = source.poll_seconds.filter(|_| source.consecutive_failures > 0) else {
+        return Ok(false);
+    };
+    // Measure from the first recorded failure of the current streak. Retries cannot postpone the
+    // alert, and one late failure after a long interval does not immediately raise it. The scheduler
+    // queues the retry of a failed poll and runs this check in the same pass, so the check always
+    // comes before that retry ends: a gap needs the retry to have failed too.
+    // Only a run the poller itself ended with an error counts: the source did not answer, or every part
+    // of it failed. A run that is an error only because every item it saw failed (`finish_run` stores
+    // its first problem as its error) reached the source, as when one Open Wearables vendor fails and
+    // another sends only rows that do not read; each vendor's own clock covers that.
+    Ok(sqlx::query_scalar(
+        "select count(*) >= 2 and min(finished_at) < $3 from source_run where source_id = $1 \
+         and oauth_grant_id is not distinct from $2 and trigger in ('poll', 'manual') and status = 'error' \
+         and finished_at is not null and ($4::timestamptz is null or finished_at > $4) \
+         and error is distinct from left((errors -> 0 ->> 'code') || ': ' || (errors -> 0 ->> 'message'), 500)",
+    )
+    .bind(id)
+    .bind(source.oauth_grant_id)
+    .bind(now - chrono::Duration::seconds(i64::from(interval)))
+    .bind(source.last_success_at)
+    .fetch_one(conn)
+    .await?)
+}
+
+async fn reconcile_gap(
+    conn: &mut PgConnection,
+    id: Uuid,
+    checks: &HashMap<String, GapCheck>,
+    clock: &Clock<'_>,
+) -> Result<()> {
+    // The source row serializes schedulers and health writers. Read the run and review rows in
+    // separate statements after acquiring the lock so they include any writer we waited for.
+    let mut tx = sqlx::Connection::begin(conn).await?;
+    let source: Option<GapSource> = sqlx::query_as(
+        "select household_id, profile_id, kind, enabled, cursor, consecutive_failures, poll_seconds, \
+         last_success_at, oauth_grant_id from source where id = $1 for no key update",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(source) = source else {
+        return Ok(());
+    };
+    // The clock is read only now, so a poll that committed while this pass waited is judged at a time
+    // after it: a report's age is never measured from before the report.
+    let now = clock();
+    // Passes can reach the row out of order. Every evaluation stamps the alert it keeps, so a pass whose
+    // clock is older than the newest evaluation of this source leaves the alerts to that one.
+    let newest: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "select max(greatest(created_at, (payload->>'evaluated_at')::timestamptz, \
+         (payload->>'ended_at')::timestamptz)) from review_item \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1",
+    )
+    .bind(id)
+    .bind(source.household_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if newest.is_some_and(|newest| newest > now) {
+        return Ok(());
+    }
+    let payload = match (checks.get(&source.kind), source.enabled, source.profile_id) {
+        (Some(check), true, Some(_)) => {
+            let failed = pull_failed_for_interval(&mut tx, id, &source, now).await?;
+            check(source.cursor.as_ref(), failed, now)
+        }
+        _ => None,
+    };
+    // A dismissed or rejected alert still belongs to this gap until the source recovers.
+    // Keep the person's decision and end the episode so a later gap can open a new item.
+    sqlx::query(
+        "update review_item set payload = jsonb_set(payload, '{ended_at}', to_jsonb($3::timestamptz)), \
+         decided_at = coalesce(decided_at, $3), \
+         decision_reason = case when status <> 'open' then decision_reason \
+           when $4::uuid is distinct from profile_id or not $5 then 'source_unavailable' \
+           else 'sync_recovered' end, \
+         status = case when status = 'open' then 'dismissed' else status end \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1 \
+         and payload->>'ended_at' is null and (status = 'open' or decided_by is not null) \
+         and created_at <= $3 and ($4::uuid is distinct from profile_id or not $6)",
+    )
+    .bind(id)
+    .bind(source.household_id)
+    .bind(now)
+    .bind(source.profile_id)
+    .bind(source.enabled)
+    .bind(payload.is_some())
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(payload) = payload {
+        let current: Option<Uuid> = sqlx::query_scalar(
+            "select id from review_item where household_id = $1 and profile_id = $2 \
+             and kind = 'source_gap' and ref_table = 'source' and ref_id = $3 and payload->>'ended_at' is null \
+             and (status = 'open' or decided_by is not null) order by created_at desc, id desc limit 1",
+        )
+        .bind(source.household_id)
+        .bind(source.profile_id)
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let stamp = json!({ "evaluated_at": now });
+        match current {
+            // An open alert takes the current text; a decided one keeps the text the person saw.
+            Some(item) => {
+                sqlx::query(
+                    "update review_item set payload = case when status = 'open' then $2 else payload end || $3 \
+                     where id = $1",
+                )
+                .bind(item)
+                .bind(payload)
+                .bind(stamp)
+                .execute(&mut *tx)
+                .await?;
+            }
+            None => {
+                sqlx::query(
+                    "insert into review_item (household_id, profile_id, kind, ref_table, ref_id, payload, created_at) \
+                     values ($1, $2, 'source_gap', 'source', $3, $4 || $5, $6)",
+                )
+                .bind(source.household_id)
+                .bind(source.profile_id)
+                .bind(id)
+                .bind(payload)
+                .bind(stamp)
+                .bind(now)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A scheduler pass's clock for sync-gap checks.
+pub type Clock<'a> = dyn Fn() -> DateTime<Utc> + Send + Sync + 'a;
+
+async fn check_source_gaps(conn: &mut PgConnection, clock: &Clock<'_>) -> Result<()> {
+    let checks = GAP_CHECKS.read().map(|m| m.clone()).unwrap_or_default();
+    if checks.is_empty() {
+        return Ok(());
+    }
+    let kinds: Vec<&str> = checks.keys().map(String::as_str).collect();
+    let sources: Vec<Uuid> = sqlx::query_scalar("select id from source where kind = any($1) order by id")
+        .bind(&kinds)
+        .fetch_all(&mut *conn)
+        .await?;
+    for id in sources {
+        reconcile_gap(conn, id, &checks, clock).await?;
+    }
+    Ok(())
+}
+
+/// Queue due polls before reconciling sync-gap alerts and sweeping expired share files.
+/// Returns the jobs added.
 pub async fn scheduler_tick(ctx: &JobContext) -> Result<Vec<i64>> {
+    scheduler_tick_with_clock(ctx, &Utc::now).await
+}
+
+/// The scheduler pass with an explicit clock for sync-gap alerts.
+pub async fn scheduler_tick_at(ctx: &JobContext, now: DateTime<Utc>) -> Result<Vec<i64>> {
+    scheduler_tick_with_clock(ctx, &move || now).await
+}
+
+/// The scheduler pass with a clock of the caller's for sync-gap alerts. Each source's check reads it once
+/// it holds that source's row.
+pub async fn scheduler_tick_with_clock(ctx: &JobContext, clock: &Clock<'_>) -> Result<Vec<i64>> {
     add_default_sources(ctx).await?;
     let mut conn = ctx.pool.acquire().await?;
     let added = schedule_due(&mut conn).await?;
+    if let Err(error) = check_source_gaps(&mut conn, clock).await {
+        tracing::warn!(%error, "source sync-gap check failed");
+    }
     sweep_link_files(&mut conn).await?;
     Ok(added)
 }
