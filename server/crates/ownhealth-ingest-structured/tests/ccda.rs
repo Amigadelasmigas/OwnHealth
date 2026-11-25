@@ -1235,7 +1235,9 @@ fn entered_in_error_has_no_clinical_status_and_an_active_problem_with_an_end_is_
             (
                 "195967001",
                 &json!("confirmed"),
-                Some(&json!({"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "resolved"}]})),
+                Some(
+                    &json!({"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "resolved"}]})
+                ),
                 &json!("2020-03-01")
             ),
         ]
@@ -2575,10 +2577,7 @@ fn round_9_original_text_of_an_observation_held_whole_is_counted_once() -> R {
            </observation></entry>"#
     )))?;
     assert!(resources(&c, "Observation").is_empty());
-    assert_eq!(
-        c.sections[0].not_read,
-        ["observation 2.16.840.1.113883.10.20.22.4.38"]
-    );
+    assert_eq!(c.sections[0].not_read, ["observation 2.16.840.1.113883.10.20.22.4.38"]);
     Ok(())
 }
 
@@ -2586,7 +2585,11 @@ fn round_9_original_text_of_an_observation_held_whole_is_counted_once() -> R {
 /// recorded as completed.
 #[test]
 fn round_9_a_procedure_with_no_usable_status_is_unknown() -> R {
-    for status in [r#"<statusCode nullFlavor="UNK"/>"#, "", r#"<statusCode code="completed"/>"#] {
+    for status in [
+        r#"<statusCode nullFlavor="UNK"/>"#,
+        "",
+        r#"<statusCode code="completed"/>"#,
+    ] {
         let c = convert(&procedures(&format!(
             r#"<entry><procedure classCode="PROC" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.14"/>
               <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>{status}
@@ -2594,9 +2597,17 @@ fn round_9_a_procedure_with_no_usable_status_is_unknown() -> R {
         )))?;
         let p = resources(&c, "Procedure");
         assert_eq!(p.len(), 1, "{status}");
-        let want = if status.contains("completed") { "completed" } else { "unknown" };
+        let want = if status.contains("completed") {
+            "completed"
+        } else {
+            "unknown"
+        };
         assert_eq!(p[0]["status"], want, "{status}");
-        assert!(c.sections[0].not_read.is_empty(), "{status}: {:?}", c.sections[0].not_read);
+        assert!(
+            c.sections[0].not_read.is_empty(),
+            "{status}: {:?}",
+            c.sections[0].not_read
+        );
     }
     Ok(())
 }
@@ -2622,7 +2633,10 @@ fn round_9_a_local_original_text_inside_a_narrative_word_is_not_dropped() -> R {
         let c = convert(&social_history(&xml))?;
         let o = resources(&c, "Observation");
         anyhow::ensure!(o.len() == 1, "{o:?}");
-        Ok((o[0]["valueCodeableConcept"]["text"].clone(), c.sections[0].not_read.clone()))
+        Ok((
+            o[0]["valueCodeableConcept"]["text"].clone(),
+            c.sections[0].not_read.clone(),
+        ))
     };
     let unread = "value (original text kept in the uploaded file)";
     // the display keeps the narrative word only: review lists the local label
