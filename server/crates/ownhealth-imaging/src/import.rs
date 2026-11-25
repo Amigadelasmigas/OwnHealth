@@ -166,9 +166,15 @@ pub struct Scan {
 }
 
 impl Scan {
-    fn note_entry_error(&mut self, error: &ZipError) {
+    fn note_entry_error(&mut self, error: &ZipError) -> Result<(), JobError> {
+        if matches!(error, ZipError::Io(e) if truncated_member(e)) {
+            return Err(JobError::retry(format!(
+                "a member of the upload zip could not be read: {error}"
+            )));
+        }
         self.damaged += 1;
         self.unreadable_entries += usize::from(entry_io_failed(error));
+        Ok(())
     }
 
     /// Every patient the disc holds, by PatientID.
@@ -183,6 +189,10 @@ impl Scan {
 // The ZIP reader reports a bad CRC as InvalidData. The import skips such damaged content.
 fn entry_io_failed(error: &ZipError) -> bool {
     matches!(error, ZipError::Io(e) if e.kind() != io::ErrorKind::InvalidData)
+}
+
+fn truncated_member(error: &io::Error) -> bool {
+    matches!(error.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof)
 }
 
 fn read_entry(zip: &mut zip::ZipArchive<BlobReader>, i: usize, limit: u64) -> Result<Vec<u8>, ZipError> {
@@ -218,7 +228,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             Ok(e) => (e.is_dir(), e.size()),
             Err(e) => {
                 s.files += 1;
-                s.note_entry_error(&e);
+                s.note_entry_error(&e)?;
                 continue;
             }
         };
@@ -233,7 +243,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
         let mut head = match read_entry(zip, i, HEAD_BYTES) {
             Ok(head) => head,
             Err(e) => {
-                s.note_entry_error(&e);
+                s.note_entry_error(&e)?;
                 continue;
             }
         };
@@ -247,7 +257,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             match read_entry(zip, i, MAX_HEADER_BYTES) {
                 Ok(more) => head = more,
                 Err(e) => {
-                    s.note_entry_error(&e);
+                    s.note_entry_error(&e)?;
                     continue;
                 }
             }
@@ -568,8 +578,10 @@ impl StudyFiles {
 /// Validate the ZIP CRC before a POST. Release each unlinked spool before opening the next one.
 fn stage(zip: &Mutex<zip::ZipArchive<BlobReader>>, dir: &Path, index: usize) -> Result<Option<Staged>, JobError> {
     let mut zip = zip.lock().map_err(|_| JobError::retry("the zip reader stopped"))?;
-    let Ok(entry) = zip.by_index(index) else {
-        return Ok(None);
+    let entry = match zip.by_index(index) {
+        Ok(entry) => entry,
+        Err(ZipError::Io(e)) if truncated_member(&e) => return Err(JobError::retry(e.to_string())),
+        Err(_) => return Ok(None),
     };
     let expected = entry.size();
     let mut entry = entry.take(MAX_FILE_BYTES + 1);
@@ -578,8 +590,10 @@ fn stage(zip: &Mutex<zip::ZipArchive<BlobReader>>, dir: &Path, index: usize) -> 
     let mut size = 0;
     let mut digest = Sha256::new();
     loop {
-        let Ok(n) = entry.read(&mut buf) else {
-            return Ok(None);
+        let n = match entry.read(&mut buf) {
+            Ok(n) => n,
+            Err(error) if truncated_member(&error) => return Err(JobError::retry(error.to_string())),
+            Err(_) => return Ok(None),
         };
         if n == 0 {
             break;

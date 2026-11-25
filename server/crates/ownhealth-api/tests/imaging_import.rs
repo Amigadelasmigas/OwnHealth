@@ -862,3 +862,46 @@ async fn a_removal_that_finds_a_new_held_study_says_the_upload_changed() -> R {
     assert_eq!(imports(&a, a.family.profile("alex")).await?.len(), 1);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_zip_member_cut_short_while_inflating_retries_the_import() -> R {
+    let a = imaging_app().await?;
+    ownhealth_imaging::register();
+    // A deflate stored block that promises three bytes but ends after the first. Keep the ZIP
+    // directory intact so validation accepts the container and the worker reaches the member.
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    archive.start_file(
+        "DICOM/IM1",
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+    )?;
+    archive.write_all(&[1, 3, 0, 252, 255, b'x'])?;
+    let mut zip = archive.finish()?.into_inner();
+    let directory = zip
+        .windows(4)
+        .position(|w| w == b"PK\x01\x02")
+        .ok_or_else(|| anyhow::anyhow!("no central directory"))?;
+    zip[8..10].copy_from_slice(&8u16.to_le_bytes());
+    zip[directory + 10..directory + 12].copy_from_slice(&8u16.to_le_bytes());
+    let (status, body) = post(
+        &a,
+        "alex",
+        "/imaging/import",
+        &[("profile", "alex")],
+        &[("disc.zip".into(), zip)],
+    )
+    .await?;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let id = body["job_id"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("no job: {body}"))?;
+    let kinds = [ownhealth_imaging::import::JOB.to_string()];
+    ownhealth_core::jobs::drain(&a.rt.job_context(), "core", 1, Some(&kinds)).await?;
+    let (state, attempts, error): (String, i32, Option<String>) =
+        sqlx::query_as("select state, attempts, last_error from job where id = $1")
+            .bind(id)
+            .fetch_one(&a.rt.pool)
+            .await?;
+    assert_eq!((state.as_str(), attempts), ("queued", 1), "{error:?}");
+    assert!(error.is_some_and(|message| message.starts_with("JobError:")));
+    Ok(())
+}
