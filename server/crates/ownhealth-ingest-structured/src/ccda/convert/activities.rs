@@ -225,14 +225,7 @@ impl Conv<'_, '_> {
     /// The visit type, named by the words the document shows for it (its original text) when it has
     /// them: a CPT display name is a paragraph of billing rules.
     fn encounter_type(&mut self, code: Option<Node<'_, '_>>) -> Option<Value> {
-        let mut concept = self.concept(code)?;
-        let shown = code
-            .and_then(|c| child(c, "originalText"))
-            .and_then(|o| self.narrative_of(o));
-        if let (Some(text), Value::Object(cc)) = (shown, &mut concept) {
-            cc.insert("text".into(), Value::String(text));
-        }
-        Some(concept)
+        self.reported_concept(code, &[], true)
     }
 
     pub(super) fn procedure(&mut self, n: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {

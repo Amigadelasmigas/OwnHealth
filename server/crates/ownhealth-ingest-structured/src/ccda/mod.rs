@@ -11,7 +11,8 @@
 //!   its Observations), Vital Signs, Encounters, Procedures and Social History. Note Activities and
 //!   narrative-only Notes sections stay in the original XML. [`convert`] counts them per section.
 //! - An unsupported section, entry or part of an entry, and a note kept in the file, becomes one
-//!   `fhir_unmapped_summary` review item per section. Sections that hold only narrative text (a core
+//!   `fhir_unmapped_summary` review item per section. Omitted document type text has its own review
+//!   item. Sections that hold only narrative text (a core
 //!   section too, unless it says it has no information) are listed in one more item. The stored file
 //!   keeps all of it; nothing is dropped without a count.
 //! - The document is flagged `unprojected` with what those items count. None of that text was
@@ -152,14 +153,24 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
     Ok(summary)
 }
 
-/// The review payloads for what the converter did not read: one per section with entries or parts
-/// left, or notes kept in the file (`resource_type` is the section's title), and one for every section that holds narrative
+/// The review payloads for what the converter did not read: one for omitted header text, one per
+/// section with entries or parts left or notes kept in the file, and one for sections that hold narrative
 /// only ([`NARRATIVE`]): a section this version does not read without entries, or a core section with
 /// narrative text and no entries that does not say it has no information. The shape is a connector
 /// pull's `fhir_unmapped_summary`.
 pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
     let source = json!({"kind": "ccda", "label": label});
     let mut out = Vec::new();
+    if !c.header_not_read.is_empty() {
+        out.push(json!({
+            "projection": null,
+            "resource_type": c.title.as_deref().map_or_else(|| "C-CDA".into(), |title| format!("{title} (C-CDA)")),
+            "count": c.header_not_read.len(),
+            "notes": unread_notes(&c.header_not_read),
+            "source": source,
+            "import_refs": [format!("{key}/")],
+        }));
+    }
     let mut narrative = BTreeMap::new();
     let mut narrative_refs = Vec::new();
     for s in &c.sections {
@@ -181,13 +192,7 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
                 (s.entries, BTreeMap::from([(note, s.entries)]))
             }
             Some(_) if s.not_read.is_empty() && s.stored_notes == 0 => continue,
-            Some(_) => {
-                let mut notes = BTreeMap::new();
-                for n in &s.not_read {
-                    *notes.entry(format!("not read: {n}")).or_insert(0usize) += 1;
-                }
-                (s.not_read.len(), notes)
-            }
+            Some(_) => (s.not_read.len(), unread_notes(&s.not_read)),
         };
         // a note is never read into a record: the item is where a person learns it is in the file
         let count = count + s.stored_notes;
@@ -216,6 +221,14 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
         }));
     }
     out
+}
+
+fn unread_notes(reasons: &[String]) -> BTreeMap<String, usize> {
+    let mut notes = BTreeMap::new();
+    for reason in reasons {
+        *notes.entry(format!("not read: {reason}")).or_insert(0) += 1;
+    }
+    notes
 }
 
 /// `document.flags.ccda`: per section, its title, templateId, kind and what it gave.

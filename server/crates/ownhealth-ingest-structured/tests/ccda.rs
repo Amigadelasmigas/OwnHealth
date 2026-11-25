@@ -119,21 +119,35 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
     assert_eq!(c.entries.len(), 27);
     assert_eq!(resources(&c, "Patient").len(), 1);
     assert_eq!(resources(&c, "Composition").len(), 1);
-    // The converter reports the medicine's supply order and dispense separately.
-    let left: Vec<&String> = c
+    // Each section counts the text retained only in XML. The medicine's supply order and
+    // dispense and the aborted procedure observation also wait in review.
+    let original = "code (original text kept in the uploaded file)";
+    let unread: Vec<_> = c
         .sections
         .iter()
-        .filter(|s| s.kind.is_some())
-        .flat_map(|s| &s.not_read)
+        .filter_map(|s| {
+            let kind = s.kind?;
+            (!s.not_read.is_empty()).then(|| (kind, s.not_read.iter().map(String::as_str).collect::<Vec<_>>()))
+        })
         .collect();
     assert_eq!(
-        left,
+        unread,
         [
-            "supply 2.16.840.1.113883.10.20.22.4.17",
-            "supply 2.16.840.1.113883.10.20.22.4.18",
-            "observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)"
-        ],
-        "{left:?}"
+            (Section::Allergies, vec![original; 3]),
+            (Section::Immunizations, vec![original; 4]),
+            (
+                Section::Medications,
+                vec![
+                    "supply 2.16.840.1.113883.10.20.22.4.17",
+                    "supply 2.16.840.1.113883.10.20.22.4.18",
+                    original
+                ]
+            ),
+            (
+                Section::Procedures,
+                vec!["observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)", original]
+            )
+        ]
     );
     // 17 sections: 8 supported, 2 more with entries, 7 with narrative only.
     assert_eq!(c.sections.len(), 17);
@@ -230,7 +244,13 @@ fn the_ccd_with_no_information_sections_reads_what_it_has() -> R {
         counts(&[("Procedure", 2), ("Observation", 1)])
     );
     assert_eq!(made(&c, Section::SocialHistory), counts(&[("Observation", 1)]));
-    assert!(held_items(&c, "ccda-x", "ccd-2.xml").is_empty());
+    let held = held_items(&c, "ccda-x", "ccd-2.xml");
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0]["section"]["code"], "47519-4");
+    assert_eq!(
+        held[0]["notes"],
+        json!({"not read: code (original text kept in the uploaded file)": 2})
+    );
     Ok(())
 }
 
@@ -437,8 +457,10 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     assert_eq!(
         types,
         [
+            "ALLERGIES, ADVERSE REACTIONS, ALERTS (C-CDA)",
             "C-CDA narrative section",
             "FAMILY HISTORY (C-CDA)",
+            "IMMUNIZATIONS (C-CDA)",
             "MEDICATIONS (C-CDA)",
             "PLAN OF CARE (C-CDA)",
             "PROCEDURES (C-CDA)"
@@ -451,9 +473,9 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
         12,
         "3 labs, 6 vital signs and 3 social history observations"
     );
-    // Five grouped items account for the unread parts, the aborted procedure observation among them.
+    // Grouped items account for unread parts, including the aborted procedure observation.
     assert_eq!(s.skipped, 0, "{s:?}");
-    assert_eq!(s.accepted + s.queued, 12 + 12 + 5, "{s:?}");
+    assert_eq!(s.accepted + s.queued, 12 + 12 + 7, "{s:?}");
     let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
         .bind(doc)
         .fetch_one(&mut *tx)
@@ -463,7 +485,7 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     // a second run reads the stored summary and adds nothing
     let again = import_ccda(&mut tx, &env.blobs, doc).await?;
     assert_eq!(again, s);
-    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 5);
+    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 7);
     Ok(())
 }
 
@@ -2154,7 +2176,10 @@ fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
         .context("missing review item for the aborted procedure")?;
     assert_eq!(
         procedures["notes"],
-        json!({"not read: observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)": 1})
+        json!({
+            "not read: observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)": 1,
+            "not read: code (original text kept in the uploaded file)": 1,
+        })
     );
     Ok(())
 }
@@ -2759,5 +2784,130 @@ async fn round_3_social_history_counts_original_text_missing_from_the_coded_answ
         unread,
         [Some(1), Some(1), Some(1), None, None, None, Some(1), Some(1), None]
     );
+    Ok(())
+}
+
+// ------------------------------------------------------ slice 21, round 4 ----
+
+#[test]
+fn round_4_original_text_omitted_from_coded_concepts_goes_to_review() -> R {
+    let history = social_history(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1" displayName="Tobacco smoking status">
+               <originalText>Smokes cigars at weekend parties</originalText>
+             </code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="8517006" codeSystem="2.16.840.1.113883.6.96"/>
+           </observation></entry>"#,
+    );
+    let procedure = procedures(
+        r#"<entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy">
+               <originalText>Colonoscopy, two polyps removed, biopsy sent</originalText>
+             </code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+           </procedure></entry>"#,
+    );
+    let encounter = encounters(
+        r#"<entry><encounter moodCode="EVN">
+             <code code="99213" codeSystem="2.16.840.1.113883.6.12" displayName="Office visit">
+               <originalText>Visit at the afternoon clinic</originalText>
+             </code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <entryRelationship typeCode="RSON"><observation classCode="OBS" moodCode="EVN">
+               <templateId root="2.16.840.1.113883.10.20.22.4.19"/>
+               <code code="404684003" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+               <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96" displayName="Pneumonia">
+                 <originalText>Pneumonia after contact with a partner diagnosed with HIV</originalText>
+               </value>
+             </observation></entryRelationship>
+           </encounter></entry>"#,
+    );
+    let mut unread = Vec::new();
+    for (bytes, resource_type, pointer, display) in [
+        (history, "Observation", "/code/text", "Tobacco smoking status"),
+        (procedure, "Procedure", "/code/text", "Colonoscopy"),
+        (encounter, "Encounter", "/reasonCode/0/text", "Pneumonia"),
+    ] {
+        let c = convert(&bytes)?;
+        let resource = resources(&c, resource_type)[0];
+        assert_eq!(resource.pointer(pointer).and_then(Value::as_str), Some(display));
+        if resource_type == "Encounter" {
+            assert_eq!(resource["type"][0]["text"], "Visit at the afternoon clinic");
+        }
+        let held = held_items(&c, "test", "coded.xml");
+        unread.push(held.iter().map(|h| h["count"].as_u64().unwrap_or(0)).sum::<u64>());
+    }
+    assert_eq!(unread, [1, 1, 1]);
+    Ok(())
+}
+
+#[test]
+fn round_4_coded_result_original_text_matches_display_ignoring_case_and_whitespace() -> R {
+    let mut unread = Vec::new();
+    for (display, narrative) in [
+        ("Negative", "negative"),
+        ("DÉTECTÉ&#x9; &#xA0; FAIBLEMENT", "détecté faiblement"),
+        ("Negative", "Not negative"),
+    ] {
+        let c = convert(&document(&format!(
+            r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.3.1"/><title>Results</title>
+              <text><content ID="result">{narrative}</content></text>
+              <entry><observation classCode="OBS" moodCode="EVN">
+                <code code="5195-3" codeSystem="2.16.840.1.113883.6.1"/>
+                <statusCode code="completed"/><effectiveTime value="20210301"/>
+                <value xsi:type="CD" code="260385009" codeSystem="2.16.840.1.113883.6.96" displayName="{display}">
+                  <originalText><reference value="#result"/></originalText>
+                </value>
+              </observation></entry></section></component>"##
+        )))?;
+        unread.push(c.sections[0].not_read.len());
+    }
+    assert_eq!(unread, [0, 0, 1]);
+    Ok(())
+}
+
+#[test]
+fn round_4_original_text_omitted_from_the_document_type_or_a_translation_goes_to_review() -> R {
+    let bytes = procedures(
+        r#"<entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96">
+               <translation code="X1" codeSystem="1.2.3" displayName="Colonoscopy">
+                 <originalText>Additional details from the local procedure record</originalText>
+               </translation>
+             </code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+           </procedure></entry>"#,
+    );
+    let text = String::from_utf8(bytes)?.replace(
+        r#"displayName="Summary of episode note"/>"#,
+        r#"displayName="Summary of episode note"><originalText>Private referral details</originalText></code>"#,
+    );
+    let c = convert(text.as_bytes())?;
+    assert_eq!(
+        resources(&c, "Composition")[0]["type"]["text"],
+        "Summary of episode note"
+    );
+    assert_eq!(
+        resources(&c, "Procedure")[0]["code"]["coding"][1]["display"],
+        "Colonoscopy"
+    );
+    let held = held_items(&c, "test", "coded.xml");
+    assert_eq!(held.iter().map(|h| h["count"].as_u64().unwrap_or(0)).sum::<u64>(), 2);
+    Ok(())
+}
+
+#[test]
+fn round_4_truncated_original_text_goes_to_review_even_when_used_as_the_label() -> R {
+    let long = "a".repeat(2_001);
+    let bytes = procedures(&format!(
+        r#"<entry><procedure classCode="PROC" moodCode="EVN">
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96"><originalText>{long}</originalText></code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+           </procedure></entry>"#
+    ));
+    let c = convert(&bytes)?;
+    assert_eq!(resources(&c, "Procedure")[0]["code"]["text"], &long[..2_000]);
+    assert_eq!(c.sections[0].not_read.len(), 1);
     Ok(())
 }

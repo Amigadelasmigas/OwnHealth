@@ -195,6 +195,8 @@ pub struct SectionReport {
 pub struct Converted {
     /// The document's own title.
     pub title: Option<String>,
+    /// Parts of the document header kept only in the uploaded file.
+    pub header_not_read: Vec<String>,
     /// Patient and Composition first, then every resource in document order.
     pub entries: Vec<Entry>,
     pub sections: Vec<SectionReport>,
@@ -242,6 +244,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
         read: HashMap::new(),
         source_labels: HashMap::new(),
         narrative_labels: Vec::new(),
+        unread_concepts: Vec::new(),
         ids: HashMap::new(),
         patient: None,
         labels: doc_labels.clone(),
@@ -250,6 +253,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
         out: Vec::new(),
     };
     c.header(root);
+    let header_not_read = std::mem::take(&mut c.unread_concepts);
     let mut sections = Vec::new();
     // sections and their subsections in document order, with a stack instead of recursion; each
     // subsection inherits the labels of the section around it
@@ -281,6 +285,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
     }
     Ok(Converted {
         title: child(root, "title").and_then(xml::text),
+        header_not_read,
         entries: c.out,
         sections,
     })
@@ -489,6 +494,17 @@ fn coded(system: &str, code: &str) -> Value {
     json!({"coding": [{"system": system, "code": code}]})
 }
 
+fn normalized_text(text: &str) -> String {
+    let mut normalized = String::new();
+    for word in text.split_whitespace() {
+        if !normalized.is_empty() {
+            normalized.push(' ');
+        }
+        normalized.push_str(&word.to_lowercase());
+    }
+    normalized
+}
+
 fn status_of<'a>(n: Node<'a, '_>) -> Option<&'a str> {
     child(n, "statusCode").and_then(|s| attr(s, "code"))
 }
@@ -627,6 +643,8 @@ struct Conv<'a, 'i> {
     source_labels: HashMap<NodeId, Vec<Value>>,
     /// Labels of the narrative used to build the current resource.
     narrative_labels: Vec<Value>,
+    /// Omitted original text in the header or the current section.
+    unread_concepts: Vec<String>,
     /// `<type>/<id>` given so far, to tell apart entries of one file that share an `id`.
     ids: HashMap<String, usize>,
     patient: Option<String>,
@@ -784,10 +802,9 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some(Value::Object(c))
     }
 
-    /// A CD as a CodeableConcept: its code and translations, and a text (displayName, else the
-    /// original text). `skip` leaves codes out (the generic "substance" of a negated allergy).
-    fn concept_without(&mut self, n: Option<Node<'_, '_>>, skip: &[&str]) -> Option<Value> {
-        let n = n?;
+    /// A CD as a CodeableConcept: its code and translations, and a text. `skip` leaves codes out
+    /// (the generic "substance" of a negated allergy). Only encounter types prefer original text.
+    fn concept_data(&mut self, n: Node<'_, '_>, skip: &[&str], prefer_original: bool) -> Option<Value> {
         let keep = |c: &Node<'_, '_>| attr(*c, "code").is_none_or(|code| !skip.contains(&code));
         let mut codings: Vec<Value> = std::iter::once(n)
             .filter(keep)
@@ -797,8 +814,10 @@ impl<'a, 'i> Conv<'a, 'i> {
         codings.dedup();
         let own_display = attr(n, "displayName").filter(|_| keep(&n));
         let text = own_display
+            .filter(|_| !prefer_original)
             .map(String::from)
-            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o)));
+            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o)))
+            .or_else(|| own_display.map(String::from));
         if codings.is_empty() && text.is_none() {
             return None;
         }
@@ -811,14 +830,44 @@ impl<'a, 'i> Conv<'a, 'i> {
     }
 
     fn concept(&mut self, n: Option<Node<'_, '_>>) -> Option<Value> {
-        self.concept_without(n, &[])
+        self.reported_concept(n, &[], false)
+    }
+
+    fn reported_concept(&mut self, n: Option<Node<'_, '_>>, skip: &[&str], prefer_original: bool) -> Option<Value> {
+        let n = n?;
+        let concept = self.concept_data(n, skip, prefer_original)?;
+        let mut originals = std::iter::once(n)
+            .chain(children(n, "translation"))
+            .filter_map(|code| Some((code.tag_name().name(), child(code, "originalText")?)))
+            .peekable();
+        if originals.peek().is_some() {
+            let displays: HashSet<_> = concept["text"]
+                .as_str()
+                .into_iter()
+                .chain(
+                    concept["coding"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|coding| coding["display"].as_str()),
+                )
+                .map(normalized_text)
+                .collect();
+            for (field, original) in originals {
+                if self.unread_original_text(original, &displays) {
+                    self.unread_concepts
+                        .push(format!("{field} (original text kept in the uploaded file)"));
+                }
+            }
+        }
+        Some(concept)
     }
 
     /// Whether a negated entry's concept names nothing: absent, null, or only a generic concept. The
     /// original text of a generic code ("Problem" pointing at "no known problems") names nothing either.
     fn names_nothing(&mut self, n: Option<Node<'_, '_>>) -> bool {
         let generic = n.and_then(|n| attr(n, "code")).is_some_and(|c| GENERIC.contains(&c));
-        match self.concept_without(n, &GENERIC) {
+        match n.and_then(|n| self.concept_data(n, &GENERIC, false)) {
             None => true,
             Some(cc) => generic && cc.get("coding").is_none(),
         }
@@ -999,6 +1048,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             rep.stored_notes = 1;
         }
         self.labels = self.doc_labels.clone();
+        rep.not_read.append(&mut self.unread_concepts);
         (rep, labels)
     }
 
@@ -1090,7 +1140,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 json!([{
                     "url": "http://hl7.org/fhir/StructureDefinition/allergyintolerance-substanceExposureRisk",
                     "extension": [
-                        {"url": "substance", "valueCodeableConcept": self.concept_without(allergen, &GENERIC)},
+                        {"url": "substance", "valueCodeableConcept": self.reported_concept(allergen, &GENERIC, false)},
                         {"url": "exposureRisk", "valueCodeableConcept": coded(
                             "http://terminology.hl7.org/CodeSystem/allerg-intol-substance-exp-risk",
                             "no-known-reaction-risk")},
@@ -1581,18 +1631,10 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some(id)
     }
 
-    /// A display name takes precedence over originalText in the coded value. Compare the
-    /// omitted narrative with the retained text and coding displays without copying source labels.
-    fn unread_original_text(&mut self, v: Node<'_, '_>, concept: &Value) -> bool {
-        let Some(original) = child(v, "originalText").filter(|_| attr(v, "displayName").is_some()) else {
-            return false;
-        };
-        let retained = |text: &str| {
-            concept["text"].as_str() == Some(text)
-                || concept["coding"]
-                    .as_array()
-                    .is_some_and(|codings| codings.iter().any(|coding| coding["display"].as_str() == Some(text)))
-        };
+    /// Compare originalText with the retained text and coding displays without copying source labels.
+    /// A truncated originalText always has a part the converter could not read.
+    fn unread_original_text(&mut self, original: Node<'_, '_>, displays: &HashSet<String>) -> bool {
+        let retained = |text: &str| displays.contains(&normalized_text(text));
         let own = xml::read_text(original);
         let target = self.referenced_narrative(original).map(|(_, text)| text);
         if own.truncated || target.is_some_and(|text| text.truncated) {
@@ -1687,11 +1729,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             "PQ" | "REAL" | "MO" | "IVL_PQ" | "CD" | "CE" | "CV" | "CO" | "CS" | "INT" | "BL" | "TS"
         );
         match field {
-            Some((key, value)) => {
-                let unread_text = (structured && inline_text)
-                    || (key == "valueCodeableConcept" && self.unread_original_text(v, &value));
-                ObservationValue::Read(key, value, unread_text)
-            }
+            Some((key, value)) => ObservationValue::Read(key, value, structured && inline_text),
             None if inline_text => ObservationValue::Unsupported,
             // Checked after the type: a coded value outside the value set is `nullFlavor="OTH"`
             // with its translation or original text, and that is still the result.
