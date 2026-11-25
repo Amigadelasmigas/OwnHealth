@@ -14,9 +14,13 @@ const PROCEDURE_ACT: &str = "2.16.840.1.113883.10.20.22.4.12";
 const PROCEDURE_OBSERVATION: &str = "2.16.840.1.113883.10.20.22.4.13";
 const PROCEDURE_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.14";
 const NOTE_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.202";
-/// Pregnancy (`2.16.840.1.113883.10.20.15.3.8`) and Sexual Orientation (`4.501`) are left out on
-/// purpose: they are reproductive and sexual health, and an unlabelled one would be readable without
-/// read:sensitive once read. Unread, they keep the file behind read:sensitive and wait in review.
+// These templates wait in review even when they also declare a supported Social History root.
+const EXCLUDED_SOCIAL_OBSERVATIONS: &[&str] = &[
+    "2.16.840.1.113883.10.20.22.4.501", // Sexual Orientation
+    "2.16.840.1.113883.10.20.15.3.8",   // Pregnancy Status
+    "2.16.840.1.113883.10.20.22.4.281", // Pregnancy Intention in Next Year
+    "2.16.840.1.113883.10.20.15.3.1",   // Estimated Date of Delivery
+];
 const SOCIAL_OBSERVATIONS: &[&str] = &[
     "2.16.840.1.113883.10.20.22.4.38", // Social History Observation
     "2.16.840.1.113883.10.20.22.4.38.1",
@@ -287,6 +291,9 @@ impl Conv<'_, '_> {
 
     pub(super) fn activity_observation(&mut self, obs: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         let (roots, category) = if rep.kind == Some(Section::SocialHistory) {
+            if has_template(obs, EXCLUDED_SOCIAL_OBSERVATIONS) {
+                return false;
+            }
             (SOCIAL_OBSERVATIONS, "social-history")
         } else {
             (&[PROCEDURE_OBSERVATION][..], "procedure")

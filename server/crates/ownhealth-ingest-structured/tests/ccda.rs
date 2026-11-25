@@ -2455,3 +2455,107 @@ fn round_1_a_notes_section_with_text_only_is_a_stored_note_in_review() -> R {
     assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
     Ok(())
 }
+
+// ------------------------------------------------------ slice 21, round 2 ----
+
+fn social_history(entries: &str) -> Vec<u8> {
+    document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.17"/><title>Social History</title>
+           {entries}</section></component>"#
+    ))
+}
+
+#[tokio::test]
+async fn round_2_excluded_observation_templates_override_social_history() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = as_isabella(&mut tx, &fam, "lucia").await?;
+    let entries = [
+        ("2.16.840.1.113883.10.20.22.4.501", "76690-7"),
+        ("2.16.840.1.113883.10.20.15.3.8", "82810-3"),
+        ("2.16.840.1.113883.10.20.22.4.281", "86645-9"),
+        ("2.16.840.1.113883.10.20.15.3.1", "11778-8"),
+    ]
+    .map(|(excluded, code)| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="{excluded}"/>
+                 <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+                 <code code="{code}" codeSystem="2.16.840.1.113883.6.1"/>
+                 <statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    })
+    .concat();
+    let bytes = social_history(&entries);
+    let converted = convert(&bytes)?;
+    assert_eq!(resources(&converted, "Observation").len(), 0);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "social.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(count(&mut tx, "observation", p).await?, 0);
+    assert!(open_items(&mut tx, doc, "candidate_row").await?.is_empty());
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["unprojected"], 4, "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its_file() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let entries = [
+        r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.1"/>"#,
+        r#"<code code="local" codeSystem="1.2.3"><translation code="86645-9" codeSystem="2.16.840.1.113883.6.1"/></code>"#,
+        r#"<code code="44261-6" codeSystem="2.16.840.1.113883.6.1"/>"#,
+        r#"<code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>"#,
+        r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.96"/>"#,
+    ]
+    .map(|code| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+                 {code}<statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    })
+    .concat();
+    let bytes = social_history(&entries);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "coded.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["sensitive"], 3, "{flags}");
+    assert!(flags.get("unprojected").is_none(), "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+
+    let candidates = open_items(&mut tx, doc, "candidate_row").await?;
+    let by_loinc: BTreeMap<_, _> = candidates
+        .iter()
+        .map(|item| {
+            let obs = &item.payload["observation"];
+            (obs["loinc"].as_str(), obs["sensitivity"].clone())
+        })
+        .collect();
+    assert_eq!(
+        by_loinc,
+        BTreeMap::from([
+            (None, json!([])),
+            (Some("44261-6"), json!(["mental_health"])),
+            (Some("72166-2"), json!([])),
+            (Some("86645-9"), json!(["reproductive"])),
+            (Some("86647-5"), json!(["sexual_health"])),
+        ])
+    );
+    Ok(())
+}
