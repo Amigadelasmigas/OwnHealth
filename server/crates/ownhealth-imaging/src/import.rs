@@ -33,7 +33,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::io::{self, Read, Seek, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -166,15 +166,9 @@ pub struct Scan {
 }
 
 impl Scan {
-    fn note_entry_error(&mut self, error: &ZipError) -> Result<(), JobError> {
-        if matches!(error, ZipError::Io(e) if truncated_member(e)) {
-            return Err(JobError::retry(format!(
-                "a member of the upload zip could not be read: {error}"
-            )));
-        }
+    fn note_entry_error(&mut self, error: &ZipError) {
         self.damaged += 1;
         self.unreadable_entries += usize::from(entry_io_failed(error));
-        Ok(())
     }
 
     /// Every patient the disc holds, by PatientID.
@@ -186,16 +180,48 @@ impl Scan {
     }
 }
 
-// The ZIP reader reports a bad CRC as InvalidData. The import skips such damaged content.
+/// A failed read of the stored upload, not damage in it: only that kind of failure may heal on a retry.
 fn entry_io_failed(error: &ZipError) -> bool {
-    matches!(error, ZipError::Io(e) if e.kind() != io::ErrorKind::InvalidData)
+    matches!(error, ZipError::Io(e) if !decoder_damage(e))
 }
 
-fn truncated_member(error: &io::Error) -> bool {
-    matches!(error.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof)
+/// The kinds the ZIP reader gives damaged member bytes: a bad CRC (InvalidData), a corrupt deflate
+/// stream (InvalidInput) and a cut one (UnexpectedEof). The upload never changes, so these never heal.
+fn decoder_damage(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof
+    )
 }
 
-fn read_entry(zip: &mut zip::ZipArchive<BlobReader>, i: usize, limit: u64) -> Result<Vec<u8>, ZipError> {
+/// The stored upload as the ZIP reader sees it. A storage error of a damage kind (a sealed block
+/// that fails its check is InvalidData) becomes `Other`, so it counts as a failed read, not damage.
+#[derive(Debug)]
+struct ZipSource(BlobReader);
+
+type Archive = zip::ZipArchive<ZipSource>;
+
+fn storage_error(error: io::Error) -> io::Error {
+    if decoder_damage(&error) {
+        io::Error::other(error)
+    } else {
+        error
+    }
+}
+
+impl Read for ZipSource {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf).map_err(storage_error)
+    }
+}
+
+impl Seek for ZipSource {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        self.0.seek(to).map_err(storage_error)
+    }
+}
+
+fn read_entry(zip: &mut Archive, i: usize, limit: u64) -> Result<Vec<u8>, ZipError> {
     let entry = zip.by_index(i)?;
     let mut out = Vec::new();
     entry.take(limit).read_to_end(&mut out)?;
@@ -207,14 +233,14 @@ pub fn scan(reader: BlobReader) -> Result<Scan, JobError> {
     scan_archive(&mut open_archive(reader)?)
 }
 
-fn open_archive(reader: BlobReader) -> Result<zip::ZipArchive<BlobReader>, JobError> {
-    zip::ZipArchive::new(reader).map_err(|e| match e {
+fn open_archive(reader: BlobReader) -> Result<Archive, JobError> {
+    zip::ZipArchive::new(ZipSource(reader)).map_err(|e| match e {
         zip::result::ZipError::Io(_) => JobError::retry(format!("the upload zip could not be read: {e}")),
         _ => JobError::permanent(format!("the upload is not a zip that reads: {e}")),
     })
 }
 
-fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError> {
+fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
     if zip.len() > MAX_ENTRIES {
         return Err(JobError::permanent(format!(
             "the upload holds {} files, more than {MAX_ENTRIES}",
@@ -228,7 +254,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             Ok(e) => (e.is_dir(), e.size()),
             Err(e) => {
                 s.files += 1;
-                s.note_entry_error(&e)?;
+                s.note_entry_error(&e);
                 continue;
             }
         };
@@ -243,7 +269,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
         let mut head = match read_entry(zip, i, HEAD_BYTES) {
             Ok(head) => head,
             Err(e) => {
-                s.note_entry_error(&e)?;
+                s.note_entry_error(&e);
                 continue;
             }
         };
@@ -257,7 +283,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             match read_entry(zip, i, MAX_HEADER_BYTES) {
                 Ok(more) => head = more,
                 Err(e) => {
-                    s.note_entry_error(&e)?;
+                    s.note_entry_error(&e);
                     continue;
                 }
             }
@@ -287,7 +313,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
 
 /// Only repeated SOPs require a full read during the scan. Verify the ZIP CRC and compare hashes
 /// of the original bytes before any study is sent.
-fn entry_hash(zip: &mut zip::ZipArchive<BlobReader>, index: usize) -> Result<[u8; 32], JobError> {
+fn entry_hash(zip: &mut Archive, index: usize) -> Result<[u8; 32], JobError> {
     let read_error = |error: ZipError| {
         let message = format!("a duplicate DICOM entry could not be read: {error}");
         if entry_io_failed(&error) {
@@ -530,7 +556,7 @@ pub async fn run(ctx: JobContext, job: Job) -> HandlerResult {
 
 /// One ZIP directory for the job. Only blocking tasks touch the seekable reader.
 pub(crate) struct StudyFiles {
-    zip: Arc<Mutex<zip::ZipArchive<BlobReader>>>,
+    zip: Arc<Mutex<Archive>>,
     dir: PathBuf,
 }
 
@@ -576,12 +602,10 @@ impl StudyFiles {
 }
 
 /// Validate the ZIP CRC before a POST. Release each unlinked spool before opening the next one.
-fn stage(zip: &Mutex<zip::ZipArchive<BlobReader>>, dir: &Path, index: usize) -> Result<Option<Staged>, JobError> {
+fn stage(zip: &Mutex<Archive>, dir: &Path, index: usize) -> Result<Option<Staged>, JobError> {
     let mut zip = zip.lock().map_err(|_| JobError::retry("the zip reader stopped"))?;
-    let entry = match zip.by_index(index) {
-        Ok(entry) => entry,
-        Err(ZipError::Io(e)) if truncated_member(&e) => return Err(JobError::retry(e.to_string())),
-        Err(_) => return Ok(None),
+    let Ok(entry) = zip.by_index(index) else {
+        return Ok(None);
     };
     let expected = entry.size();
     let mut entry = entry.take(MAX_FILE_BYTES + 1);
@@ -590,10 +614,8 @@ fn stage(zip: &Mutex<zip::ZipArchive<BlobReader>>, dir: &Path, index: usize) -> 
     let mut size = 0;
     let mut digest = Sha256::new();
     loop {
-        let n = match entry.read(&mut buf) {
-            Ok(n) => n,
-            Err(error) if truncated_member(&error) => return Err(JobError::retry(error.to_string())),
-            Err(_) => return Ok(None),
+        let Ok(n) = entry.read(&mut buf) else {
+            return Ok(None);
         };
         if n == 0 {
             break;
@@ -1459,6 +1481,20 @@ pub async fn accept(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damaged_member_bytes_are_damage_and_a_storage_error_of_the_same_kind_is_a_failed_read() {
+        for kind in [
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            assert!(!entry_io_failed(&ZipError::Io(kind.into())), "{kind:?}");
+            let storage = storage_error(kind.into());
+            assert_eq!(storage.kind(), io::ErrorKind::Other);
+            assert!(entry_io_failed(&ZipError::Io(storage)), "{kind:?}");
+        }
+    }
 
     #[test]
     fn a_report_that_cannot_be_read_retries_and_one_with_no_pdf_is_handled() {

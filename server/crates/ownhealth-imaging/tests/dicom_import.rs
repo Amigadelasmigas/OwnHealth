@@ -610,6 +610,35 @@ async fn a_fully_refused_series_leaves_the_rest_of_the_study_ready() -> R {
     Ok(())
 }
 
+/// A member whose deflate stream is corrupt or cut short never reads, however often the job runs. It is
+/// counted as damaged and the rest of the disc is sent.
+#[tokio::test]
+async fn a_member_that_does_not_inflate_is_damaged_and_the_rest_is_sent() -> R {
+    for (what, cut) in [("corrupt", false), ("cut short", true)] {
+        let e = env().await?;
+        let disc = study_files(&Study::new(U1, ALEX), "DICOM");
+        let mut zip = zip_files(&disc);
+        let header = support::last_zip_entry_header(&zip)?;
+        if cut {
+            zip[header + 20..header + 24].copy_from_slice(&1u32.to_le_bytes());
+        } else {
+            let local = u32::from_le_bytes(zip[header + 42..header + 46].try_into()?) as usize;
+            let name = usize::from(u16::from_le_bytes([zip[local + 26], zip[local + 27]]));
+            let extra = usize::from(u16::from_le_bytes([zip[local + 28], zip[local + 29]]));
+            // BFINAL=1 with the reserved block type 11: the decoder reads a corrupt stream
+            zip[local + 30 + name + extra] = 0x07;
+        }
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{what}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{what}: {result}");
+        assert_eq!(result["instances"], disc.len() - 1, "{what}: {result}");
+        assert_eq!(e.orthanc.posts(), disc.len() - 1, "{what}");
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_header_past_the_read_cap_is_damaged_and_not_sent() -> R {
     let e = env().await?;

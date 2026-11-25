@@ -259,11 +259,13 @@ pub(crate) fn read_member(reader: impl Read, size: u64, out: &mut impl Write) ->
 /// The ZIP reader is built with deflate only. A member in any other compression method fails on
 /// its first read with `Unsupported`, so that kind marks the member as unreadable too.
 fn damaged_member(error: &io::Error) -> bool {
-    matches!(error.kind(), io::ErrorKind::InvalidData | io::ErrorKind::Unsupported)
-}
-
-fn truncated_member(error: &io::Error) -> bool {
-    matches!(error.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof)
+    matches!(
+        error.kind(),
+        io::ErrorKind::InvalidData
+            | io::ErrorKind::InvalidInput
+            | io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::Unsupported
+    )
 }
 
 /// The ZIP decoder uses these I/O error kinds for damaged data. Preserve the distinction when
@@ -283,7 +285,7 @@ impl<R: Seek> Seek for ArchiveReader<R> {
 }
 
 fn storage_error(error: io::Error) -> io::Error {
-    if damaged_member(&error) || truncated_member(&error) {
+    if damaged_member(&error) {
         io::Error::other(error)
     } else {
         error
@@ -301,12 +303,7 @@ pub(crate) fn zip_error(error: ZipError, export: &ExportSettings) -> Error {
 /// ZipArchive collapses duplicate directory entries. Refuse such an archive instead of silently
 /// losing a member or letting a second entry with the same name shadow the first.
 fn open(reader: impl Read + Seek, export: &ExportSettings) -> Result<ZipArchive<impl Read + Seek>> {
-    let zip = zip_directory::open(ArchiveReader(reader)).map_err(|error| match error {
-        // A short directory is an invalid archive. The same I/O kinds from an open member
-        // go through zip_error and remain retryable.
-        ZipError::Io(ref e) if truncated_member(e) => Error::Upload(export.unreadable.into()),
-        error => zip_error(error, export),
-    })?;
+    let zip = zip_directory::open(ArchiveReader(reader)).map_err(|error| zip_error(error, export))?;
     if zip.has_duplicate_names() {
         return Err(Error::Upload(export.unreadable.into()));
     }
@@ -1057,12 +1054,20 @@ mod tests {
         Ok(())
     }
 
+    /// flate2 reports a corrupt deflate stream as InvalidInput and a cut one as UnexpectedEof. The
+    /// upload bytes never heal, so the member is listed as damaged. Storage errors of the same kinds
+    /// come through ArchiveReader as Other and stay retryable.
     #[test]
-    fn truncated_zip_members_are_retryable() {
+    fn a_member_that_does_not_inflate_is_damaged_and_a_storage_error_retries() {
         for kind in [io::ErrorKind::InvalidInput, io::ErrorKind::UnexpectedEof] {
-            let reader = FailedRead(|| kind.into());
-            let error = read_member(reader, 10, &mut Vec::new()).expect_err("truncated member");
-            assert_eq!(error.kind(), kind);
+            assert!(!read_member(FailedRead(|| kind.into()), 10, &mut Vec::new()).expect("damaged member"));
+            assert!(matches!(
+                zip_error(ZipError::Io(kind.into()), &GARMIN),
+                Error::Upload(code) if code == GARMIN.unreadable
+            ));
+            let storage = read_member(ArchiveReader(FailedRead(|| kind.into())), 10, &mut Vec::new());
+            let error = storage.expect_err("storage failure");
+            assert_eq!(error.kind(), io::ErrorKind::Other);
             assert!(matches!(zip_error(error.into(), &GARMIN), Error::Io(_)));
         }
     }
