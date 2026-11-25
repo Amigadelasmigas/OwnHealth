@@ -1000,3 +1000,59 @@ async fn only_an_owner_or_guardian_reads_the_wearables_setup_guide() -> R {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn smart_launch_distinguishes_a_missing_document_from_a_vendor_outage() -> R {
+    use axum::routing::get;
+
+    let t = setup().await?;
+    let mut browser = t.browser("alex").await?;
+    let alex = t.env.profile("alex");
+    let client: Uuid = sqlx::query_scalar(
+        "insert into connector_client (household_id, vendor, client_id, redirect_uri) \
+         values ($1, 'meditech', $2, $3) returning id",
+    )
+    .bind(household(&t.env, alex).await?)
+    .bind(CLIENT_ID)
+    .bind(REDIRECT)
+    .fetch_one(t.env.pool())
+    .await?;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let base = format!("http://{}", listener.local_addr()?);
+    let fake = axum::Router::new()
+        .route(
+            "/missing/.well-known/smart-configuration",
+            get(|| async { StatusCode::NOT_FOUND }),
+        )
+        .route("/empty/.well-known/smart-configuration", get(|| async { "{}" }))
+        .route(
+            "/down/.well-known/smart-configuration",
+            get(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+        );
+    let mut server = tokio::task::JoinSet::new();
+    server.spawn(async move { axum::serve(listener, fake).await });
+
+    for (issuer, code) in [
+        (format!("{base}/missing"), "not_a_smart_server"),
+        (format!("{base}/empty"), "not_a_smart_server"),
+        (format!("{base}/down"), "vendor_unreachable"),
+    ] {
+        let response = browser
+            .post(
+                "/api/connectors/launch/smart",
+                &json!({"profile_id": alex, "client_id": client, "issuer": issuer}),
+            )
+            .await?;
+        assert_eq!(response.status, StatusCode::BAD_GATEWAY, "{issuer}: {}", response.json);
+        assert_eq!(response.json["detail"]["code"], code, "{issuer}: {}", response.json);
+        assert!(response.set_cookies().is_empty());
+    }
+    drop(server);
+    assert_eq!(
+        t.count("select count(*) from auth_challenge where purpose = 'connector'")
+            .await?,
+        0
+    );
+    Ok(())
+}

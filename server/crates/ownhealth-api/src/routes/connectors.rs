@@ -4,7 +4,7 @@
 //!
 //! | Route | What |
 //! |---|---|
-//! | `POST /connectors/launch/{kind}` | `{profile_id, client_id, issuer?, label?}`: `{authorize_url}` and the binder cookie; 502 `not_a_smart_server` when the address has no SMART configuration (no such name, or no document) |
+//! | `POST /connectors/launch/{kind}` | `{profile_id, client_id, issuer?, label?}`: `{authorize_url}` and the binder cookie; 502 `not_a_smart_server` when the address does not serve a SMART configuration, or 502 `vendor_unreachable` when discovery could not reach the server |
 //! | `GET /connectors/callback?state=&code=` | where the vendor sends the browser back: 302 to `/connections?connected=<id>` or `/connections?connector_error=<code>`; a connect or reconnect of a polled kind queues its first pull |
 //! | `POST /connectors/{id}/reconnect` | `{authorize_url}` for a new grant on the same source; clears the reconsent flag on return |
 //! | `DELETE /connectors/{id}` | revoke at the vendor when it offers it, then delete the tokens and the cursor: `{id, revocation, revoke_page}`; `revoke_page` is the vendor's own page when the revocation failed or is not offered, and always for Blue Button |
@@ -38,7 +38,7 @@ use ownhealth_core::access::{Principal, accessible_profiles};
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::connector_oauth::{self as oauth, OAuthError, Revocation};
 use ownhealth_core::connector_profiles::{self as profiles, ClientType};
-use ownhealth_core::net::{Egress, NetError};
+use ownhealth_core::net::Egress;
 use ownhealth_core::secrets::{self, SecretBox, SecretString};
 use ownhealth_core::sources;
 use ownhealth_core::{Error, Runtime};
@@ -251,13 +251,11 @@ async fn start(rt: &Runtime, p: &Principal, l: Started<'_>, egress: &Egress) -> 
     ))
 }
 
-/// A first launch at an address with no SMART configuration (no such name, or no document at
-/// `.well-known/smart-configuration`): most likely a wrong address, typed in the wizard, so it says
-/// that and not "try again later". A reconnect keeps `vendor_unreachable`: its address worked before.
+/// A first launch at an address that responds without a SMART configuration asks the
+/// person to check the URL. Discovery outages and reconnect failures keep the retry message.
 fn not_smart(e: OAuthError) -> Fail {
     match e {
         OAuthError::Vendor { ref code, .. } if code == "discovery_failed" => {}
-        OAuthError::Net(NetError::Resolve(_)) => {}
         other => return fail(other),
     }
     ApiError::new(
@@ -917,6 +915,12 @@ mod tests {
             code: "invalid_grant".into(),
         };
         assert_eq!(exchange_refusal(&vendor), "exchange_failed");
+    }
+
+    #[test]
+    fn smart_launch_treats_a_dns_failure_as_retryable() {
+        let error = OAuthError::Net(ownhealth_core::net::NetError::Resolve("example.invalid".into()));
+        assert!(matches!(not_smart(error), Fail::Api(e) if e.code == "vendor_unreachable"));
     }
 
     #[test]

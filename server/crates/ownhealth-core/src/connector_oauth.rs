@@ -406,8 +406,11 @@ async fn discover_smart(issuer: &str, scopes: &str, egress: &Egress) -> Result<E
         status: f.status,
         code: code.into(),
     };
-    if f.status != 200 {
+    if (400..500).contains(&f.status) {
         return Err(bad("discovery_failed"));
+    }
+    if f.status != 200 {
+        return Err(bad("discovery_unavailable"));
     }
     let meta: Value = serde_json::from_slice(&f.body).map_err(|_| bad("discovery_failed"))?;
     let field = |k: &str| meta[k].as_str().filter(|s| !s.is_empty()).map(String::from);
