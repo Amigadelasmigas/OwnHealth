@@ -1633,22 +1633,20 @@ fn ccd1_medicine(c: &Converted, word: &str) -> anyhow::Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("no {word}"))
 }
 
-/// A Medications section with one medicine that has `extra` as more children.
-fn medicine_with(extra: &str) -> Vec<u8> {
+/// A medicine with a referenced sig, optional inline words, and other children.
+fn medicine_with(narrative: &str, inline: &str, extra: &str) -> Vec<u8> {
     document(&format!(
         r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.1.1"/><title>MEDICATIONS</title>
-          <text><content ID="med-n">{}</content></text>
+          <text><content ID="med-n">{narrative}</content></text>
           <entry><substanceAdministration classCode="SBADM" moodCode="EVN">
             <templateId root="2.16.840.1.113883.10.20.22.4.16"/><id root="1.2.3.4" extension="med-x"/>
-            <text><reference value="#med-n"/>{}</text>
+            <text><reference value="#med-n"/>{inline}</text>
             <statusCode code="active"/>
             <consumable><manufacturedProduct><manufacturedMaterial>
               <code code="573621" codeSystem="2.16.840.1.113883.6.88" displayName="albuterol 0.09 MG/ACTUAT [Proventil]"/>
             </manufacturedMaterial></manufacturedProduct></consumable>
             {extra}
           </substanceAdministration></entry></section></component>"##,
-        "narrative ".repeat(300),
-        "inline ".repeat(400),
     ))
 }
 
@@ -1669,7 +1667,7 @@ fn an_as_needed_precondition_is_kept_or_listed() -> R {
 
     let empty = r#"<precondition typeCode="PRCN"><criterion><templateId root="2.16.840.1.113883.10.20.22.4.25"/>
         <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/></criterion></precondition>"#;
-    let c = convert(&medicine_with(empty))?;
+    let c = convert(&medicine_with("2 puffs", "", empty))?;
     let med = resources(&c, "MedicationStatement")[0];
     assert!(med["dosage"][0].get("asNeededCodeableConcept").is_none(), "{med}");
     let s = c
@@ -1691,7 +1689,7 @@ fn a_sig_keeps_its_own_words_beside_the_narrative_it_points_at() -> R {
     assert!(text.contains("Proventil 0.09 MG/ACTUAT inhalant solution"), "{text}");
     assert!(text.contains("2 puffs QID PRN wheezing"), "{text}");
 
-    let c = convert(&medicine_with(""))?;
+    let c = convert(&medicine_with(&"narrative ".repeat(300), &"inline ".repeat(400), ""))?;
     let text = resources(&c, "MedicationStatement")[0]["dosage"][0]["text"]
         .as_str()
         .unwrap_or_default()
@@ -1699,6 +1697,10 @@ fn a_sig_keeps_its_own_words_beside_the_narrative_it_points_at() -> R {
     assert!(text.starts_with("narrative "), "{text}");
     assert!(text.contains("inline"), "{text}");
     assert!(text.chars().count() <= 2_000, "{}", text.chars().count());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["medication instructions (text scan limit reached)"]
+    );
     Ok(())
 }
 
@@ -1889,6 +1891,8 @@ fn the_medplum_port_ships_the_apache_license_text() -> R {
 #[test]
 fn round_5_a_bounded_medication_dose_is_listed_as_unread() -> R {
     let bounded = convert(&medicine_with(
+        "2 puffs",
+        "",
         r#"<doseQuantity><low value="1" unit="mL"/><high value="2" unit="mL"/></doseQuantity>"#,
     ))?;
     assert_eq!(bounded.sections[0].not_read, ["doseQuantity (bounded dose)"]);
@@ -1898,7 +1902,7 @@ fn round_5_a_bounded_medication_dose_is_listed_as_unread() -> R {
             .is_none()
     );
 
-    let scalar = convert(&medicine_with(r#"<doseQuantity value="1" unit="mL"/>"#))?;
+    let scalar = convert(&medicine_with("2 puffs", "", r#"<doseQuantity value="1" unit="mL"/>"#))?;
     assert!(scalar.sections[0].not_read.is_empty());
     assert_eq!(
         resources(&scalar, "MedicationStatement")[0]["dosage"][0]["doseAndRate"][0]["doseQuantity"],
@@ -3279,17 +3283,7 @@ fn round_7_an_incomplete_result_text_value_is_listed_even_without_words() -> R {
 
 #[test]
 fn round_7_an_incomplete_medication_sig_is_listed_even_without_words() -> R {
-    let beyond = text_past_the_node_limit();
-    let bytes = document(&format!(
-        r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.1.1"/><title>Medications</title>
-          <text><paragraph ID="late">{beyond}</paragraph></text>
-          <entry><substanceAdministration moodCode="EVN">
-            <text><reference value="#late"/></text><statusCode code="active"/>
-            <consumable><manufacturedProduct><manufacturedMaterial>
-              <code code="573621" codeSystem="2.16.840.1.113883.6.88" displayName="albuterol"/>
-            </manufacturedMaterial></manufacturedProduct></consumable>
-          </substanceAdministration></entry></section></component>"##
-    ));
+    let bytes = medicine_with(&text_past_the_node_limit(), "", "");
     let c = convert(&bytes)?;
     assert!(resources(&c, "MedicationStatement")[0].get("dosage").is_none());
     assert_eq!(
