@@ -5,7 +5,7 @@
 //! handles it.
 
 use std::borrow::Cow;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Seek};
 use std::path::Path;
 
@@ -987,12 +987,40 @@ pub async fn lock_files_owner(conn: &mut PgConnection, document_id: Uuid) -> Res
     Ok(row.map(|profile| BlobOwner::of_document(profile, document_id)))
 }
 
+/// The raw files of the live inbox rows whose owner resolves through document `document_id` (the row
+/// links it, or its released mail released it), with the owner `blobs::HOLDERS` resolves for each row
+/// while the document is on `profile`: `(source_id, external_id) -> (sha256 hex, owner)`.
+async fn inbox_raw_owners(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+    profile: Option<Uuid>,
+) -> Result<BTreeMap<(Uuid, String), (String, Option<Uuid>)>> {
+    let Some((_, _, owner, live)) = crate::blobs::HOLDERS.iter().find(|(table, ..)| *table == "source_item") else {
+        return Err(Error::Other(anyhow::anyhow!("blobs::HOLDERS lists no source_item")));
+    };
+    // the CTE stands in for the document table in the owner expression, with this document on `profile`
+    let sql = format!(
+        "with document as not materialized (select id, case when id = $1 then $2::uuid else profile_id end \
+         as profile_id from document) \
+         select source_id, external_id, encode(blob_sha256, 'hex'), ({owner})::uuid from source_item \
+         where blob_sha256 is not null and ({live}) and (document_id = $1 or quarantine_id in \
+         (select id from quarantine_item where $1 = any(released_document_ids)))"
+    );
+    let rows: Vec<(Uuid, String, String, Option<Uuid>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(document_id)
+        .bind(profile)
+        .fetch_all(conn)
+        .await?;
+    Ok(rows.into_iter().map(|(s, e, sha, o)| ((s, e), (sha, o))).collect())
+}
+
 /// After document `document_id` moved from profile `from` to `to` (`None`: no profile): every blob of
-/// the document (the file, its page layers and images, its OCR layers, and the raw file of a live
-/// legacy inbox item linked to it, which `blobs::HOLDERS` and `seal-legacy` read as the document's
-/// profile) is stored for `to` as well, so the new profile's key opens them, and the removal of
-/// `from`'s copies is queued
-/// ([`DROP_MOVED_JOB`]). A document that had no profile was sealed under its own item key: that key
+/// the document (the file, its page layers and images, its OCR layers) is stored for `to` as well, so
+/// the new profile's key opens them, and the removal of `from`'s copies is queued
+/// ([`DROP_MOVED_JOB`]). The raw file of a live inbox row whose owner in `blobs::HOLDERS` resolves
+/// through the document and changes with the move is stored for the row's new owner, read from the
+/// owner it had before, else as the document's files (`seal-legacy` reads a linked row so). A
+/// document that had no profile was sealed under its own item key: that key
 /// is shredded here, in the move's transaction. Run it in the transaction of the move, with `from` read under the document's
 /// row lock, before the commit: the re-import the move queues reads them as `to`'s.
 pub async fn rekey_document(
@@ -1009,30 +1037,47 @@ pub async fn rekey_document(
             shas: Vec::new(),
         });
     }
-    let shas: Vec<String> = sqlx::query_scalar(
+    let files: Vec<String> = sqlx::query_scalar(
         "select distinct encode(h, 'hex') from (select blob_sha256 as h from document where id = $1 \
          union all select words_blob from document_page where document_id = $1 \
          union all select image_blob from document_page where document_id = $1 \
-         union all select words_blob from ocr_run where document_id = $1 \
-         union all select i.blob_sha256 from source_item i where i.document_id = $1 and i.profile_id is null \
-         and i.raw_released_at is null and (i.quarantine_id is null or exists (select 1 from quarantine_item q \
-         where q.id = i.quarantine_id and q.status = 'released'))) x where h is not null",
+         union all select words_blob from ocr_run where document_id = $1) x where h is not null",
     )
     .bind(document_id)
     .fetch_all(&mut *conn)
     .await?;
     let new = BlobOwner::of_document(to, document_id);
+    // (sha, the owners to read it from in order, the owner to store it for, what it is)
+    let mut copies: Vec<(String, Vec<BlobOwner>, BlobOwner, &'static str)> =
+        files.into_iter().map(|sha| (sha, vec![old], new, "a blob")).collect();
+    let before = inbox_raw_owners(&mut *conn, document_id, from).await?;
+    for (row, (sha, after)) in inbox_raw_owners(&mut *conn, document_id, to).await? {
+        let was = before.get(&row).and_then(|(_, owner)| *owner);
+        // no profile reads it after the move, or the same one as before
+        let Some(after) = after.filter(|p| was != Some(*p)) else {
+            continue;
+        };
+        let read_from = was.map(BlobOwner::Profile).into_iter().chain([old]).collect();
+        copies.push((sha, read_from, BlobOwner::Profile(after), "an inbox item's raw file"));
+    }
+    let shas: Vec<String> = copies
+        .iter()
+        .map(|(sha, ..)| sha.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let blobs = blobs.clone();
     let moved = tokio::task::spawn_blocking(move || {
-        for sha in &shas {
-            match blobs.rekey(old, new, sha) {
-                Ok(_) => {}
-                // lost before the move: nothing to copy, and the read reports it as before
-                Err(BlobError::NotFound) => {
-                    tracing::warn!(%document_id, "a blob of a moved document is missing from the store");
+        'copies: for (sha, read_from, to, what) in &copies {
+            for from in read_from {
+                match blobs.rekey(*from, *to, sha) {
+                    Ok(_) => continue 'copies,
+                    Err(BlobError::NotFound) => {}
+                    Err(e) => return Err(Error::from(e)),
                 }
-                Err(e) => return Err(Error::from(e)),
             }
+            // lost before the move: nothing to copy, and the read reports it as before
+            tracing::warn!(%document_id, "{what} of a moved document is missing from the store");
         }
         Ok(Moved { from: old, shas })
     })

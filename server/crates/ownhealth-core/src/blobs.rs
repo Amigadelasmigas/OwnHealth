@@ -517,7 +517,7 @@ pub const HOLDERS: &[(&str, &[&str], &str, &str)] = &[
     ),
     // Match the legacy ownership order in ownhealth_ops::seal. Held or deleted mail with
     // no explicit profile has no profile owner, and released raw bytes have no holder.
-    // A row read as its document's profile moves with the document (documents::rekey_document).
+    // A document move re-keys the raw file of a row whose owner changes with it (documents::rekey_document).
     (
         "source_item",
         &["blob_sha256"],
