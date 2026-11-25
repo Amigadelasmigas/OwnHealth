@@ -20,8 +20,21 @@ if [ "${OWNHEALTH_ALLOW_MISSING_KEYS:-}" = 1 ]; then FLAGS=--allow-missing-keys;
 # The dump carries the app role's grants, so the role must exist before pg_restore loads them.
 # compose.yaml mounts app-role.sh into the admin container; elsewhere (OWNHEALTH_RUN="") it is skipped.
 ROLE=${OWNHEALTH_APP_ROLE_SCRIPT:-/opt/ownhealth-db/app-role.sh}
+# Name the snapshot once: a retry of a restore that stopped must load the same one, and "latest" may
+# name a newer snapshot by then (deploy/README.md "Restore").
+ID=$($RUN restic snapshots --json --host ownhealth --tag ownhealth "$SNAPSHOT" \
+  | tr ',' '\n' | sed -n 's/.*"short_id": *"\([0-9a-f]*\)".*/\1/p')
+case $ID in
+  "" | *[!0-9a-f]*)
+    log "no single snapshot $SNAPSHOT with host ownhealth and tag ownhealth"
+    exit 1
+    ;;
+esac
+AGAIN=
+if [ -n "$FLAGS" ]; then AGAIN="OWNHEALTH_ALLOW_MISSING_KEYS=1 "; fi
+log "restoring snapshot $ID; to retry this restore, run it again with the same id: ${AGAIN}./deploy/restic/restore.sh $ID"
 $RUN sh -c "rm -rf '$SCRATCH' \
   && { [ ! -f '$ROLE' ] || sh '$ROLE'; } \
-  && restic restore --quiet --host ownhealth --tag ownhealth '$SNAPSHOT:$STAGING' --target '$SCRATCH' >&2 \
+  && restic restore --quiet --host ownhealth --tag ownhealth '$ID:$STAGING' --target '$SCRATCH' >&2 \
   && ownhealth restore $FLAGS '$SCRATCH'; status=\$?; rm -rf '$SCRATCH'; exit \$status"
 log "restored; start the app with: docker compose up -d"

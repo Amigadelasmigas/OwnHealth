@@ -521,6 +521,18 @@ fn script(name: &str, env: &Env) -> anyhow::Result<Output> {
     run(deploy().join(name), env, &[])
 }
 
+/// The names in the folder at `dir`, sorted; none when it is not there.
+fn entries(dir: &Path) -> anyhow::Result<Vec<String>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut names = std::fs::read_dir(dir)?
+        .map(|e| Ok(e?.file_name().to_string_lossy().into_owned()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    names.sort();
+    Ok(names)
+}
+
 fn text(o: &Output) -> String {
     format!(
         "{}{}",
@@ -554,7 +566,7 @@ async fn backup_then_restore_test_then_restore_into_a_fresh_stack() -> R {
     assert!(check.status.success(), "{}", text(&check));
     let report: Value = serde_json::from_slice(&check.stdout)?;
     assert!(report["ok"] == true && report["profiles"].as_object().map(|p| p.len()) == Some(4));
-    assert!(!tmp.path().join("restore").exists());
+    assert_eq!(entries(&tmp.path().join("restore"))?, Vec::<String>::new());
 
     let fresh_db = TestDb::empty().await?;
     let mut fresh = fresh_db.settings(&tmp.path().join("fresh"))?;
@@ -562,6 +574,14 @@ async fn backup_then_restore_test_then_restore_into_a_fresh_stack() -> R {
     fresh.keyring_dir = Some(s.keyring_path()); // the keyring mount, outside the snapshot
     let restored = script("restore.sh", &env_for(&fresh, tmp.path()))?;
     assert!(restored.status.success(), "{}", text(&restored));
+    // the concrete snapshot "latest" named, for a retry of a restore that stopped
+    let short_id = snaps[0]["short_id"].as_str().unwrap_or_default();
+    assert_eq!(short_id.len(), 8, "{snaps:#}");
+    assert!(
+        String::from_utf8_lossy(&restored.stderr).contains(&format!("restoring snapshot {short_id}")),
+        "{}",
+        text(&restored)
+    );
     let fresh_report: Value = serde_json::from_slice(&restored.stdout)?;
     assert_eq!(fresh_report["ok"], true);
     let actual: Vec<(String, Value)> = fresh_report["profiles"]
@@ -643,6 +663,33 @@ async fn restore_test_fails_when_the_latest_snapshot_does_not_match_its_manifest
     let report: Value = serde_json::from_slice(&check.stdout)?;
     assert_eq!(report["ok"], false);
     assert!(String::from_utf8_lossy(&check.stderr).contains("FAILED"));
+    Ok(())
+}
+
+/// restore-test.sh restores into a folder of its own under OWNHEALTH_RESTORE_DIR. A second run
+/// never deletes the archive another run's check is reading, and the folder of a run that stopped
+/// a day ago or more goes.
+#[tokio::test]
+async fn restore_test_leaves_another_runs_folder_alone() -> R {
+    let Some(restic) = restic_or_skip() else { return Ok(()) };
+    let tmp = tempfile::tempdir()?;
+    let (_db, s) = seeded(tmp.path()).await?;
+    let env = env_for(&s, tmp.path());
+    assert!(run(&restic, &env, &["init", "--quiet"])?.status.success());
+    assert!(script("backup.sh", &env)?.status.success());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let base = tmp.path().join("restore");
+    let running = format!("run-{now}-1");
+    let stopped = format!("run-{}-2", now - 2 * 86_400);
+    for name in [&running, &stopped] {
+        std::fs::create_dir_all(base.join(name))?;
+        std::fs::write(base.join(name).join("manifest.json"), b"{}")?;
+    }
+    let check = script("restore-test.sh", &env)?;
+    assert!(check.status.success(), "{}", text(&check));
+    assert_eq!(entries(&base)?, [running], "{}", text(&check));
     Ok(())
 }
 

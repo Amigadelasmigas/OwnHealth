@@ -13,11 +13,20 @@ set -eu
 . "$(dirname "$0")/common.sh"
 RUN=${OWNHEALTH_RUN-docker compose run --rm -T admin}
 
-$RUN rm -rf "$SCRATCH"
+# Each run restores into a folder of its own, so a run never deletes the archive that another run's
+# check is still reading. A folder whose run started a day ago or more is one a stopped run left.
+HERE="$SCRATCH/run-$(date +%s)-$$"
+# shellcheck disable=SC2016 # expanded by the inner shell
+$RUN sh -c 'now=$(date +%s); for d in "$1"/run-*; do
+  [ -d "$d" ] || continue
+  t=${d##*/run-}; t=${t%%-*}
+  case $t in "" | *[!0-9]*) continue ;; esac
+  [ $((now - t)) -lt 86400 ] || rm -rf "$d"
+done' sweep "$SCRATCH"
 log "restic restore $SNAPSHOT"
-$RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$SCRATCH" >&2
+$RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$HERE" >&2
 status=0
-$RUN ownhealth verify-restore "$SCRATCH" || status=$?
-$RUN rm -rf "$SCRATCH"
+$RUN ownhealth verify-restore "$HERE" || status=$?
+$RUN rm -rf "$HERE"
 if [ "$status" -eq 0 ]; then log "restore test passed"; else log "restore test FAILED"; fi
 exit "$status"
