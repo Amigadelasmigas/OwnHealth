@@ -37,7 +37,7 @@ pub const PROVIDER: &str = "fitbit_takeout";
 const UNKNOWN: &str = "fitbit_takeout_unknown_layout";
 const UNREADABLE: &str = "fitbit_takeout_unreadable";
 const LIMIT: &str = "fitbit_takeout_limit";
-const NO_READINGS: &str = "fitbit_takeout_no_readings";
+pub(crate) const NO_READINGS: &str = "fitbit_takeout_no_readings";
 const INVALID_CSV: &str = "invalid_csv";
 const INVALID_JSON: &str = "invalid_json";
 /// A damaged member (bad checksum, short data or a method the reader cannot open) is listed and
@@ -642,9 +642,6 @@ pub(crate) fn scan<R: Read + Seek>(zip: &mut ZipArchive<R>, report: &mut Report)
         if minutes.len() + non_heart_rate.len() > MAX_READINGS {
             return Err(refuse(LIMIT));
         }
-    }
-    if imported.is_empty() {
-        return Err(refuse(NO_READINGS));
     }
     for (minute, readings) in minutes {
         let (member, sample) = readings.finish(minute);

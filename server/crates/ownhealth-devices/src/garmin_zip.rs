@@ -872,6 +872,15 @@ async fn import_document(
     Ok(Some(out))
 }
 
+fn archive_result(export: &ExportSettings, out: Value) -> jobs::HandlerResult {
+    // Every Fitbit import that brought readings has a projected document. A committed empty
+    // report is a refusal, even if a new worker has to finish it after the raw ZIP was removed.
+    if export.flag == takeout_fitbit::EXPORT.flag && out[export.flag]["files_imported"] == 0 {
+        return Err(JobError::permanent(takeout_fitbit::NO_READINGS).with_result(out));
+    }
+    Ok(Some(out))
+}
+
 pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jobs::HandlerResult {
     let channel = job
         .str("channel")
@@ -895,7 +904,7 @@ pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jo
         .await?;
     if let Some(out) = previous {
         fit::forget_upload(&ctx, profile, sha, job.id).await;
-        return Ok(Some(out));
+        return archive_result(&export, out);
     }
     let (worker_ctx, worker_sha) = (ctx.clone(), sha.to_owned());
     let prepared =
@@ -941,7 +950,7 @@ pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jo
         .await?;
     tx.commit().await?;
     fit::forget_upload(&ctx, profile, sha, job.id).await;
-    Ok(Some(out))
+    archive_result(&export, out)
 }
 
 async fn release_source_items(conn: &mut PgConnection, profile: Uuid, sha: &str, document: Option<Uuid>) -> Result<()> {
