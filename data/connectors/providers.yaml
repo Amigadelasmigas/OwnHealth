@@ -12,9 +12,11 @@
 # refuse them. New importers add their provider here. The ownhealth-devices tests/providers.rs test
 # checks that every importer has a line.
 #
-# A provider moves from withheld to served only when its connector page quotes the vendor's primary
-# terms and they show no ban on AI processing (docs/design/connectors.md section 4). File exports of
-# a person's own data are that person's files; API terms do not reach them.
+# A provider moves from withheld to served only when its connector page, docs/connectors/<provider>.md,
+# quotes the vendor's primary terms and they show no ban on AI processing and no ban on passing the
+# data to software the person chooses. A withheld provider's page names the clause that holds it back.
+# The ownhealth-core providers tests check both. File exports of a person's own data are that
+# person's files; API terms do not reach them.
 version: 1
 providers:
   # Files and pushes of the person's own data
@@ -30,11 +32,15 @@ providers:
   dexcom_clarity: {ingest: allow, mcp: served, path: "Dexcom Clarity CSV export"}
   # Vendor APIs through Open Wearables: the sidecar's allowlist. The poller's list is
   # ownhealth-devices openwearables.rs PROVIDERS; a test checks that it names exactly these lines.
+  # Withheld: Oura's API agreement 4(d) bans its API data as input to any AI model; WHOOP's API
+  # terms section 4 ban using its data to develop any AI application or system.
   oura: {ingest: allow, mcp: withheld, path: "Open Wearables"}
   whoop: {ingest: allow, mcp: withheld, path: "Open Wearables"}
-  polar: {ingest: allow, mcp: withheld, path: "Open Wearables"}
-  withings: {ingest: allow, mcp: withheld, path: "Open Wearables"}
-  # Vendor APIs we connect to ourselves
+  # Served: Polar's AccessLink licence (3.1.1) and Withings' terms (6.4) let the member pass the data
+  # to software they choose, and neither bans AI processing.
+  polar: {ingest: allow, mcp: served, path: "Open Wearables"}
+  withings: {ingest: allow, mcp: served, path: "Open Wearables"}
+  # Vendor APIs we connect to ourselves. Withheld: Dexcom's data licence is shown only at registration.
   dexcom: {ingest: allow, mcp: withheld, path: "Dexcom API v3 (native connector)"}
   # Never stored: the Strava API terms ban AI use and MCP servers; Garmin comes in as export files
   strava: {ingest: drop, mcp: withheld, path: "Strava API"}

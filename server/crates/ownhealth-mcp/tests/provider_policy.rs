@@ -1,5 +1,5 @@
 //! The provider policy (`data/connectors/providers.yaml`) at every MCP path: an Oura ring and a native
-//! Dexcom sensor (withheld until their connector pages quote the vendors' terms) never reach an agent,
+//! Dexcom sensor (withheld by the vendors' terms, docs/connectors) never reach an agent,
 //! while an Apple Watch (served) does. search_observations and get_trend count what they left out in
 //! `withheld.vendor_terms`; the status, its resource, the calculators and the freshness date change
 //! nothing at all.
@@ -58,7 +58,7 @@ async fn withheld(w: &World) -> R {
     days(w, "oura", "Oura Ring", "sleep_asleep", &recent, 450.0).await?;
     days(w, "dexcom", "Dexcom G7", "glucose_cgm", &recent, 140.0).await?;
     // a cuff behind a withheld vendor: the calculators would read its 30-day mean
-    days(w, "withings", "BPM Connect", "bp_systolic", &[0, 1, 2], 150.0).await
+    days(w, "whoop", "WHOOP MG", "bp_systolic", &[0, 1, 2], 150.0).await
 }
 
 fn values(env: &Value, list: &str) -> Vec<Option<f64>> {
