@@ -2485,6 +2485,32 @@ fn round_1_a_notes_section_with_text_only_is_a_stored_note_in_review() -> R {
     Ok(())
 }
 
+/// CodeRabbit round 7 (Notes): a Notes section whose text exhausts the scan before its first word is
+/// one incomplete note in review, like a narrative-only section; an empty Notes section stays out.
+#[test]
+fn round_7_a_notes_section_cut_before_its_first_word_is_a_stored_note_in_review() -> R {
+    let beyond = text_past_the_node_limit();
+    for (template, title) in [
+        ("2.16.840.1.113883.10.20.22.2.65", "Notes"),
+        ("2.16.840.1.113883.10.20.22.2.999", "Other"),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section><templateId root="{template}"/><title>{title}</title>
+              <text>{beyond}</text></section></component>"#
+        )))?;
+        assert!(c.sections[0].narrative, "{title}");
+        let held = held_items(&c, "test", "n.xml");
+        assert_eq!(held.len(), 1, "{title}: {held:?}");
+    }
+    let c = convert(&document(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.65"/><title>Notes</title>
+          <text><paragraph> </paragraph></text></section></component>"#,
+    ))?;
+    assert_eq!((c.sections[0].narrative, c.sections[0].stored_notes), (false, 0));
+    assert!(held_items(&c, "test", "n.xml").is_empty());
+    Ok(())
+}
+
 // ------------------------------------------------------ slice 21, round 2 ----
 
 fn social_history(entries: &str) -> Vec<u8> {

@@ -1040,7 +1040,12 @@ impl<'a, 'i> Conv<'a, 'i> {
             code: child(sec, "code").and_then(|c| attr(c, "code")).map(String::from),
             kind: Section::of(sec),
             entries: entries.len(),
-            narrative: attr(sec, "nullFlavor").is_none() && child(sec, "text").and_then(xml::text).is_some(),
+            // A text cut before its first word still holds narrative the converter did not read.
+            narrative: attr(sec, "nullFlavor").is_none()
+                && child(sec, "text").is_some_and(|t| {
+                    let text = xml::read_text(t);
+                    text.value.is_some() || text.truncated
+                }),
             pointer,
             ..SectionReport::default()
         };
