@@ -3067,3 +3067,87 @@ async fn round_6_an_indications_own_text_goes_to_review() -> R {
     assert_eq!(flags["unprojected"], 1, "{flags}");
     Ok(())
 }
+
+/// CR-PROC: a Procedure or procedure Observation note is kept up to 2,000 characters. When the
+/// note's own text, the narrative it points at, or the two joined pass that bound, the cut part is
+/// only in the file, so the note goes to review. A note within the bound adds nothing.
+#[test]
+fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
+    let under = "a".repeat(1_999);
+    let at = "b".repeat(2_000);
+    let over = "c".repeat(2_001);
+    let near = "d".repeat(1_995);
+    let narrative = format!(
+        r#"<paragraph ID="under">{under}</paragraph><paragraph ID="over">{over}</paragraph><paragraph ID="near">{near}</paragraph>"#
+    );
+    let procedure = |text: &str| {
+        procedures(&format!(
+            r#"<text>{narrative}</text>
+               <entry><procedure classCode="PROC" moodCode="EVN">
+                 <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+                 <text>{text}</text>
+                 <statusCode code="completed"/><effectiveTime value="20210301"/>
+               </procedure></entry>"#
+        ))
+    };
+    let observation = |text: &str| {
+        procedures(&format!(
+            r#"<text>{narrative}</text>
+               <entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.13"/>
+                 <code code="274025005" codeSystem="2.16.840.1.113883.6.96" displayName="Colonic polypectomy"/>
+                 <text>{text}</text>
+                 <statusCode code="completed"/><effectiveTime value="20210301"/>
+               </observation></entry>"#
+        ))
+    };
+    let cut = |what: &str| format!("{what} (note cut at 2,000 characters; the rest is kept in the uploaded file)");
+    let cases = [
+        (under.clone(), under.clone(), false),
+        (at.clone(), at.clone(), false),
+        (r##"<reference value="#under"/>"##.to_string(), under.clone(), false),
+        (over.clone(), over[..2_000].to_string(), true),
+        (
+            r##"<reference value="#over"/>"##.to_string(),
+            over[..2_000].to_string(),
+            true,
+        ),
+        (
+            r##"<reference value="#near"/>Done under sedation"##.to_string(),
+            String::new(),
+            true,
+        ),
+    ];
+    for (rtype, make, what) in [
+        (
+            "Procedure",
+            &procedure as &dyn Fn(&str) -> Vec<u8>,
+            "procedure without a templateId",
+        ),
+        (
+            "Observation",
+            &observation,
+            "observation 2.16.840.1.113883.10.20.22.4.13",
+        ),
+    ] {
+        for (text, note, flagged) in &cases {
+            let bytes = make(text);
+            let c = convert(&bytes)?;
+            let kept = resources(&c, rtype)[0]["note"][0]["text"]
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_default();
+            assert!(kept.chars().count() <= 2_000, "{rtype}");
+            if !note.is_empty() {
+                assert_eq!(&kept, note, "{rtype} {}", &text[..text.len().min(40)]);
+            }
+            let expected = if *flagged { vec![cut(what)] } else { vec![] };
+            assert_eq!(
+                unread_lines(&bytes)?,
+                expected,
+                "{rtype} {}",
+                &text[..text.len().min(40)]
+            );
+        }
+    }
+    Ok(())
+}

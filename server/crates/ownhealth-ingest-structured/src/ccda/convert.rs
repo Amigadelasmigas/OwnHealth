@@ -798,10 +798,17 @@ impl<'a, 'i> Conv<'a, 'i> {
     /// words written beside the reference ("2 puffs QID PRN wheezing"), within the bound of a text
     /// ([`xml::joined`]); else its own.
     fn narrative_of(&mut self, n: Node<'_, '_>) -> Option<String> {
-        let own = xml::text(n);
+        self.bounded_narrative(n).map(|(text, _)| text)
+    }
+
+    /// [`Self::narrative_of`], and whether the text bound cut a part of it: of the element's own
+    /// text, of the narrative it points at, or of the two joined.
+    fn bounded_narrative(&mut self, n: Node<'_, '_>) -> Option<(String, bool)> {
+        let xml::NarrativeText { value: own, truncated } = xml::read_text(n);
         if let Some((target, text)) = self.referenced_narrative(n)
             && let Some(t) = text.value.clone()
         {
+            let cut = truncated || text.truncated;
             // The target can be in a later section or under a restricted parent section.
             for sec in std::iter::successors(Some(target), Node::parent_element)
                 .filter(|n| n.has_tag_name((xml::NS, "section")))
@@ -826,11 +833,11 @@ impl<'a, 'i> Conv<'a, 'i> {
                 }
             }
             return Some(match own {
-                Some(o) if !t.contains(&o) => xml::joined(&t, &o),
-                _ => t,
+                Some(o) if !t.contains(&o) => (xml::joined(&t, &o), cut || xml::joined_cuts(&t, &o)),
+                _ => (t, cut),
             });
         }
-        own
+        own.map(|o| (o, truncated))
     }
 
     fn coding(n: Node<'_, '_>) -> Option<Value> {
@@ -1629,7 +1636,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             put(&mut r, "effectiveDateTime", when.map(Value::String));
         }
         if activity {
-            put(&mut r, "note", self.activity_note(obs));
+            put(&mut r, "note", self.activity_note(obs, rep));
         }
         if let Some(v) = child(obs, "value") {
             match self.value(v) {

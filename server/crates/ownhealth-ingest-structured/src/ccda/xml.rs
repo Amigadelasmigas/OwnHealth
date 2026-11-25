@@ -72,6 +72,11 @@ pub fn joined(first: &str, second: &str) -> String {
     format!("{first}; {}", second.trim_end())
 }
 
+/// Whether [`joined`] must cut `first` or `second` to stay within [`MAX_TEXT`].
+pub fn joined_cuts(first: &str, second: &str) -> bool {
+    first.chars().count() + second.chars().count() + 2 > MAX_TEXT
+}
+
 /// The refusal of a document whose body is a `nonXMLBody` (a scan or an attached file): no coded
 /// section to read, and its reference is never followed.
 pub fn unstructured() -> Error {

@@ -4,7 +4,7 @@ use roxmltree::Node;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Conv, Section, SectionReport, attr, attr_ts, child, children, coded, digits, elements, has_template,
+    Conv, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements, has_template,
     is_security_observation, is_true, lookup, ordered_period, path, put, status_of, templates, xml,
 };
 
@@ -297,7 +297,7 @@ impl Conv<'_, '_> {
             .map(|actor| json!({"actor": actor}))
             .collect();
         put(&mut r, "performer", (!performers.is_empty()).then(|| json!(performers)));
-        put(&mut r, "note", self.activity_note(n));
+        put(&mut r, "note", self.activity_note(n, rep));
         self.push(Some(rep), at, Value::Object(r));
         self.unread_relationships(n, rep);
         true
@@ -329,9 +329,16 @@ impl Conv<'_, '_> {
         read
     }
 
-    pub(super) fn activity_note(&mut self, n: Node<'_, '_>) -> Option<Value> {
-        child(n, "text")
-            .and_then(|t| self.narrative_of(t))
-            .map(|text| json!([{"text": text}]))
+    /// The activity's text as a note, at most 2,000 characters. A note the bound cut goes to review:
+    /// the rest of it exists only in the file.
+    pub(super) fn activity_note(&mut self, n: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
+        let (text, cut) = child(n, "text").and_then(|t| self.bounded_narrative(t))?;
+        if cut {
+            rep.not_read.push(format!(
+                "{} (note cut at 2,000 characters; the rest is kept in the uploaded file)",
+                describe(n)
+            ));
+        }
+        Some(json!([{"text": text}]))
     }
 }
