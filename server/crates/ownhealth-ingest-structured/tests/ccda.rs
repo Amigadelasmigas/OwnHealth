@@ -2511,6 +2511,30 @@ fn round_7_a_notes_section_cut_before_its_first_word_is_a_stored_note_in_review(
     Ok(())
 }
 
+/// Round 8 (K21R7-M1): an Encounters, Procedures or Social History section with no entry whose text
+/// exhausts the scan before its first word still reaches review with the narrative-only sections.
+#[test]
+fn round_8_a_no_entry_section_cut_before_its_first_word_is_held_as_narrative() -> R {
+    let beyond = text_past_the_node_limit();
+    for (template, title) in [
+        ("2.16.840.1.113883.10.20.22.2.22.1", "Encounters"),
+        ("2.16.840.1.113883.10.20.22.2.7.1", "Procedures"),
+        ("2.16.840.1.113883.10.20.22.2.17", "Social History"),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section><templateId root="{template}"/><title>{title}</title>
+              <text>{beyond}</text></section></component>"#
+        )))?;
+        assert!(c.sections[0].kind.is_some(), "{title}");
+        assert_eq!((c.sections[0].entries, c.sections[0].narrative), (0, true), "{title}");
+        let held = held_items(&c, "test", "s.xml");
+        assert_eq!(held.len(), 1, "{title}: {held:?}");
+        assert_eq!(held[0]["resource_type"], ccda::NARRATIVE, "{title}");
+        assert_eq!(held[0]["notes"], json!({format!("{title} ({template})"): 1}), "{title}");
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------ slice 21, round 2 ----
 
 fn social_history(entries: &str) -> Vec<u8> {
