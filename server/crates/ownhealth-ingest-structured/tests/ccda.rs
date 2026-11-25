@@ -3116,6 +3116,12 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
             String::new(),
             true,
         ),
+        // the narrative and the words beside the reference joined fill the bound exactly
+        (
+            r##"<reference value="#near"/>abc"##.to_string(),
+            format!("{near}; abc"),
+            false,
+        ),
     ];
     for (rtype, make, what) in [
         (
