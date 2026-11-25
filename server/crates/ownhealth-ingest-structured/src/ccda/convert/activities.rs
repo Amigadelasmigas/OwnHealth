@@ -158,7 +158,10 @@ impl Conv<'_, '_> {
                 if is_note_activity(part) || is_security_observation(part) {
                     continue;
                 }
+                // "not the reason" (a negated relationship) and a reversed one are no visit reason
                 let indication = attr(rel, "typeCode") == Some("RSON")
+                    && !is_true(rel, "negationInd")
+                    && !is_true(rel, "inversionInd")
                     && part.has_tag_name((xml::NS, "observation"))
                     && event(part, &[INDICATION])
                     && !is_true(part, "negationInd")

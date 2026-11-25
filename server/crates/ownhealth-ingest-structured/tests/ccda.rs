@@ -2334,9 +2334,9 @@ fn round_1_an_encounter_class_comes_from_its_code_or_is_unknown() -> R {
 /// is never a Condition. Any other part, and a null activity, waits in review.
 #[test]
 fn round_1_only_a_reason_indication_becomes_the_visit_reason() -> R {
-    let indication = |type_code: &str, extra: &str, code: &str| {
+    let indication = |type_code: &str, rel_extra: &str, extra: &str, code: &str| {
         format!(
-            r#"<entryRelationship typeCode="{type_code}"><observation classCode="OBS" moodCode="EVN" {extra}>
+            r#"<entryRelationship typeCode="{type_code}" {rel_extra}><observation classCode="OBS" moodCode="EVN" {extra}>
               <templateId root="2.16.840.1.113883.10.20.22.4.19"/><statusCode code="completed"/>
               <effectiveTime><low value="20210301"/></effectiveTime>
               <value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96"/>
@@ -2345,12 +2345,15 @@ fn round_1_only_a_reason_indication_becomes_the_visit_reason() -> R {
     };
     let c = convert(&encounters(&format!(
         r#"<entry><encounter moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
-            <effectiveTime value="20210302"/>{}{}{}</encounter></entry>
+            <effectiveTime value="20210302"/>{}{}{}{}{}</encounter></entry>
           <entry><encounter moodCode="EVN" nullFlavor="NI"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
             <effectiveTime value="20210303"/></encounter></entry>"#,
-        indication("RSON", "", "233604007"),
-        indication("COMP", "", "195967001"),
-        indication("RSON", r#"negationInd="true""#, "38341003"),
+        indication("RSON", r#"inversionInd="false" negationInd="false""#, "", "233604007"),
+        indication("COMP", "", "", "195967001"),
+        indication("RSON", "", r#"negationInd="true""#, "38341003"),
+        // round 9 (K21R8-M2, K21R8-T4): "not the reason" and a reversed relationship are no reason
+        indication("RSON", r#"negationInd="true""#, "", "44054006"),
+        indication("RSON", r#"inversionInd="true""#, "", "386661006"),
     )))?;
     let visits = resources(&c, "Encounter");
     assert_eq!(visits.len(), 1);
@@ -2360,7 +2363,13 @@ fn round_1_only_a_reason_indication_becomes_the_visit_reason() -> R {
     let indication = "observation 2.16.840.1.113883.10.20.22.4.19";
     assert_eq!(
         c.sections[0].not_read,
-        [indication, indication, "encounter 2.16.840.1.113883.10.20.22.4.49"]
+        [
+            indication,
+            indication,
+            indication,
+            indication,
+            "encounter 2.16.840.1.113883.10.20.22.4.49"
+        ]
     );
     Ok(())
 }
