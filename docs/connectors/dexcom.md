@@ -30,7 +30,7 @@ and that it is standard and non-negotiable:
 
 Source: <https://developer.dexcom.com/docs/dexcom/scopes-access>
 
-Fetched: 2026-11-25 (in a real browser: plain HTTP returns a page that needs JavaScript)
+Fetched: 2026-11-25 (plain HTTP)
 
 The developer agreement is accepted during registration:
 
@@ -38,7 +38,7 @@ The developer agreement is accepted during registration:
 
 Source: <https://developer.dexcom.com/docs/dexcom/scopes-access>
 
-Fetched: 2026-11-25 (in a real browser)
+Fetched: 2026-11-25 (plain HTTP)
 
 Both agreements are shown at registration. We found no public copy of either.
 
