@@ -1217,13 +1217,13 @@ fn entered_in_error_has_no_clinical_status_and_an_active_problem_with_an_end_is_
         allergy_entry("void", "nullified"),
         allergy_entry("kept", "active")
     )))?;
-    let conditions: Vec<(&str, &Value, &Value, &Value)> = resources(&c, "Condition")
+    let conditions: Vec<(&str, &Value, Option<&Value>, &Value)> = resources(&c, "Condition")
         .into_iter()
         .map(|r| {
             (
                 r["code"]["coding"][0]["code"].as_str().unwrap_or_default(),
                 &r["verificationStatus"]["coding"][0]["code"],
-                &r["clinicalStatus"],
+                r.get("clinicalStatus"),
                 &r["abatementDateTime"],
             )
         })
@@ -1231,11 +1231,11 @@ fn entered_in_error_has_no_clinical_status_and_an_active_problem_with_an_end_is_
     assert_eq!(
         conditions,
         [
-            ("233604007", &json!("entered-in-error"), &Value::Null, &Value::Null),
+            ("233604007", &json!("entered-in-error"), None, &Value::Null),
             (
                 "195967001",
                 &json!("confirmed"),
-                &json!({"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "resolved"}]}),
+                Some(&json!({"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "resolved"}]})),
                 &json!("2020-03-01")
             ),
         ]
@@ -1298,7 +1298,8 @@ fn planted(dir: &std::path::Path, fixture: &Value, truth: &Value, marker: &str) 
         .flatten()
         .filter_map(Value::as_str)
     {
-        let text = String::from_utf8_lossy(&std::fs::read(dir.join(f)).unwrap_or_default()).into_owned();
+        let bytes = std::fs::read(dir.join(f)).unwrap_or_else(|e| panic!("injection fixture {f}: {e}"));
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let mut pieces = Vec::new();
         if f.ends_with(".pdf") {
             pieces.extend(
@@ -2510,6 +2511,13 @@ fn round_7_a_notes_section_cut_before_its_first_word_is_a_stored_note_in_review(
         assert!(c.sections[0].narrative, "{title}");
         let held = held_items(&c, "test", "n.xml");
         assert_eq!(held.len(), 1, "{title}: {held:?}");
+        if title == "Notes" {
+            assert_eq!(c.sections[0].stored_notes, 1);
+            assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
+        } else {
+            assert_eq!(c.sections[0].stored_notes, 0);
+            assert_eq!(held[0]["resource_type"], ccda::NARRATIVE);
+        }
     }
     let c = convert(&document(
         r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.65"/><title>Notes</title>
