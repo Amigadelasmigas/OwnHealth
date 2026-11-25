@@ -162,6 +162,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_withings_page_sends_another_members_account_to_the_partner_terms() {
+        // Withings terms 6.4 (quoted on the page) cover the person's own data for their own needs.
+        // An app meant for other users falls under the partner terms. One household app serves
+        // every member, so another member's account connected through it is not 6.4.
+        let pages = pages();
+        let page = pages.get("withings").expect("docs/connectors/withings.md");
+        let served_for = page
+            .lines()
+            .find_map(|l| l.strip_prefix("**Served for:**"))
+            .expect("Served for line");
+        assert!(
+            served_for.contains("partner terms"),
+            "the Served for line names the partner terms for another member: {served_for}"
+        );
+        // markdown wraps lines, so compare the words
+        let household = page
+            .split("**One app for the household.**")
+            .nth(1)
+            .expect("household bullet")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            household.contains("another household member") && household.contains("partner terms"),
+            "the household bullet says another member falls under the partner terms"
+        );
+        assert!(
+            !household.contains("outside your household"),
+            "6.4 does not cover every member of the household"
+        );
+        let comment = SHIPPED
+            .lines()
+            .skip_while(|l| !l.contains("# Served: Polar"))
+            .take_while(|l| l.starts_with("  #"))
+            .flat_map(|l| l.trim_start_matches([' ', '#']).split_whitespace())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            comment.contains("partner terms"),
+            "the providers.yaml comment names the Withings partner terms: {comment}"
+        );
+    }
+
     /// Providers whose data are the person's own files or pushes (account exports, their own
     /// Nightscout, an app on their own phone). No vendor API terms reach them (docs/design/connectors.md
     /// section 4), so they need no connector page. Every other provider marked served needs

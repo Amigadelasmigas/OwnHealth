@@ -40,6 +40,8 @@ providers:
   # Served: Polar's AccessLink licence (3.1.1) and Withings' terms (6.4) let the member pass the data
   # to software they choose, and neither bans AI processing. Served for the member's own agent and the
   # agents of people the member grants read:wearables (docs/connectors/polar.md, withings.md).
+  # Withings 6.4 covers the member who registered the household app; another member's account
+  # connected through it falls under the partner terms shown at registration (withings.md).
   polar: {ingest: allow, mcp: served, path: "Open Wearables"}
   withings: {ingest: allow, mcp: served, path: "Open Wearables"}
   # Vendor APIs we connect to ourselves. Withheld: Dexcom's data licence is shown only at registration.

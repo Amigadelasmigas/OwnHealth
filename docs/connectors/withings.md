@@ -2,7 +2,7 @@
 
 **MCP policy:** served. Withings readings reach MCP, the rule-pack markers and the calculators.
 
-**Served for:** the member's own agent, and the agent of a person the member gives a `read:wearables` grant (section 6.4: the member's own data, for their own needs).
+**Served for:** the member's own agent, and the agent of a person the member gives a `read:wearables` grant (section 6.4: the member's own data, for their own needs). When another household member's Withings account connects through an app someone else registered, the partner terms shown at registration apply to that account instead. Read them before that member connects.
 
 ## What the connector does
 
@@ -70,7 +70,9 @@ member's data at their request as one way to share it. So Withings is served, on
   `read:wearables` can create an MCP token for that profile, and their agent then reads the
   readings. The grant is the member's choice, so give it only to someone whose agent the member
   agrees may read them. Item (ii) of the 2023 terms asks for the user's express prior consent.
-- **One app for the household.** One person registers the Withings app for the whole household.
-  Section 6.4 covers a tool built for your own needs. If you run the instance for people outside your
-  household, or use the data for other purposes, the partner terms shown at registration apply
-  instead. Read them before you do that.
+- **One app for the household.** One person registers the Withings app, and every member connects
+  through it (`openwearables.env` holds one client per household). Section 6.4 covers that person
+  reading their own account with a tool built for their own use. When another household member
+  connects their own Withings account through the app, the app serves another user. Then the partner
+  terms shown at registration apply and take precedence over 6.4. Read them before another member
+  connects.
