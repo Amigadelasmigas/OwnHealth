@@ -622,7 +622,7 @@ struct Conv<'a, 'i> {
     narrative: HashMap<&'a str, Node<'a, 'i>>,
     /// The text of each narrative element a reference read, so a narrative many entries point at is
     /// read once.
-    read: HashMap<NodeId, Option<String>>,
+    read: HashMap<NodeId, xml::NarrativeText>,
     /// Each referenced section or entry's own labels, shared by all targets inside it.
     source_labels: HashMap<NodeId, Vec<Value>>,
     /// Labels of the narrative used to build the current resource.
@@ -725,18 +725,20 @@ impl<'a, 'i> Conv<'a, 'i> {
         self.patient.as_ref().map(|p| json!({"reference": p}))
     }
 
+    fn referenced_narrative(&mut self, n: Node<'_, '_>) -> Option<(Node<'a, 'i>, &xml::NarrativeText)> {
+        let reference = child(n, "reference").and_then(|r| attr(r, "value"))?;
+        let &target = self.narrative.get(reference.trim_start_matches('#'))?;
+        let text = self.read.entry(target.id()).or_insert_with(|| xml::read_text(target));
+        Some((target, text))
+    }
+
     /// The text an element holds: the narrative its `<reference value="#x"/>` points at, then any
     /// words written beside the reference ("2 puffs QID PRN wheezing"), within the bound of a text
     /// ([`xml::joined`]); else its own.
     fn narrative_of(&mut self, n: Node<'_, '_>) -> Option<String> {
         let own = xml::text(n);
-        if let Some(r) = child(n, "reference").and_then(|r| attr(r, "value"))
-            && let Some(&target) = self.narrative.get(r.trim_start_matches('#'))
-            && let Some(t) = self
-                .read
-                .entry(target.id())
-                .or_insert_with(|| xml::text(target))
-                .clone()
+        if let Some((target, text)) = self.referenced_narrative(n)
+            && let Some(t) = text.value.clone()
         {
             // The target can be in a later section or under a restricted parent section.
             for sec in std::iter::successors(Some(target), Node::parent_element)
@@ -1579,6 +1581,31 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some(id)
     }
 
+    /// A display name takes precedence over originalText in the coded value. Compare the
+    /// omitted narrative with the retained text and coding displays without copying source labels.
+    fn unread_original_text(&mut self, v: Node<'_, '_>, concept: &Value) -> bool {
+        let Some(original) = child(v, "originalText").filter(|_| attr(v, "displayName").is_some()) else {
+            return false;
+        };
+        let retained = |text: &str| {
+            concept["text"].as_str() == Some(text)
+                || concept["coding"]
+                    .as_array()
+                    .is_some_and(|codings| codings.iter().any(|coding| coding["display"].as_str() == Some(text)))
+        };
+        let own = xml::read_text(original);
+        let target = self.referenced_narrative(original).map(|(_, text)| text);
+        if own.truncated || target.is_some_and(|text| text.truncated) {
+            return true;
+        }
+        match (target.and_then(|text| text.value.as_deref()), own.value.as_deref()) {
+            (Some(target), Some(text)) if !target.contains(text) => !retained(&format!("{target}; {text}")),
+            (Some(target), _) => !retained(target),
+            (None, Some(text)) => !retained(text),
+            (None, None) => false,
+        }
+    }
+
     /// Read an observation's value by its CDA type, distinguishing absent and unread values.
     fn value(&mut self, v: Node<'_, '_>) -> ObservationValue {
         let kind = xsi_type(v).unwrap_or(if attr(v, "code").is_some() {
@@ -1660,7 +1687,11 @@ impl<'a, 'i> Conv<'a, 'i> {
             "PQ" | "REAL" | "MO" | "IVL_PQ" | "CD" | "CE" | "CV" | "CO" | "CS" | "INT" | "BL" | "TS"
         );
         match field {
-            Some((key, value)) => ObservationValue::Read(key, value, structured && inline_text),
+            Some((key, value)) => {
+                let unread_text = (structured && inline_text)
+                    || (key == "valueCodeableConcept" && self.unread_original_text(v, &value));
+                ObservationValue::Read(key, value, unread_text)
+            }
             None if inline_text => ObservationValue::Unsupported,
             // Checked after the type: a coded value outside the value set is `nullFlavor="OTH"`
             // with its translation or original text, and that is still the result.

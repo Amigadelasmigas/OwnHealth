@@ -174,11 +174,23 @@ pub fn is_true(n: Node<'_, '_>, name: &str) -> bool {
 /// The text inside `n`, whitespace collapsed, at most [`MAX_TEXT`] characters. It stops reading at
 /// that length, also inside one long text node.
 pub fn text(n: Node<'_, '_>) -> Option<String> {
+    read_text(n).value
+}
+
+pub(super) struct NarrativeText {
+    pub value: Option<String>,
+    pub truncated: bool,
+}
+
+/// Read the bounded text and report whether a limit stopped the scan.
+pub(super) fn read_text(n: Node<'_, '_>) -> NarrativeText {
     let mut out = String::new();
     let mut last_space = true;
     let mut chars = 0usize;
+    let mut truncated = false;
     'nodes: for (seen, d) in n.descendants().enumerate() {
         if seen >= MAX_TEXT_NODES || chars >= MAX_TEXT {
+            truncated = true;
             break;
         }
         // a line break or table cell in the narrative separates words
@@ -195,6 +207,7 @@ pub fn text(n: Node<'_, '_>) -> Option<String> {
         };
         for c in t.chars() {
             if chars >= MAX_TEXT {
+                truncated = true;
                 break 'nodes;
             }
             if c.is_whitespace() {
@@ -211,7 +224,10 @@ pub fn text(n: Node<'_, '_>) -> Option<String> {
         }
     }
     let out: String = out.trim().chars().take(MAX_TEXT).collect();
-    (!out.is_empty()).then_some(out)
+    NarrativeText {
+        value: (!out.is_empty()).then_some(out),
+        truncated,
+    }
 }
 
 /// The narrative of the document by `ID` attribute, for `<reference value="#id"/>`.

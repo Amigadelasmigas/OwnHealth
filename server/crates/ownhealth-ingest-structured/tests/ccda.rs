@@ -2672,3 +2672,75 @@ async fn round_3_encounter_text_kept_only_in_xml_is_counted() -> R {
     assert_eq!(unread, [Some(1), Some(1), None]);
     Ok(())
 }
+
+#[tokio::test]
+async fn round_3_social_history_counts_original_text_missing_from_the_coded_answer() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let mut unread = Vec::new();
+    let long_answer = "a".repeat(2_000);
+    let long_display = format!(r#"displayName="{long_answer}""#);
+    for (display, original_text, expected_text) in [
+        (
+            r#"displayName="Never smoker""#,
+            "<originalText>Additional detail</originalText>",
+            "Never smoker",
+        ),
+        (
+            r#"displayName="Never smoker""#,
+            r##"<originalText><reference value="#extra"/></originalText>"##,
+            "Never smoker",
+        ),
+        (
+            r#"displayName="Never smoker""#,
+            r##"<originalText><reference value="#answer"/>Additional detail</originalText>"##,
+            "Never smoker",
+        ),
+        (
+            r#"displayName="Never smoker""#,
+            "<originalText> Never  smoker </originalText>",
+            "Never smoker",
+        ),
+        (
+            r#"displayName="Never smoker""#,
+            r##"<originalText><reference value="#answer"/></originalText>"##,
+            "Never smoker",
+        ),
+        ("", "<originalText>Never smoker</originalText>", "Never smoker"),
+        (
+            long_display.as_str(),
+            r##"<originalText><reference value="#long"/></originalText>"##,
+            long_answer.as_str(),
+        ),
+    ] {
+        let bytes = social_history(&format!(
+            r#"<text>
+                 <paragraph ID="answer">Never smoker</paragraph>
+                 <paragraph ID="extra">Additional detail</paragraph>
+                 <paragraph ID="long">{long_answer}Additional detail</paragraph>
+               </text>
+               <entry><observation classCode="OBS" moodCode="EVN">
+                 <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
+                 <statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="CD" code="266919005" codeSystem="2.16.840.1.113883.6.96" {display}>
+                   {original_text}
+                 </value>
+               </observation></entry>"#
+        ));
+        let converted = convert(&bytes)?;
+        let value = &resources(&converted, "Observation")[0]["valueCodeableConcept"];
+        assert_eq!(value["coding"][0]["code"], "266919005");
+        assert_eq!(value["text"], expected_text);
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "social.xml", ccda::MIME).await?;
+        import_ccda(&mut tx, &env.blobs, doc).await?;
+        let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+            .bind(doc)
+            .fetch_one(&mut *tx)
+            .await?;
+        unread.push(flags["unprojected"].as_i64());
+    }
+    assert_eq!(unread, [Some(1), Some(1), Some(1), None, None, None, Some(1)]);
+    Ok(())
+}
