@@ -708,48 +708,64 @@ async fn a_repeated_image_whose_copy_does_not_inflate_is_damaged_and_the_disc_im
 }
 
 /// The first copy of a repeated image can be damaged past the head the scan reads and still carry a
-/// header that reads, here with another date and description. Nothing of it reaches the study: the
-/// copies that read stand for the image, on the record and on a study held for review alike, and the
-/// damaged copy is counted as damaged either way.
+/// header that reads, here with another date and description. Nothing of it reaches the study, on the
+/// record and on a study held for review alike: the copies that read stand for the image, and when
+/// every copy is damaged the image is left out. Each damaged copy is counted once.
 #[tokio::test]
 async fn a_damaged_first_copy_of_a_repeated_image_leaves_nothing_on_the_study() -> R {
-    for slug in ["alex", "sam"] {
+    for (slug, readable) in [("alex", true), ("sam", true), ("alex", false)] {
+        let case = format!("{slug}, a copy that reads: {readable}");
         let e = env().await?;
         let st = Study::new(U1, ALEX);
         let mut disc = study_files(&st, "DICOM");
         disc[0].1.resize((1 << 20) + 1, 0);
-        // two copies that read: the image counts once
         disc.push(("DICOM/COPY/I0000".into(), disc[0].1.clone()));
-        disc.push(("DICOM/COPY2/I0000".into(), disc[0].1.clone()));
+        if readable {
+            // two copies that read: the image counts once
+            disc.push(("DICOM/COPY2/I0000".into(), disc[0].1.clone()));
+        }
         let mut zip = support::zip_files_stored(&disc);
         // The first member keeps the CRC of its original bytes, so only its full read finds the change.
+        // With no copy that reads, the last member is changed the same way.
         for (from, to) in [
             (st.date.as_bytes(), &b"20190101"[..]),
             (st.description.as_bytes(), &b"RX TORAX"[..]),
         ] {
-            let at = zip
+            let hits: Vec<usize> = zip
                 .windows(from.len())
-                .position(|w| w == from)
-                .ok_or_else(|| anyhow::anyhow!("no {from:?} in the zip"))?;
-            zip[at..at + from.len()].copy_from_slice(to);
+                .enumerate()
+                .filter(|(_, w)| *w == from)
+                .map(|(at, _)| at)
+                .collect();
+            let (Some(&first), Some(&last)) = (hits.first(), hits.last()) else {
+                anyhow::bail!("no {from:?} in the zip");
+            };
+            for at in if readable { vec![first] } else { vec![first, last] } {
+                zip[at..at + from.len()].copy_from_slice(to);
+            }
         }
+        let (images, damaged) = if readable {
+            (st.images(), 1)
+        } else {
+            (st.images() - 1, 2)
+        };
         let up = e.upload_zip(slug, &zip, disc.len()).await?;
         e.run().await?;
         let (state, result, error) = e.job(up.job_id).await?;
-        assert_eq!(state, "done", "{slug}: {error:?}");
-        assert_eq!(result["damaged"], 1, "{slug}: {result}");
+        assert_eq!(state, "done", "{case}: {error:?}");
+        assert_eq!(result["damaged"], damaged, "{case}: {result}");
         if slug == "alex" {
             let (date, description): (Option<chrono::NaiveDate>, Option<String>) =
                 sqlx::query_as("select study_date, description from imaging_study where study_instance_uid = $1")
                     .bind(U1)
                     .fetch_one(&e.rt.pool)
                     .await?;
-            assert_eq!(date.map(|d| d.to_string()).as_deref(), Some("2026-09-14"));
-            assert_eq!(description.as_deref(), Some(st.description));
+            assert_eq!(date.map(|d| d.to_string()).as_deref(), Some("2026-09-14"), "{case}");
+            assert_eq!(description.as_deref(), Some(st.description), "{case}");
             let fhir = e.fhir(U1).await?;
-            assert_eq!(fhir["started"], "2026-09-14", "{fhir}");
-            assert_eq!(fhir["description"], st.description, "{fhir}");
-            assert_eq!(result["instances"], st.images(), "{result}");
+            assert_eq!(fhir["started"], "2026-09-14", "{case}: {fhir}");
+            assert_eq!(fhir["description"], st.description, "{case}: {fhir}");
+            assert_eq!(result["instances"], images, "{case}: {result}");
         } else {
             let payload: Value =
                 sqlx::query_scalar("select payload from review_item where kind = $1 and profile_id = $2")
@@ -760,7 +776,7 @@ async fn a_damaged_first_copy_of_a_repeated_image_leaves_nothing_on_the_study() 
             assert_eq!(payload["reason"], "identity_mismatch", "{payload}");
             assert_eq!(payload["study_date"], "2026-09-14", "{payload}");
             assert_eq!(payload["description"], st.description, "{payload}");
-            assert_eq!(payload["instances"], st.images(), "{payload}");
+            assert_eq!(payload["instances"], images, "{payload}");
             assert_eq!(payload["series"], st.series, "{payload}");
             assert_eq!(e.orthanc.posts(), 0);
         }

@@ -250,11 +250,11 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
         )));
     }
     let mut s = Scan::default();
-    // The headers that stand for the disc's images, in ZIP order. A slot is emptied when its member
-    // turns out damaged, so the study aggregates are built only from members that survive.
-    let mut admitted: Vec<Option<(usize, Header)>> = Vec::new();
-    // By SOP Instance UID: the slot of the copy that stands for it, and the hash of its bytes once read.
-    let mut sops: BTreeMap<String, (usize, Option<[u8; 32]>)> = BTreeMap::new();
+    // By SOP Instance UID: the member that stands for it (none while every copy so far was damaged),
+    // and the hash of its bytes once read in full.
+    let mut sops: BTreeMap<String, (Option<usize>, Option<[u8; 32]>)> = BTreeMap::new();
+    // Members that stood for a SOP and turned out damaged: their studies are built again without them.
+    let mut dropped = BTreeSet::new();
     for i in 0..zip.len() {
         let (is_dir, size) = match zip.by_index_raw(i) {
             Ok(e) => (e.is_dir(), e.size()),
@@ -272,7 +272,7 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
             s.too_large += 1;
             continue;
         }
-        let mut head = match read_entry(zip, i, HEAD_BYTES) {
+        let head = match read_entry(zip, i, HEAD_BYTES) {
             Ok(head) => head,
             Err(e) => {
                 s.note_entry_error(&e);
@@ -283,58 +283,90 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
             s.not_dicom += 1;
             continue;
         }
-        let mut header = read_header(&head);
-        if matches!(header, Err(Part10Error::Corrupt(_))) && head.len() as u64 == HEAD_BYTES {
-            // a header that does not end in the first bytes: read further, as far as the cap
-            match read_entry(zip, i, MAX_HEADER_BYTES) {
-                Ok(more) => head = more,
-                Err(e) => {
-                    s.note_entry_error(&e);
-                    continue;
-                }
+        let header = match header_of(zip, i, head) {
+            Ok(header) => header,
+            Err(e) => {
+                s.note_entry_error(&e);
+                continue;
             }
-            header = read_header(&head);
-        }
+        };
         match header {
             Ok(h) if h.is_directory() => s.directories += 1,
             Ok(h) => {
-                let Some((slot, digest)) = sops.get_mut(&h.sop_instance_uid) else {
-                    sops.insert(h.sop_instance_uid.clone(), (admitted.len(), None));
-                    admitted.push(Some((i, h)));
+                let Some((standing, digest)) = sops.get_mut(&h.sop_instance_uid) else {
+                    sops.insert(h.sop_instance_uid.clone(), (Some(i), None));
+                    add(&mut s, i, h);
                     continue;
                 };
+                // The member that stands for the SOP is read in full once, when a second copy comes.
+                if let (Some(first), None) = (*standing, *digest) {
+                    match entry_hash(zip, first)? {
+                        Some(hash) => *digest = Some(hash),
+                        None => {
+                            dropped.insert(first);
+                            s.damaged += 1;
+                            *standing = None;
+                        }
+                    }
+                }
                 let Some(copy) = entry_hash(zip, i)? else {
                     s.damaged += 1;
                     continue;
                 };
-                let original = match (*digest, &admitted[*slot]) {
-                    (Some(hash), _) => Some(hash),
-                    (None, Some((first, _))) => entry_hash(zip, *first)?,
-                    (None, None) => None,
-                };
-                match original {
+                match *digest {
                     Some(original) if original != copy => {
                         return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
                     }
-                    Some(original) => *digest = Some(original),
-                    None => {
-                        // The copy that stood for the SOP is damaged: nothing of it counts, and this
-                        // one stands in its place.
-                        admitted[*slot] = None;
-                        s.damaged += 1;
-                        (*slot, *digest) = (admitted.len(), Some(copy));
-                    }
+                    Some(_) => {}
+                    None => (*standing, *digest) = (Some(i), Some(copy)),
                 }
-                admitted.push(Some((i, h)));
+                add(&mut s, i, h);
             }
             Err(Part10Error::Deflated) => return Err(JobError::permanent(Part10Error::Deflated.to_string())),
             Err(_) => s.damaged += 1,
         }
     }
-    for (i, h) in admitted.into_iter().flatten() {
-        add(&mut s, i, h);
+    if !dropped.is_empty() {
+        rebuild_without(zip, &mut s, &dropped)?;
     }
     Ok(s)
+}
+
+/// The header of a member that starts with the PS3.10 magic, from its first bytes, read further up to
+/// the cap when it does not end there.
+fn header_of(zip: &mut Archive, i: usize, head: Vec<u8>) -> Result<Result<Header, Part10Error>, ZipError> {
+    let header = read_header(&head);
+    if matches!(header, Err(Part10Error::Corrupt(_))) && head.len() as u64 == HEAD_BYTES {
+        return Ok(read_header(&read_entry(zip, i, MAX_HEADER_BYTES)?));
+    }
+    Ok(header)
+}
+
+/// Builds again, from the headers of the members that stay, every study a dropped member added to:
+/// a damaged copy can carry a header that reads, and nothing of it may reach the study. Damage is
+/// rare, so the headers are read again instead of kept for every member.
+fn rebuild_without(zip: &mut Archive, s: &mut Scan, dropped: &BTreeSet<usize>) -> Result<(), JobError> {
+    let touched: Vec<String> = s
+        .studies
+        .iter()
+        .filter(|(_, study)| study.entries.iter().any(|e| dropped.contains(&e.index)))
+        .map(|(uid, _)| uid.clone())
+        .collect();
+    for uid in touched {
+        let Some(study) = s.studies.remove(&uid) else {
+            continue;
+        };
+        for entry in study.entries.iter().filter(|e| !dropped.contains(&e.index)) {
+            // It read a moment ago, so a failure now is a failed read of the stored upload.
+            let again = read_entry(zip, entry.index, HEAD_BYTES).and_then(|head| header_of(zip, entry.index, head));
+            match again {
+                Ok(Ok(h)) => add(s, entry.index, h),
+                Ok(Err(e)) => return Err(JobError::retry(format!("a DICOM header did not read again: {e}"))),
+                Err(e) => return Err(JobError::retry(format!("a DICOM entry could not be read again: {e}"))),
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Only repeated SOPs require a full read during the scan. Verify the ZIP CRC and compare hashes
