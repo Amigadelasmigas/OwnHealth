@@ -176,8 +176,7 @@ pub fn is_true(n: Node<'_, '_>, name: &str) -> bool {
     attr(n, name).is_some_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
-/// The text inside `n`, whitespace collapsed, at most [`MAX_TEXT`] characters. It stops reading at
-/// that length, also inside one long text node.
+/// The text inside `n`, whitespace collapsed, at most [`MAX_TEXT`] characters.
 pub fn text(n: Node<'_, '_>) -> Option<String> {
     read_text(n).value
 }
@@ -187,48 +186,42 @@ pub(super) struct NarrativeText {
     pub truncated: bool,
 }
 
-/// Read the bounded text and report whether a limit stopped the scan.
+/// Read bounded, normalized text. Flag omitted words or an exhausted node budget.
 pub(super) fn read_text(n: Node<'_, '_>) -> NarrativeText {
     let mut out = String::new();
-    let mut last_space = true;
+    let mut separator = false;
     let mut chars = 0usize;
     let mut truncated = false;
     'nodes: for (seen, d) in n.descendants().enumerate() {
-        if seen >= MAX_TEXT_NODES || chars >= MAX_TEXT {
+        if seen >= MAX_TEXT_NODES {
             truncated = true;
             break;
         }
-        // a line break or table cell in the narrative separates words
-        if d.is_element()
-            && matches!(d.tag_name().name(), "br" | "td" | "th" | "tr" | "paragraph" | "item")
-            && !last_space
-        {
-            out.push(' ');
-            last_space = true;
-            chars += 1;
+        // Delay separators until the next word so trailing whitespace uses no room.
+        if d.is_element() && matches!(d.tag_name().name(), "br" | "td" | "th" | "tr" | "paragraph" | "item") {
+            separator = chars > 0;
         }
         let Some(t) = d.is_text().then(|| d.text()).flatten() else {
             continue;
         };
         for c in t.chars() {
-            if chars >= MAX_TEXT {
+            if c.is_whitespace() {
+                separator = chars > 0;
+                continue;
+            }
+            if chars + usize::from(separator) >= MAX_TEXT {
                 truncated = true;
                 break 'nodes;
             }
-            if c.is_whitespace() {
-                if !last_space {
-                    out.push(' ');
-                    last_space = true;
-                    chars += 1;
-                }
-            } else {
-                out.push(c);
-                last_space = false;
+            if separator {
+                out.push(' ');
                 chars += 1;
+                separator = false;
             }
+            out.push(c);
+            chars += 1;
         }
     }
-    let out: String = out.trim().chars().take(MAX_TEXT).collect();
     NarrativeText {
         value: (!out.is_empty()).then_some(out),
         truncated,

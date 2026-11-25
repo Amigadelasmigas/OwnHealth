@@ -3326,3 +3326,26 @@ fn round_7_incomplete_original_text_is_listed_even_without_a_coded_value() -> R 
     );
     Ok(())
 }
+
+#[test]
+fn round_7_trailing_whitespace_and_empty_markup_do_not_cut_a_note() -> R {
+    let full = "é".repeat(2_000);
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        for (tail, unread) in [
+            (" ", 0),
+            ("\n<paragraph> &#160; </paragraph><!-- end -->", 0),
+            ("<content>z</content>", 1),
+            (" z", 1),
+        ] {
+            let bytes = activity_with_note(tag, template, "completed", "", &format!("{full}{tail}"));
+            let c = convert(&bytes)?;
+            assert_eq!(
+                resources(&c, rtype)[0]["note"][0]["text"].as_str(),
+                Some(full.as_str()),
+                "{rtype}"
+            );
+            assert_eq!(c.sections[0].not_read.len(), unread, "{rtype}: {tail:?}");
+        }
+    }
+    Ok(())
+}
