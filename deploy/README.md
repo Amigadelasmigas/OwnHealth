@@ -306,6 +306,7 @@ When you delete a profile, OwnHealth removes its key from the database and rewri
 
 - Never back up or version the `keyring/` folder. Tell host-level backup tools (Time Machine, Duplicacy, a NAS snapshot, a volume backup) to skip it.
 - Keep exactly one extra copy off the box, never versioned, and overwrite it after every backup and every profile delete. Without it, files encrypted with missing profile keys stay unreadable (see Restore). Do not put the file in your password manager: only `secrets/secrets_key` goes there.
+- If the delete screen says that the key is still in `keyring.json`, do not refresh the off-box copy yet: that copy would still open the deleted profile's files. Make the keyring folder writable, then run `./deploy/restic/backup.sh`. A backup rewrites `keyring.json`, and stops with an error when it cannot. Refresh the off-box copy after that backup succeeds.
 - After a profile delete, destroy every older copy of `keyring.json` you know of. The delete screen says so too.
 
 A backup still holds the deleted profile's rows (its records, without the files) until retention removes the snapshot: 7 daily, 5 weekly and 12 monthly snapshots by default, so about a year at most. One more exception has the same limit: a held mail, or a document that had no profile yet when the backup ran, has its own key in the dump. If it went to the deleted profile later, that backup still opens it until retention removes the snapshot.
@@ -360,12 +361,16 @@ An older compose file keeps the keyring in `/data/keyring` on the data volume. B
 
 ```sh
 cd /opt/ownhealth                 # same compose.yaml, .env and secrets/ as before; keyring/ from the box or its one off-box copy
+export COMPOSE_PROJECT_NAME=ownhealth   # or the name you pass to -p
 docker compose down               # if anything still runs
-docker volume rm ownhealth_ownhealth-data ownhealth_ownhealth-pg   # only when you mean to replace them
+docker volume ls --filter "name=${COMPOSE_PROJECT_NAME}_"   # check the two names below
+docker volume rm "${COMPOSE_PROJECT_NAME}_ownhealth-data" "${COMPOSE_PROJECT_NAME}_ownhealth-pg"   # only when you mean to replace them
 docker compose up -d db
 ./deploy/restic/restore.sh        # or: ./deploy/restic/restore.sh <snapshot id>
 docker compose up -d
 ```
+
+Every `docker compose` command and `restore.sh` use the project that `COMPOSE_PROJECT_NAME` names, and the two volumes carry that name.
 
 `restore.sh` runs in a one-off admin container before the app starts. Start a new restore with an empty target database and an empty blob store. If the backup names a secrets key fingerprint, use the secrets key that matches it. The restore reports the expected fingerprint before loading data if the key is missing or differs.
 
@@ -378,8 +383,9 @@ A restore that records missing files saves a checkpoint with the profile keys, r
 Every other stopped restore has no checkpoint. When `pg_restore` itself failed, it loaded nothing (it runs as one transaction) and placed no files, so the target is still empty: resolve the error and run the same restore again. Any other stopped restore starts over: a restore with no missing files (a keyless backup too), or one that stopped between loading the database and saving the checkpoint. A rerun on the same target stops with "the target database is not empty" and loads nothing. Only then, empty the target and run the same restore again; the snapshot is not changed. With the Compose install:
 
 ```sh
+export COMPOSE_PROJECT_NAME=ownhealth   # or the name you pass to -p
 docker compose down               # if anything still runs
-docker volume rm ownhealth_ownhealth-data ownhealth_ownhealth-pg   # the stopped restore's database and blob store
+docker volume rm "${COMPOSE_PROJECT_NAME}_ownhealth-data" "${COMPOSE_PROJECT_NAME}_ownhealth-pg"   # the stopped restore's database and blob store
 docker compose up -d db
 ./deploy/restic/restore.sh <snapshot id>   # the first run's snapshot id
 docker compose up -d
@@ -421,7 +427,7 @@ Migrations are forward-only and run at start, in the `admin` service, before the
 
 **The keyring folder (from 1.0).** Both Compose services mount `./keyring/<project>`. For the default project, create `keyring/ownhealth` before you start Compose, as shown above. If you use `-p` or `COMPOSE_PROJECT_NAME`, use that project name in place of `ownhealth`. If Docker created the folder, give UID and GID 10001 ownership and set mode 0700.
 
-If your old Compose file mounted `./keyring` directly, stop the old project before switching Compose files. Move its current `keyring/keyring.json` into `keyring/<project>/keyring.json` before starting the updated project. Move the file to the project that owns it. Take a backup right after the upgrade: it writes `keyring.json`. Backups taken before the upgrade still hold the profile keys in their dump, until retention removes them. Tell your host backup tools to skip `keyring/`.
+If your old Compose file mounted `./keyring` directly, stop the old project before switching Compose files. Move its current `keyring/keyring.json` into `keyring/<project>/keyring.json` before starting the updated project. Move the file to the project that owns it. Take a backup right after the upgrade: it writes `keyring.json`. Backups taken before the upgrade do not hold the profile keys: keep `keyring.json`, or they restore without their files. Tell your host backup tools to skip `keyring/`.
 
 **The secrets key (from 1.0).** OwnHealth now encrypts each profile's documents and genome files, so every command except `migrate` and `healthcheck` refuses to start without `OWNHEALTH_SECRETS_KEY` and prints one line that says how to make one. Keep the key you have: it already encrypts your inbox secrets, and a new one would lock them.
 
