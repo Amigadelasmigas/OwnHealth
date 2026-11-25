@@ -321,3 +321,73 @@ async fn a_legacy_inbox_item_keeps_the_upload_for_its_document_profile() -> R {
 async fn a_legacy_inbox_item_keeps_the_upload_for_its_inbox_profile() -> R {
     a_legacy_inbox_item_keeps_its_upload(false).await
 }
+
+async fn a_legacy_mail_upload_keeps_only_its_released_profile_copy(released: bool) -> R {
+    use ownhealth_core::blobs::BlobOwner;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let (hh, alex, sam) = (f.household_id, f.profile("alex"), f.profile("sam"));
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label) \
+         values ($1, $2, 'email', 'LabNorte mail') returning id",
+    )
+    .bind(hh)
+    .bind(sam)
+    .fetch_one(&mut *c)
+    .await?;
+    let documents = if released {
+        vec![
+            bare_document(&mut c, hh, alex).await?,
+            bare_document(&mut c, hh, alex).await?,
+        ]
+    } else {
+        Vec::new()
+    };
+    let raw = blobs.put_bytes(BlobOwner::Reference, b"LabNorte original email")?;
+    let quarantine: uuid::Uuid = sqlx::query_scalar(
+        "insert into quarantine_item (household_id, source_id, raw_blob, reason, status, released_document_ids) \
+         values ($1, $2, decode($3, 'hex'), 'sender_not_allowed', $4, $5) returning id",
+    )
+    .bind(hh)
+    .bind(source)
+    .bind(raw)
+    .bind(if released { "released" } else { "held" })
+    .bind(released.then_some(documents))
+    .fetch_one(&mut *c)
+    .await?;
+    let bytes = b"LabNorte mail attachment";
+    let sha = blobs.put_bytes(BlobOwner::Profile(sam), bytes)?;
+    assert_eq!(blobs.put_bytes(BlobOwner::Profile(alex), bytes)?, sha);
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, quarantine_id) \
+         values ($1, 'legacy-mail', decode($2, 'hex'), $3)",
+    )
+    .bind(source)
+    .bind(&sha)
+    .bind(quarantine)
+    .execute(&mut *c)
+    .await?;
+
+    remove_released_upload(&mut c, &blobs, sam, &sha).await?;
+    assert!(
+        !blobs.exists(BlobOwner::Profile(sam), &sha),
+        "the inbox profile has no claim to this copy"
+    );
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert_eq!(blobs.exists(BlobOwner::Profile(alex), &sha), released);
+    Ok(())
+}
+
+#[tokio::test]
+async fn held_legacy_mail_does_not_hold_a_profile_copy_of_the_upload() -> R {
+    a_legacy_mail_upload_keeps_only_its_released_profile_copy(false).await
+}
+
+#[tokio::test]
+async fn released_legacy_mail_holds_the_upload_for_its_documents_profile() -> R {
+    a_legacy_mail_upload_keeps_only_its_released_profile_copy(true).await
+}
