@@ -203,6 +203,9 @@ mod tests {
         let both = read(r#"{"recipient": "  Dr. Ortega\u0007\n ", "passcode": "1234"}"#);
         assert_eq!(both.recipient.as_deref(), Some("Dr. Ortega"));
         assert_eq!(both.passcode.as_deref(), Some("1234"));
+        // a request that reaches a log through Debug never carries the passcode
+        let shown = format!("{both:?}");
+        assert!(!shown.contains("1234") && shown.contains("Dr. Ortega"), "{shown}");
         // an empty passcode guesses nothing, the same as none; a number is no passcode
         assert_eq!(read(r#"{"recipient": "x", "passcode": ""}"#).passcode, None);
         assert_eq!(read(r#"{"recipient": "x", "passcode": 1234}"#).passcode, None);
