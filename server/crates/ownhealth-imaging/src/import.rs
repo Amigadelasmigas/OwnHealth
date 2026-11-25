@@ -4,7 +4,9 @@
 //!    everything else on a hospital CD (the viewer, `autorun.inf`, readme files) is counted and left
 //!    out, and so is `DICOMDIR`, the disc's own index. A file with the magic that does not read is
 //!    counted as damaged. Deflated data sets and different files that share a SOPInstanceUID
-//!    fail the upload before any POST. Files are grouped by StudyInstanceUID.
+//!    fail the upload before any POST. A copy of a repeated image that does not read in full is
+//!    counted as damaged, and nothing of its header reaches the study: a copy that reads stands for
+//!    the image. Files are grouped by StudyInstanceUID.
 //! 2. For each study, under the one StudyInstanceUID lock every Orthanc writer takes
 //!    ([`ownhealth_core::orthanc::lock_study`]): a study another profile holds, a second patient under
 //!    one UID, or a UID Orthanc already holds under another patient goes to review, and nothing of it
@@ -248,7 +250,11 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
         )));
     }
     let mut s = Scan::default();
-    let mut sops = BTreeMap::new();
+    // The headers that stand for the disc's images, in ZIP order. A slot is emptied when its member
+    // turns out damaged, so the study aggregates are built only from members that survive.
+    let mut admitted: Vec<Option<(usize, Header)>> = Vec::new();
+    // By SOP Instance UID: the slot of the copy that stands for it, and the hash of its bytes once read.
+    let mut sops: BTreeMap<String, (usize, Option<[u8; 32]>)> = BTreeMap::new();
     for i in 0..zip.len() {
         let (is_dir, size) = match zip.by_index_raw(i) {
             Ok(e) => (e.is_dir(), e.size()),
@@ -292,31 +298,41 @@ fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
         match header {
             Ok(h) if h.is_directory() => s.directories += 1,
             Ok(h) => {
-                let (first, digest) = sops.entry(h.sop_instance_uid.clone()).or_insert((i, None));
-                if *first != i {
-                    let original = match digest {
-                        Some(hash) => Some(*hash),
-                        None => entry_hash(zip, *first)?,
-                    };
-                    let Some(copy) = entry_hash(zip, i)? else {
+                let Some((slot, digest)) = sops.get_mut(&h.sop_instance_uid) else {
+                    sops.insert(h.sop_instance_uid.clone(), (admitted.len(), None));
+                    admitted.push(Some((i, h)));
+                    continue;
+                };
+                let Some(copy) = entry_hash(zip, i)? else {
+                    s.damaged += 1;
+                    continue;
+                };
+                let original = match (*digest, &admitted[*slot]) {
+                    (Some(hash), _) => Some(hash),
+                    (None, Some((first, _))) => entry_hash(zip, *first)?,
+                    (None, None) => None,
+                };
+                match original {
+                    Some(original) if original != copy => {
+                        return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
+                    }
+                    Some(original) => *digest = Some(original),
+                    None => {
+                        // The copy that stood for the SOP is damaged: nothing of it counts, and this
+                        // one stands in its place.
+                        admitted[*slot] = None;
                         s.damaged += 1;
-                        continue;
-                    };
-                    match original {
-                        Some(original) if original != copy => {
-                            return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
-                        }
-                        Some(original) => *digest = Some(original),
-                        // The first copy is damaged: this one stands for the SOP, and the first
-                        // counts as damaged when it fails to stage.
-                        None => (*first, *digest) = (i, Some(copy)),
+                        (*slot, *digest) = (admitted.len(), Some(copy));
                     }
                 }
-                add(&mut s, i, h);
+                admitted.push(Some((i, h)));
             }
             Err(Part10Error::Deflated) => return Err(JobError::permanent(Part10Error::Deflated.to_string())),
             Err(_) => s.damaged += 1,
         }
+    }
+    for (i, h) in admitted.into_iter().flatten() {
+        add(&mut s, i, h);
     }
     Ok(s)
 }
@@ -1415,7 +1431,8 @@ async fn to_review_item(
         "study_date": da(&study.study_date).map(|d| d.to_string()),
         "description": Some(study.description.as_str()).filter(|d| !d.is_empty()),
         "series": study.series.len(),
-        "instances": study.entries.len(),
+        // identical copies of one image count once
+        "instances": study.sops.len(),
         "filename": import.filename,
     });
     let reasons = vec![why.to_string()];

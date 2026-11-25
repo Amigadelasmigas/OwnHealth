@@ -674,6 +674,67 @@ async fn a_damaged_copy_of_a_repeated_image_is_damaged_and_the_disc_imports() ->
     Ok(())
 }
 
+/// The first copy of a repeated image can be damaged past the head the scan reads and still carry a
+/// header that reads, here with another date and description. Nothing of it reaches the study: the
+/// copies that read stand for the image, on the record and on a study held for review alike, and the
+/// damaged copy is counted as damaged either way.
+#[tokio::test]
+async fn a_damaged_first_copy_of_a_repeated_image_leaves_nothing_on_the_study() -> R {
+    for slug in ["alex", "sam"] {
+        let e = env().await?;
+        let st = Study::new(U1, ALEX);
+        let mut disc = study_files(&st, "DICOM");
+        disc[0].1.resize((1 << 20) + 1, 0);
+        // two copies that read: the image counts once
+        disc.push(("DICOM/COPY/I0000".into(), disc[0].1.clone()));
+        disc.push(("DICOM/COPY2/I0000".into(), disc[0].1.clone()));
+        let mut zip = support::zip_files_stored(&disc);
+        // The first member keeps the CRC of its original bytes, so only its full read finds the change.
+        for (from, to) in [
+            (st.date.as_bytes(), &b"20190101"[..]),
+            (st.description.as_bytes(), &b"RX TORAX"[..]),
+        ] {
+            let at = zip
+                .windows(from.len())
+                .position(|w| w == from)
+                .ok_or_else(|| anyhow::anyhow!("no {from:?} in the zip"))?;
+            zip[at..at + from.len()].copy_from_slice(to);
+        }
+        let up = e.upload_zip(slug, &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{slug}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{slug}: {result}");
+        if slug == "alex" {
+            let (date, description): (Option<chrono::NaiveDate>, Option<String>) =
+                sqlx::query_as("select study_date, description from imaging_study where study_instance_uid = $1")
+                    .bind(U1)
+                    .fetch_one(&e.rt.pool)
+                    .await?;
+            assert_eq!(date.map(|d| d.to_string()).as_deref(), Some("2026-09-14"));
+            assert_eq!(description.as_deref(), Some(st.description));
+            let fhir = e.fhir(U1).await?;
+            assert_eq!(fhir["started"], "2026-09-14", "{fhir}");
+            assert_eq!(fhir["description"], st.description, "{fhir}");
+            assert_eq!(result["instances"], st.images(), "{result}");
+        } else {
+            let payload: Value =
+                sqlx::query_scalar("select payload from review_item where kind = $1 and profile_id = $2")
+                    .bind(REVIEW_KIND)
+                    .bind(e.fam.profile(slug))
+                    .fetch_one(&e.rt.pool)
+                    .await?;
+            assert_eq!(payload["reason"], "identity_mismatch", "{payload}");
+            assert_eq!(payload["study_date"], "2026-09-14", "{payload}");
+            assert_eq!(payload["description"], st.description, "{payload}");
+            assert_eq!(payload["instances"], st.images(), "{payload}");
+            assert_eq!(payload["series"], st.series, "{payload}");
+            assert_eq!(e.orthanc.posts(), 0);
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_header_past_the_read_cap_is_damaged_and_not_sent() -> R {
     let e = env().await?;

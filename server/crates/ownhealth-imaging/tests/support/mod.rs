@@ -295,10 +295,19 @@ pub fn hospital_cd(studies: &[Study]) -> Vec<(String, Vec<u8>)> {
 }
 
 pub fn zip_files(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    zip_files_as(files, zip::CompressionMethod::Deflated)
+}
+
+/// The same with every member stored as it is, so a test can change a member's bytes in place.
+pub fn zip_files_stored(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    zip_files_as(files, zip::CompressionMethod::Stored)
+}
+
+fn zip_files_as(files: &[(String, Vec<u8>)], method: zip::CompressionMethod) -> Vec<u8> {
     let mut out = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut out);
-        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let opts = zip::write::SimpleFileOptions::default().compression_method(method);
         zip.add_directory("DICOM/", opts).unwrap_or_else(|e| panic!("zip: {e}"));
         for (name, bytes) in files {
             zip.start_file(name.as_str(), opts)
