@@ -2029,7 +2029,7 @@ fn slice_21_encounters_keep_class_period_and_reason() -> R {
     assert_eq!(encounter["reasonCode"][0]["coding"][0]["code"], "233604007");
     assert_eq!(encounter["reasonCode"][0]["text"], "Pneumonia");
     assert!(encounter.get("diagnosis").is_none(), "{encounter}");
-    assert!(made(&c, Section::Encounters).get("Condition").is_none());
+    assert!(!made(&c, Section::Encounters).contains_key("Condition"));
     let pneumonia: Vec<&Value> = resources(&c, "Condition")
         .into_iter()
         .filter(|r| r["code"]["coding"][0]["code"] == "233604007")

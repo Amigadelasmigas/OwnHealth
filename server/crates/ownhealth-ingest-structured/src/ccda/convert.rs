@@ -460,7 +460,7 @@ fn ordered_period(n: Option<Node<'_, '_>>, of: Node<'_, '_>, rep: &mut SectionRe
         if end.as_bytes()[..len] < start.as_bytes()[..len]
             && let Value::Object(m) = &mut p
         {
-            m.remove("end");
+            m.shift_remove("end");
             rep.not_read.push(format!("{} (ends before it starts)", describe(of)));
         }
     }
