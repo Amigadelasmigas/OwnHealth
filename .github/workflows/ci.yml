@@ -298,8 +298,14 @@ jobs:
           key: fuzz-${{ env.FUZZ_NIGHTLY }}
       - name: cargo-fuzz 0.13.2
         run: cargo +"$FUZZ_NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
-      - name: The fuzz lockfile is current
-        run: cargo +"$FUZZ_NIGHTLY" metadata --locked --format-version 1 > /dev/null
+      # server/fuzz has its own Cargo.lock, which a dependency change in ownhealth-core,
+      # ownhealth-ingest-structured or ownhealth-ops makes stale. The failure says how to refresh it.
+      - name: The fuzz lockfile is current (if not, run cargo update -w in server/fuzz)
+        run: |
+          cargo +"$FUZZ_NIGHTLY" metadata --locked --format-version 1 > /dev/null || {
+            echo "::error file=server/fuzz/Cargo.lock::server/fuzz/Cargo.lock is stale. Run 'cargo update -w' in server/fuzz, then commit server/fuzz/Cargo.lock."
+            exit 1
+          }
       - name: "Red control: jose.rs loses its inflate cap"
         if: inputs.red_controls
         working-directory: server/crates/ownhealth-core/src

@@ -5,6 +5,9 @@
 #   cargo +nightly fuzz run <target> corpus/<target> seeds/<target>
 # The first folder collects what the fuzzer finds (git ignores it); seeds/ holds the committed inputs,
 # and a crash input the fuzzer ever found goes there too, so every run replays it.
+# This workspace has its own Cargo.lock. After a dependency change in ownhealth-core,
+# ownhealth-ingest-structured or ownhealth-ops, run `cargo update -w` here and commit fuzz/Cargo.lock,
+# or the CI step "The fuzz lockfile is current" fails.
 [package]
 name = "ownhealth-fuzz"
 version = "0.0.0"
