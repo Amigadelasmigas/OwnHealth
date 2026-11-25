@@ -3113,7 +3113,7 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
         ),
         (
             r##"<reference value="#near"/>Done under sedation"##.to_string(),
-            String::new(),
+            format!("{}; Done under sedation", "d".repeat(1_979)),
             true,
         ),
         // the narrative and the words beside the reference joined fill the bound exactly
@@ -3138,14 +3138,8 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
         for (text, note, flagged) in &cases {
             let bytes = make(text);
             let c = convert(&bytes)?;
-            let kept = resources(&c, rtype)[0]["note"][0]["text"]
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_default();
-            assert!(kept.chars().count() <= 2_000, "{rtype}");
-            if !note.is_empty() {
-                assert_eq!(&kept, note, "{rtype} {}", &text[..text.len().min(40)]);
-            }
+            let kept = resources(&c, rtype)[0]["note"][0]["text"].as_str();
+            assert_eq!(kept, Some(note.as_str()), "{rtype} {}", &text[..text.len().min(40)]);
             let expected = if *flagged { vec![cut(what)] } else { vec![] };
             assert_eq!(
                 unread_lines(&bytes)?,
