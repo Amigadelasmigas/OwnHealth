@@ -446,3 +446,27 @@ async fn each_persons_copy_of_a_shared_push_goes_with_their_own_last_push() -> R
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_push_drops_points_more_than_a_day_ahead() -> R {
+    let env = Env::new().await?;
+    let source = env.source("health_auto_export", Some("alex"), json!({}), None).await?;
+    let now = Utc::now();
+    let good = fmt(now + Duration::hours(23));
+    let future = fmt(now + Duration::hours(25));
+    let body = serde_json::to_vec(&json!({"data": {"metrics": [
+        {"name": "heart_rate", "data": [{"date": good, "Avg": 65}, {"date": future, "Avg": 66}]},
+        {"name": "resting_heart_rate", "data": [{"date": future, "qty": 67}]},
+        {"name": "sleep_analysis", "data": [{"sleepStart": good, "sleepEnd": future, "totalSleep": 2}]}
+    ]}}))?;
+    let mut tx = env.db.pool.begin().await?;
+    let out = hae::import_push(&mut tx, &env.blobs, &source, &body).await?;
+    tx.commit().await?;
+    assert_eq!((out.seen, out.new, out.duplicate), (1, 1, 0));
+    assert_eq!(
+        out.problems.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+        ["points_skipped"]
+    );
+    assert_eq!(out.problems[0].message, "bad_time x3");
+    Ok(())
+}

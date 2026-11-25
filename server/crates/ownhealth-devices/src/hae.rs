@@ -8,8 +8,8 @@
 //!
 //! Dates are `yyyy-MM-dd HH:mm:ss Z`; the offset is kept. Metrics we do not chart yet (workouts,
 //! nutrition, symptoms, ...) are skipped and logged by name only. Points of a metric we do chart that
-//! cannot be read (a unit we do not know, a point without a value or date) are reported as run problems,
-//! so the run reads `partial` in the Runs panel.
+//! cannot be read (a unit we do not know, a point without a value or date) or are dated more than a day
+//! ahead are reported as run problems, so the run reads `partial` in the Runs panel.
 //!
 //! Push bodies are kept for `PUSH_KEEP_DAYS` days, then removed: every push re-sends the last day or
 //! more, so the bodies differ every time and content addressing never shares them, and at 96 pushes a
@@ -101,11 +101,26 @@ pub struct Point {
 }
 
 /// What a push held: mapped points, and what was skipped by reason (`metric:<name>`, `unit:<name>`,
-/// `bad_point:<name>`).
+/// `bad_point:<name>`, `bad_time`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Parsed {
     pub points: Vec<Point>,
     pub skipped: BTreeMap<String, i64>,
+}
+
+impl Parsed {
+    fn add(&mut self, mut point: Point, latest: DateTime<Utc>) {
+        if point.t > latest || point.t_end.is_some_and(|end| end > latest) {
+            bump(&mut self.skipped, "bad_time".into());
+            return;
+        }
+        if DAY_METRICS.contains(&point.metric) {
+            point.t = day_key(point.t, point.tz);
+            point.t_end = None;
+            point.tz = 0;
+        }
+        self.points.push(point);
+    }
 }
 
 /// The device named by one HAE `source` string: the Watch when any part names a watch, else the iPhone,
@@ -132,17 +147,20 @@ fn bump(skipped: &mut BTreeMap<String, i64>, key: String) {
 }
 
 /// Sleep, summarized (one row per night: totals in hours with start and end) or per segment.
-fn sleep(item: &Value, device: Option<String>, out: &mut Vec<Point>) -> bool {
+fn sleep(item: &Value, device: Option<String>, out: &mut Parsed, latest: DateTime<Utc>) -> bool {
     let mut push = |metric, (t, tz): (DateTime<Utc>, i16), end: Option<DateTime<Utc>>, hours: f64| {
         if hours > 0.0 && hours < 24.0 {
-            out.push(Point {
-                device: device.clone(),
-                metric,
-                t,
-                t_end: end,
-                v: hours * 60.0,
-                tz,
-            });
+            out.add(
+                Point {
+                    device: device.clone(),
+                    metric,
+                    t,
+                    t_end: end,
+                    v: hours * 60.0,
+                    tz,
+                },
+                latest,
+            );
         }
     };
     if let Some(start) = time(item, "sleepStart") {
@@ -176,13 +194,14 @@ fn sleep(item: &Value, device: Option<String>, out: &mut Vec<Point>) -> bool {
     true
 }
 
-/// Map one push body. Pure; the caller runs it off the async runtime.
+/// Map one push body. The caller runs it off the async runtime.
 pub fn parse(body: &[u8]) -> Result<Parsed> {
     let v: Value = serde_json::from_slice(body)
         .map_err(|_| Error::Invalid("not Health Auto Export JSON: the body does not parse".into()))?;
     let Some(data) = v.get("data").filter(|d| d.is_object()) else {
         return Err(Error::Invalid("not Health Auto Export JSON: no \"data\" object".into()));
     };
+    let latest = Utc::now() + Duration::days(1);
     let mut out = Parsed::default();
     for (key, value) in data.as_object().into_iter().flatten() {
         if key != "metrics" {
@@ -208,7 +227,7 @@ pub fn parse(body: &[u8]) -> Result<Parsed> {
         for item in items {
             let device = device_of(item.get("source").and_then(Value::as_str));
             if name == "sleep_analysis" {
-                if !sleep(item, device, &mut out.points) {
+                if !sleep(item, device, &mut out, latest) {
                     bump(&mut out.skipped, format!("bad_point:{name}"));
                 }
                 continue;
@@ -219,19 +238,17 @@ pub fn parse(body: &[u8]) -> Result<Parsed> {
             };
             let t_end = time(item, "end").map(|e| e.0).filter(|e| *e > t);
             let mut point = |metric: &'static str, v: f64| {
-                let (t, t_end, tz) = if DAY_METRICS.contains(&metric) {
-                    (day_key(t, tz), None, 0)
-                } else {
-                    (t, t_end, tz)
-                };
-                out.points.push(Point {
-                    device: device.clone(),
-                    metric,
-                    t,
-                    t_end,
-                    v,
-                    tz,
-                })
+                out.add(
+                    Point {
+                        device: device.clone(),
+                        metric,
+                        t,
+                        t_end,
+                        v,
+                        tz,
+                    },
+                    latest,
+                );
             };
             if name == "blood_pressure" {
                 match (num(item, "systolic"), num(item, "diastolic")) {
@@ -298,8 +315,7 @@ pub async fn import_push(
     let parsed = tokio::task::spawn_blocking(move || parse(&raw))
         .await
         .map_err(|e| Error::Other(anyhow::anyhow!("push parse task failed: {e}")))??;
-    // unknown units and unreadable points of metrics we chart lose data: report them; metrics and
-    // sections we do not chart yet are expected on every push and only logged
+    // Report losses in charted metrics as run problems. Log metrics and sections we do not chart.
     let mut problems = Vec::new();
     let mut not_charted = Vec::new();
     let mut skipped = BTreeMap::new();
@@ -307,7 +323,7 @@ pub async fn import_push(
         if let Some(metric) = key.strip_prefix("metric:") {
             skipped.insert(metric.to_string(), *count);
         }
-        if key.starts_with("unit:") || key.starts_with("bad_point:") {
+        if key == "bad_time" || key.starts_with("unit:") || key.starts_with("bad_point:") {
             problems.push(RunProblem {
                 code: "points_skipped".into(),
                 message: format!("{key} x{count}"),
