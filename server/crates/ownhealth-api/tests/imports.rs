@@ -599,10 +599,11 @@ async fn a_cgm_import_result_reaches_only_those_who_may_read_wearables() -> R {
             .and_then(|j| j.iter().find(|x| x["id"] == json!(id)).cloned())
             .unwrap_or_default()
     };
-    // the caregiver keeps what any member saw before (the job, its state and file), not what it brought
+    // The caregiver can still follow the job state. Wearable details require the category grant.
     assert_eq!(by_id(carmen)["state"], "done", "{v}");
-    assert_eq!(by_id(carmen)["filename"], "clarity.csv", "{v}");
-    assert_eq!(by_id(carmen)["result"], serde_json::Value::Null, "{v}");
+    assert!(by_id(carmen)["filename"].is_null(), "{v}");
+    assert!(by_id(carmen)["result"].is_null(), "{v}");
+    assert_eq!(by_id(lucia)["filename"], "clarity.csv", "{v}");
     assert_eq!(by_id(lucia)["result"]["cgm_csv"]["readings"], json!(8), "{v}");
     // with read:wearables on carmen, the result is there
     let mut c = a.conn().await?;
