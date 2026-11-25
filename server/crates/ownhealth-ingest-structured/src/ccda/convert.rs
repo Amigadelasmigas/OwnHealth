@@ -794,50 +794,56 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some((target, text))
     }
 
-    /// The text an element holds: the narrative its `<reference value="#x"/>` points at, then any
-    /// words written beside the reference ("2 puffs QID PRN wheezing"), within the bound of a text
-    /// ([`xml::joined`]); else its own.
-    fn narrative_of(&mut self, n: Node<'_, '_>) -> Option<String> {
-        self.bounded_narrative(n).map(|(text, _)| text)
+    /// Bounded text from the referenced narrative followed by any local words. Either scan can
+    /// hit a limit before finding text. The truncation flag also covers a cut when joining them.
+    fn narrative_of(&mut self, n: Node<'_, '_>) -> xml::NarrativeText {
+        let mut local = xml::read_text(n);
+        let Some((target, text)) = self.referenced_narrative(n) else {
+            return local;
+        };
+        local.truncated |= text.truncated;
+        let Some(referenced) = text.value.clone() else {
+            return local;
+        };
+        // The target can be in a later section or under a restricted parent section.
+        for sec in
+            std::iter::successors(Some(target), Node::parent_element).filter(|n| n.has_tag_name((xml::NS, "section")))
+        {
+            let labels = self
+                .source_labels
+                .entry(sec.id())
+                .or_insert_with(|| section_labels(sec));
+            if !labels.is_empty() {
+                add_labels(&mut self.narrative_labels, labels.iter().cloned());
+            }
+        }
+        if let Some(entry) =
+            std::iter::successors(Some(target), Node::parent_element).find(|n| n.has_tag_name((xml::NS, "entry")))
+        {
+            let labels = self
+                .source_labels
+                .entry(entry.id())
+                .or_insert_with(|| entry_labels(entry));
+            if !labels.is_empty() {
+                add_labels(&mut self.narrative_labels, labels.iter().cloned());
+            }
+        }
+        local.value = Some(match local.value {
+            Some(own) if !referenced.contains(&own) => {
+                local.truncated |= xml::joined_cuts(&referenced, &own);
+                xml::joined(&referenced, &own)
+            }
+            _ => referenced,
+        });
+        local
     }
 
-    /// [`Self::narrative_of`], and whether the text bound cut a part of it: of the element's own
-    /// text, of the narrative it points at, or of the two joined.
-    fn bounded_narrative(&mut self, n: Node<'_, '_>) -> Option<(String, bool)> {
-        let xml::NarrativeText { value: own, truncated } = xml::read_text(n);
-        if let Some((target, text)) = self.referenced_narrative(n)
-            && let Some(t) = text.value.clone()
-        {
-            let cut = truncated || text.truncated;
-            // The target can be in a later section or under a restricted parent section.
-            for sec in std::iter::successors(Some(target), Node::parent_element)
-                .filter(|n| n.has_tag_name((xml::NS, "section")))
-            {
-                let labels = self
-                    .source_labels
-                    .entry(sec.id())
-                    .or_insert_with(|| section_labels(sec));
-                if !labels.is_empty() {
-                    add_labels(&mut self.narrative_labels, labels.iter().cloned());
-                }
-            }
-            if let Some(entry) =
-                std::iter::successors(Some(target), Node::parent_element).find(|n| n.has_tag_name((xml::NS, "entry")))
-            {
-                let labels = self
-                    .source_labels
-                    .entry(entry.id())
-                    .or_insert_with(|| entry_labels(entry));
-                if !labels.is_empty() {
-                    add_labels(&mut self.narrative_labels, labels.iter().cloned());
-                }
-            }
-            return Some(match own {
-                Some(o) if !t.contains(&o) => (xml::joined(&t, &o), cut || xml::joined_cuts(&t, &o)),
-                _ => (t, cut),
-            });
+    fn reported_narrative(&mut self, n: Node<'_, '_>, field: &str, rep: &mut SectionReport) -> xml::NarrativeText {
+        let text = self.narrative_of(n);
+        if text.truncated {
+            rep.not_read.push(format!("{field} (text scan limit reached)"));
         }
-        own.map(|o| (o, truncated))
+        text
     }
 
     fn coding(n: Node<'_, '_>) -> Option<Value> {
@@ -867,7 +873,7 @@ impl<'a, 'i> Conv<'a, 'i> {
         let text = own_display
             .filter(|_| !prefer_original)
             .map(String::from)
-            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o)))
+            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o).value))
             .or_else(|| own_display.map(String::from));
         if codings.is_empty() && text.is_none() {
             return None;
@@ -886,17 +892,19 @@ impl<'a, 'i> Conv<'a, 'i> {
 
     fn reported_concept(&mut self, n: Option<Node<'_, '_>>, skip: &[&str], prefer_original: bool) -> Option<Value> {
         let n = n?;
-        let concept = self.concept_data(n, skip, prefer_original)?;
+        let concept = self.concept_data(n, skip, prefer_original);
         let originals: Vec<_> = std::iter::once(n)
             .chain(children(n, "translation"))
             .filter_map(|code| Some((code.tag_name().name(), child(code, "originalText")?)))
             .collect();
         if !originals.is_empty() {
-            let displays: HashSet<_> = concept["text"]
+            // Compare the original even if its scan found no words and there is no concept.
+            let kept = concept.as_ref().unwrap_or(&Value::Null);
+            let displays: HashSet<_> = kept["text"]
                 .as_str()
                 .into_iter()
                 .chain(
-                    concept["coding"]
+                    kept["coding"]
                         .as_array()
                         .into_iter()
                         .flatten()
@@ -912,7 +920,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 }
             }
         }
-        Some(concept)
+        concept
     }
 
     /// Whether a negated entry's concept names nothing: absent, null, or only a generic concept. The
@@ -1413,7 +1421,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             .find(|s| has_template(*s, &["2.16.840.1.113883.10.20.22.4.147"]))
             .and_then(|s| child(s, "text"))
             .or_else(|| child(sa, "text"))
-            .and_then(|t| self.narrative_of(t));
+            .and_then(|t| self.reported_narrative(t, "medication instructions", rep).value);
         put(&mut dosage, "text", sig.map(Value::String));
         put(&mut dosage, "timing", repeat.map(|rp| json!({"repeat": rp})));
         put(&mut dosage, "route", self.concept(child(sa, "routeCode")));
@@ -1639,7 +1647,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             put(&mut r, "note", self.activity_note(obs, rep));
         }
         if let Some(v) = child(obs, "value") {
-            match self.value(v) {
+            match self.value(v, rep) {
                 ObservationValue::Read(field, value, unread_text) => {
                     r.insert(field.into(), value);
                     if unread_text {
@@ -1673,7 +1681,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                     &mut out,
                     "text",
                     child(range, "text")
-                        .and_then(|t| self.narrative_of(t))
+                        .and_then(|t| self.reported_narrative(t, "reference range", rep).value)
                         .map(Value::String),
                 );
                 (!out.is_empty()).then_some(Value::Object(out))
@@ -1704,7 +1712,7 @@ impl<'a, 'i> Conv<'a, 'i> {
     }
 
     /// Read an observation's value by its CDA type, distinguishing absent and unread values.
-    fn value(&mut self, v: Node<'_, '_>) -> ObservationValue {
+    fn value(&mut self, v: Node<'_, '_>, rep: &mut SectionReport) -> ObservationValue {
         let kind = xsi_type(v).unwrap_or(if attr(v, "code").is_some() {
             "CD"
         } else if attr(v, "value").is_some() {
@@ -1774,7 +1782,13 @@ impl<'a, 'i> Conv<'a, 'i> {
                 .map(|date| ("valueDateTime", Value::String(date))),
             // A ratio is not read; the arms below list it unless it is null.
             "RTO" | "RTO_PQ_PQ" => None,
-            _ => self.narrative_of(v).map(|text| ("valueString", Value::String(text))),
+            _ => {
+                let text = self.reported_narrative(v, "observation value", rep);
+                if text.truncated && text.value.is_none() {
+                    return ObservationValue::Missing; // the incomplete value is already listed
+                }
+                text.value.map(|text| ("valueString", Value::String(text)))
+            }
         };
         let inline_text = v
             .children()

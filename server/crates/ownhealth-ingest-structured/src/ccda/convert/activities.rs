@@ -326,16 +326,12 @@ impl Conv<'_, '_> {
         read
     }
 
-    /// The activity's text as a note, at most 2,000 characters. A note the bound cut goes to review:
-    /// the rest of it exists only in the file.
+    /// The activity's bounded note, with an incomplete scan listed even if no words fit.
     pub(super) fn activity_note(&mut self, n: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
-        let (text, cut) = child(n, "text").and_then(|t| self.bounded_narrative(t))?;
-        if cut {
-            rep.not_read.push(format!(
-                "{} (note cut at 2,000 characters; the rest is kept in the uploaded file)",
-                describe(n)
-            ));
+        let note = self.narrative_of(child(n, "text")?);
+        if note.truncated {
+            rep.not_read.push(format!("{} (note scan limit reached)", describe(n)));
         }
-        Some(json!([{"text": text}]))
+        note.value.map(|text| json!([{"text": text}]))
     }
 }

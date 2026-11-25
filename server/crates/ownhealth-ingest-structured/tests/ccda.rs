@@ -3100,7 +3100,7 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
                </observation></entry>"#
         ))
     };
-    let cut = |what: &str| format!("{what} (note cut at 2,000 characters; the rest is kept in the uploaded file)");
+    let cut = |what: &str| format!("{what} (note scan limit reached)");
     let cases = [
         (under.clone(), under.clone(), false),
         (at.clone(), at.clone(), false),
@@ -3179,5 +3179,150 @@ fn round_7_nullified_procedure_activities_are_held() -> R {
         assert_eq!(c.sections[0].not_read, [format!("{tag} {template} (status nullified)")]);
         assert!(resources(&c, rtype).is_empty(), "{rtype}");
     }
+    Ok(())
+}
+
+fn text_past_the_node_limit() -> String {
+    format!("{}<content>Unread detail</content>", "<content/>".repeat(20_000))
+}
+
+#[tokio::test]
+async fn round_7_an_incomplete_note_scan_is_listed_even_without_words() -> R {
+    let beyond = text_past_the_node_limit();
+    let narrative =
+        format!(r#"<paragraph ID="late">{beyond}</paragraph><paragraph ID="short">Target words</paragraph>"#);
+    let reference_and_late_local = format!(r##"<reference value="#short"/>{beyond}"##);
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        for (text, retained, cut) in [
+            (beyond.as_str(), None, true),
+            (r##"<reference value="#late"/>"##, None, true),
+            (r##"<reference value="#late"/>Local words"##, Some("Local words"), true),
+            (reference_and_late_local.as_str(), Some("Target words"), true),
+            ("<paragraph> </paragraph>", None, false),
+        ] {
+            let bytes = activity_with_note(tag, template, "completed", &narrative, text);
+            let c = convert(&bytes)?;
+            let activity = resources(&c, rtype)[0];
+            assert_eq!(activity["note"][0]["text"].as_str(), retained, "{rtype}");
+            assert_eq!(activity.get("note").is_some(), retained.is_some(), "{rtype}");
+            let expected = if cut {
+                vec![format!("{tag} {template} (note scan limit reached)")]
+            } else {
+                vec![]
+            };
+            assert_eq!(c.sections[0].not_read, expected, "{rtype}, retained: {retained:?}");
+        }
+    }
+
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let (_, tag, template) = NOTE_ACTIVITIES[0];
+    let bytes = activity_with_note(tag, template, "completed", "", &beyond);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "procedure.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["unprojected"], 1, "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+fn observation_with_narrative(social: bool, extra: &str) -> Vec<u8> {
+    let template = if social {
+        "2.16.840.1.113883.10.20.22.4.38"
+    } else {
+        "2.16.840.1.113883.10.20.22.4.2"
+    };
+    let beyond = text_past_the_node_limit();
+    let contents = format!(
+        r#"<text><paragraph ID="late">{beyond}</paragraph></text>
+           <entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="{template}"/>
+             <code code="48767-8" codeSystem="2.16.840.1.113883.6.1"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>{extra}
+           </observation></entry>"#
+    );
+    if social {
+        social_history(&contents)
+    } else {
+        document(&format!(
+            r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.3.1"/><title>Results</title>
+               {contents}</section></component>"#
+        ))
+    }
+}
+
+#[test]
+fn round_7_an_incomplete_social_history_text_value_is_listed() -> R {
+    let bytes = observation_with_narrative(
+        true,
+        r##"<value xsi:type="ST"><reference value="#late"/>Local answer</value>"##,
+    );
+    let c = convert(&bytes)?;
+    assert_eq!(resources(&c, "Observation")[0]["valueString"], "Local answer");
+    assert_eq!(c.sections[0].not_read, ["observation value (text scan limit reached)"]);
+    Ok(())
+}
+
+#[test]
+fn round_7_an_incomplete_result_text_value_is_listed_even_without_words() -> R {
+    let bytes = observation_with_narrative(false, r##"<value xsi:type="ST"><reference value="#late"/></value>"##);
+    let c = convert(&bytes)?;
+    assert!(resources(&c, "Observation")[0].get("valueString").is_none());
+    assert_eq!(c.sections[0].not_read, ["observation value (text scan limit reached)"]);
+    Ok(())
+}
+
+#[test]
+fn round_7_an_incomplete_medication_sig_is_listed_even_without_words() -> R {
+    let beyond = text_past_the_node_limit();
+    let bytes = document(&format!(
+        r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.1.1"/><title>Medications</title>
+          <text><paragraph ID="late">{beyond}</paragraph></text>
+          <entry><substanceAdministration moodCode="EVN">
+            <text><reference value="#late"/></text><statusCode code="active"/>
+            <consumable><manufacturedProduct><manufacturedMaterial>
+              <code code="573621" codeSystem="2.16.840.1.113883.6.88" displayName="albuterol"/>
+            </manufacturedMaterial></manufacturedProduct></consumable>
+          </substanceAdministration></entry></section></component>"##
+    ));
+    let c = convert(&bytes)?;
+    assert!(resources(&c, "MedicationStatement")[0].get("dosage").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["medication instructions (text scan limit reached)"]
+    );
+    Ok(())
+}
+
+#[test]
+fn round_7_an_incomplete_reference_range_text_is_listed_even_without_words() -> R {
+    let bytes = observation_with_narrative(
+        false,
+        r##"<value xsi:type="PQ" value="5"/>
+            <referenceRange><observationRange><text><reference value="#late"/></text></observationRange></referenceRange>"##,
+    );
+    let c = convert(&bytes)?;
+    assert!(resources(&c, "Observation")[0].get("referenceRange").is_none());
+    assert_eq!(c.sections[0].not_read, ["reference range (text scan limit reached)"]);
+    Ok(())
+}
+
+#[test]
+fn round_7_incomplete_original_text_is_listed_even_without_a_coded_value() -> R {
+    let bytes = observation_with_narrative(
+        false,
+        r##"<value xsi:type="CD" nullFlavor="OTH"><originalText><reference value="#late"/></originalText></value>"##,
+    );
+    let c = convert(&bytes)?;
+    assert!(resources(&c, "Observation")[0].get("valueCodeableConcept").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["value (original text kept in the uploaded file)"]
+    );
     Ok(())
 }
