@@ -14,8 +14,8 @@ confidential client with a client secret. No project client exists, and no secre
   account has connected with these steps yet (`verified_live: false`).
 - **Finding the hospital.** The weekly download starts after a person first opens the wizard. The instance
   downloads Epic's SMART User-access Brands bundle once a week and keeps only each organisation's
-  name, endpoint and state. The file is deleted after the run, so nothing of Epic's is stored or shipped
-  (`server/crates/ownhealth-ingest-structured/src/brands.rs`).
+  name, endpoint and state, in the `fhir_brand` table. The downloaded file is deleted after the run,
+  and no Epic file ships in the repository (`server/crates/ownhealth-ingest-structured/src/brands.rs`).
 - **Sign-in and tokens.** One shared OAuth core builds the sign-in, keeps the refresh token sealed and
   refreshes it under a row lock (`server/crates/ownhealth-core/src/connector_oauth.rs`,
   `server/crates/ownhealth-api/src/routes/connectors.rs`).
