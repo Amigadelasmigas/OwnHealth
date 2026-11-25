@@ -25,6 +25,7 @@ const FLAGGED: [&str; 5] = ["L", "H", "LL", "HH", "A"];
 pub const MAX_POINTS: usize = 120;
 
 #[allow(clippy::unwrap_used)]
+// These patterns are source literals.
 static LOINC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(?:LOINC:)?(\d{1,7}-\d)$").unwrap());
 #[allow(clippy::unwrap_used)]
 static WINDOW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^P(\d+)([DMY])$").unwrap());

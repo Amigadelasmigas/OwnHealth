@@ -299,6 +299,7 @@ fn split_clauses(body: &str, heading: &[String]) -> Vec<Vec<String>> {
             if !inside && (w == "con" || w == "with") {
                 out.push(heading.to_vec());
             } else {
+                // out starts with one clause and this function only appends clauses.
                 out.last_mut().expect("never empty").push(w);
             }
         }

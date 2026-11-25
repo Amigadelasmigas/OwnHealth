@@ -610,6 +610,180 @@ async fn a_fully_refused_series_leaves_the_rest_of_the_study_ready() -> R {
     Ok(())
 }
 
+/// A member whose deflate stream is corrupt or cut short never reads, however often the job runs. It is
+/// counted as damaged and the rest of the disc is sent.
+#[tokio::test]
+async fn a_member_that_does_not_inflate_is_damaged_and_the_rest_is_sent() -> R {
+    for (what, cut) in [("corrupt", false), ("cut short", true)] {
+        let e = env().await?;
+        let disc = study_files(&Study::new(U1, ALEX), "DICOM");
+        let mut zip = zip_files(&disc);
+        let header = support::last_zip_entry_header(&zip)?;
+        if cut {
+            zip[header + 20..header + 24].copy_from_slice(&1u32.to_le_bytes());
+        } else {
+            let local = u32::from_le_bytes(zip[header + 42..header + 46].try_into()?) as usize;
+            let name = usize::from(u16::from_le_bytes([zip[local + 26], zip[local + 27]]));
+            let extra = usize::from(u16::from_le_bytes([zip[local + 28], zip[local + 29]]));
+            // BFINAL=1 with the reserved block type 11: the decoder reads a corrupt stream
+            zip[local + 30 + name + extra] = 0x07;
+        }
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{what}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{what}: {result}");
+        assert_eq!(result["instances"], disc.len() - 1, "{what}: {result}");
+        assert_eq!(e.orthanc.posts(), disc.len() - 1, "{what}");
+    }
+    Ok(())
+}
+
+/// A second copy of an image (one SOP Instance UID, the same bytes) whose full read fails its CRC is
+/// damaged, whichever copy it is: the disc imports with the copy that reads. The image is larger than
+/// the head the scan reads first, so only the full read finds the damage.
+#[tokio::test]
+async fn a_damaged_copy_of_a_repeated_image_is_damaged_and_the_disc_imports() -> R {
+    for damaged in ["DICOM/S00/I0000", "DICOM/COPY/I0000"] {
+        let e = env().await?;
+        let st = Study {
+            size: 1100,
+            ..Study::new(U1, ALEX)
+        };
+        let mut disc = study_files(&st, "DICOM");
+        disc.push(("DICOM/COPY/I0000".into(), disc[0].1.clone()));
+        let mut zip = zip_files(&disc);
+        let central = zip
+            .windows(4)
+            .enumerate()
+            .filter(|(_, w)| *w == b"PK\x01\x02")
+            .map(|(at, _)| at)
+            .find(|&at| {
+                let n = usize::from(u16::from_le_bytes([zip[at + 28], zip[at + 29]]));
+                zip.get(at + 46..at + 46 + n) == Some(damaged.as_bytes())
+            })
+            .ok_or_else(|| anyhow::anyhow!("no central header for {damaged}"))?;
+        zip[central + 16] ^= 1;
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{damaged}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{damaged}: {result}");
+        assert_eq!(result["instances"], disc.len() - 1, "{damaged}: {result}");
+    }
+    Ok(())
+}
+
+/// A second copy of an image whose deflate stream is corrupt or cut short after the head the scan reads
+/// first is damaged in the upload, not a failed read: it never heals, so the disc imports without it.
+#[tokio::test]
+async fn a_repeated_image_whose_copy_does_not_inflate_is_damaged_and_the_disc_imports() -> R {
+    for (what, cut) in [("corrupt", false), ("cut short", true)] {
+        let e = env().await?;
+        let st = Study::new(U1, ALEX);
+        let mut disc = study_files(&st, "DICOM");
+        disc[0].1.resize((1 << 20) + (1 << 17), 0);
+        let image = disc[0].1.clone();
+        disc.push(("DICOM/COPY/I0000".into(), image.clone()));
+        let stream = if cut {
+            let mut stream = support::deflate_stored_blocks(&image);
+            stream.truncate(stream.len() - 1000);
+            stream
+        } else {
+            let mut stream = support::deflate_stored_blocks(&image[..image.len() - 1000]);
+            // BFINAL=1 with the reserved block type 11: the decoder reads a corrupt stream
+            stream.push(0x07);
+            stream
+        };
+        let zip = support::zip_last_entry_as_deflated(&disc, stream, image.len())?;
+        let up = e.upload_zip("alex", &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{what}: {error:?}");
+        assert_eq!(result["damaged"], 1, "{what}: {result}");
+        assert_eq!(result["instances"], st.images(), "{what}: {result}");
+        assert_eq!(e.orthanc.posts(), st.images(), "{what}");
+    }
+    Ok(())
+}
+
+/// The first copy of a repeated image can be damaged past the head the scan reads and still carry a
+/// header that reads, here with another date and description. Nothing of it reaches the study, on the
+/// record and on a study held for review alike: the copies that read stand for the image, and when
+/// every copy is damaged the image is left out. Each damaged copy is counted once.
+#[tokio::test]
+async fn a_damaged_first_copy_of_a_repeated_image_leaves_nothing_on_the_study() -> R {
+    for (slug, readable) in [("alex", true), ("sam", true), ("alex", false)] {
+        let case = format!("{slug}, a copy that reads: {readable}");
+        let e = env().await?;
+        let st = Study::new(U1, ALEX);
+        let mut disc = study_files(&st, "DICOM");
+        disc[0].1.resize((1 << 20) + 1, 0);
+        disc.push(("DICOM/COPY/I0000".into(), disc[0].1.clone()));
+        if readable {
+            // two copies that read: the image counts once
+            disc.push(("DICOM/COPY2/I0000".into(), disc[0].1.clone()));
+        }
+        let mut zip = support::zip_files_stored(&disc);
+        // The first member keeps the CRC of its original bytes, so only its full read finds the change.
+        // With no copy that reads, the last member is changed the same way.
+        for (from, to) in [
+            (st.date.as_bytes(), &b"20190101"[..]),
+            (st.description.as_bytes(), &b"RX TORAX"[..]),
+        ] {
+            let hits: Vec<usize> = zip
+                .windows(from.len())
+                .enumerate()
+                .filter(|(_, w)| *w == from)
+                .map(|(at, _)| at)
+                .collect();
+            let (Some(&first), Some(&last)) = (hits.first(), hits.last()) else {
+                anyhow::bail!("no {from:?} in the zip");
+            };
+            for at in if readable { vec![first] } else { vec![first, last] } {
+                zip[at..at + from.len()].copy_from_slice(to);
+            }
+        }
+        let (images, damaged) = if readable {
+            (st.images(), 1)
+        } else {
+            (st.images() - 1, 2)
+        };
+        let up = e.upload_zip(slug, &zip, disc.len()).await?;
+        e.run().await?;
+        let (state, result, error) = e.job(up.job_id).await?;
+        assert_eq!(state, "done", "{case}: {error:?}");
+        assert_eq!(result["damaged"], damaged, "{case}: {result}");
+        if slug == "alex" {
+            let (date, description): (Option<chrono::NaiveDate>, Option<String>) =
+                sqlx::query_as("select study_date, description from imaging_study where study_instance_uid = $1")
+                    .bind(U1)
+                    .fetch_one(&e.rt.pool)
+                    .await?;
+            assert_eq!(date.map(|d| d.to_string()).as_deref(), Some("2026-09-14"), "{case}");
+            assert_eq!(description.as_deref(), Some(st.description), "{case}");
+            let fhir = e.fhir(U1).await?;
+            assert_eq!(fhir["started"], "2026-09-14", "{case}: {fhir}");
+            assert_eq!(fhir["description"], st.description, "{case}: {fhir}");
+            assert_eq!(result["instances"], images, "{case}: {result}");
+        } else {
+            let payload: Value =
+                sqlx::query_scalar("select payload from review_item where kind = $1 and profile_id = $2")
+                    .bind(REVIEW_KIND)
+                    .bind(e.fam.profile(slug))
+                    .fetch_one(&e.rt.pool)
+                    .await?;
+            assert_eq!(payload["reason"], "identity_mismatch", "{payload}");
+            assert_eq!(payload["study_date"], "2026-09-14", "{payload}");
+            assert_eq!(payload["description"], st.description, "{payload}");
+            assert_eq!(payload["instances"], images, "{payload}");
+            assert_eq!(payload["series"], st.series, "{payload}");
+            assert_eq!(e.orthanc.posts(), 0);
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_header_past_the_read_cap_is_damaged_and_not_sent() -> R {
     let e = env().await?;
@@ -804,7 +978,9 @@ async fn round3_duplicate_instances_are_counted_once() -> R {
 }
 
 #[tokio::test]
-async fn a_duplicate_entry_with_a_bad_crc_fails_the_import_on_the_first_attempt() -> R {
+/// The damaged copy never reaches Orthanc, so it is counted as damaged and the copy that reads is sent,
+/// on the first attempt.
+async fn a_duplicate_entry_with_a_bad_crc_is_damaged_and_the_other_copy_imports() -> R {
     let e = env().await?;
     let mut image = support::image(&Study::new(U1, ALEX), 0, 0, support::EXPLICIT_LE);
     // The header scan reads only the first MiB. Hashing the duplicate reads through to its CRC.
@@ -814,14 +990,10 @@ async fn a_duplicate_entry_with_a_bad_crc_fails_the_import_on_the_first_attempt(
     let up = e.upload_zip("alex", &zip, 2).await?;
 
     assert_eq!(e.run().await?, 1);
-    let (state, _, error) = e.job(up.job_id).await?;
-    assert_eq!(state, "dead", "{error:?}");
-    assert!(
-        error
-            .as_deref()
-            .is_some_and(|e| e.contains("a duplicate DICOM entry could not be read"))
-    );
-    assert_eq!(e.orthanc.posts(), 0);
+    let (state, result, error) = e.job(up.job_id).await?;
+    assert_eq!(state, "done", "{error:?}");
+    assert_eq!(result["damaged"], 1, "{result}");
+    assert_eq!(e.orthanc.posts(), 1);
     Ok(())
 }
 

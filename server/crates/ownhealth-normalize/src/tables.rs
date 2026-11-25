@@ -177,6 +177,7 @@ fn cell<'a>(r: &'a HashMap<String, String>, key: &str) -> &'a str {
     r.get(key).map_or("", String::as_str)
 }
 
+// These normalization patterns are source literals.
 static SPACE_AROUND_PUNCT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*([/(),:])\s*").expect("static regex"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s_]+").expect("static regex"));
 
@@ -301,6 +302,7 @@ fn load() -> Tables {
         let m = Molar {
             alias_group: cell(&r, "alias_group").into(),
             species: cell(&r, "species").into(),
+            // The embedded molar table is fixed at build time and checked in tests/tables.rs.
             g_per_mol: (!g.is_empty()).then(|| fraction(g).expect("a molar mass in the shipped table")),
             g_per_mol_text: g.to_string(),
             valence: (!v.is_empty()).then(|| v.parse().expect("a valence in the shipped table")),

@@ -39,6 +39,7 @@ struct Data {
 
 #[allow(clippy::expect_used)]
 static DATA: LazyLock<Data> = LazyLock::new(|| {
+    // COUPLE_JSON is embedded at build time and covered by the couple tests.
     let doc: Value = serde_json::from_str(COUPLE_JSON).expect("data/genome/couple.json is valid JSON");
     let cites = doc["rows"]
         .as_array()

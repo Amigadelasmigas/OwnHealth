@@ -177,7 +177,7 @@ pub(crate) fn scan<R: Read + Seek>(
     report: &mut Report,
 ) -> Result<JoinCounts> {
     let manifest = strava_manifest(zip).ok_or_else(unreadable)?;
-    let root = manifest.strip_suffix("activities.csv").expect("Strava manifest suffix");
+    let root = manifest.strip_suffix("activities.csv").ok_or_else(unreadable)?;
     let mut csv = None;
     let mut files = BTreeMap::new();
     for index in 0..zip.len() {

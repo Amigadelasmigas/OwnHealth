@@ -235,7 +235,7 @@ test('a late directory answer does not fill the list of the vendor picked after 
 	expect(errors).toEqual([]);
 });
 
-test('a launch at an address that is not a SMART server says to check the address', async ({ page }) => {
+test('the SMART wizard distinguishes a missing configuration from an outage in both languages', async ({ page }) => {
 	const errors = collectPageErrors(page);
 	await page.goto('/connections/add?lang=en');
 	await page.getByText('Oracle Health', { exact: true }).click();
@@ -248,13 +248,29 @@ test('a launch at an address that is not a SMART server says to check the addres
 	await page.getByRole('button', { name: 'Connect at Oracle Health' }).click();
 	await expect(page.getByRole('alert')).toHaveText('This address does not answer as a SMART server. Check the FHIR base address the facility gives.');
 	await expect(page).toHaveURL(`${app}/connections/add?lang=en`);
+	// The same public client can launch against another address, without another registration.
+	for (const [lang, another, address, connect, message] of [
+		['en', 'Another server address', 'The FHIR base address the facility gives',
+			'Connect at Oracle Health', "The vendor's server could not be reached. Try again later."],
+		['es', 'Otra dirección de servidor', 'La dirección base FHIR que da el centro',
+			'Conectar en Oracle Health', 'No se pudo contactar con el servidor del proveedor. Inténtalo más tarde.']
+	]) {
+		await page.goto(`/connections/add?lang=${lang}`);
+		await page.getByText('Oracle Health', { exact: true }).click();
+		await page.getByText(another, { exact: true }).click();
+		await page.getByLabel(address).fill(`${fake}/down-${lang}`);
+		await page.getByRole('button', { name: connect }).click();
+		await expect(page.getByRole('alert')).toHaveText(message);
+		await expect(page.getByRole('button', { name: connect })).toBeEnabled();
+		await page.screenshot({ path: test.info().outputPath(`smart-outage-${lang}.png`) });
+	}
 	expect(errors).toEqual([]);
 });
 
 /** A new member of the household who only views Alex, signed in with a password. */
 async function viewer(browser: Browser) {
 	const headers = { Origin: app };
-	const owner = await browser.newContext({ baseURL: app });
+	const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
 	const invite = await owner.request.post('/api/household/invites', { headers, data: { display_name: `Pat Rivera ${Date.now()}`, locale: 'en' } });
 	expect(invite.status()).toBe(201);
 	const { user_id, code } = await invite.json();

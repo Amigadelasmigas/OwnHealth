@@ -1156,3 +1156,64 @@ async fn a_member_the_reader_cannot_open_is_listed_and_the_other_members_import(
     );
     assert_readings(&env, result, &[("hr", 70.0, "2024-07-12T09:00:00Z", 0)]).await
 }
+
+/// Where the data of member `name` starts in a ZIP: (local header, first data byte).
+fn member_data(bytes: &[u8], name: &str) -> (usize, usize) {
+    let at = (0..bytes.len().saturating_sub(30))
+        .find(|&i| {
+            bytes[i..].starts_with(b"PK\x03\x04") && {
+                let n = usize::from(u16::from_le_bytes([bytes[i + 26], bytes[i + 27]]));
+                bytes.get(i + 30..i + 30 + n) == Some(name.as_bytes())
+            }
+        })
+        .expect("local header");
+    let n = usize::from(u16::from_le_bytes([bytes[at + 26], bytes[at + 27]]));
+    let e = usize::from(u16::from_le_bytes([bytes[at + 28], bytes[at + 29]]));
+    (at, at + 30 + n + e)
+}
+
+/// A corrupt deflate stream (InvalidInput) and a cut one (UnexpectedEof) are damage in the upload
+/// bytes, which never heal: the member is listed and the others import on the first run.
+#[tokio::test]
+async fn a_member_that_does_not_inflate_is_listed_and_the_other_members_import() -> R {
+    let bad = "Takeout/Fitbit/Global Export Data/heart_rate-2024-07-05.json";
+    let good = "Takeout/Google Health/Google Data/Heart Rate/2024-07.csv";
+    let json = r#"[{"dateTime":"07/05/24 08:10:00","value":{"bpm":91}}]"#;
+    let csv = "timestamp,bpm\n2024-07-12T09:00:15Z,70\n";
+
+    let mut corrupt = archive(&[(bad, json), (good, csv)])?;
+    let (_, data) = member_data(&corrupt, bad);
+    // BFINAL=1 with the reserved block type 11
+    corrupt[data] = 0x07;
+
+    // a stored block that promises three bytes and holds one, marked as deflate
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file(
+        bad,
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+    )?;
+    zip.write_all(&[1, 3, 0, 252, 255, b'x'])?;
+    zip.start_file(good, SimpleFileOptions::default())?;
+    zip.write_all(csv.as_bytes())?;
+    let mut cut = zip.finish()?.into_inner();
+    let (at, _) = member_data(&cut, bad);
+    cut[at + 8..at + 10].copy_from_slice(&8u16.to_le_bytes());
+    let dir = cut
+        .windows(4)
+        .position(|w| w == b"PK\x01\x02")
+        .expect("central directory");
+    cut[dir + 10..dir + 12].copy_from_slice(&8u16.to_le_bytes());
+
+    for (what, bytes) in [("corrupt", corrupt), ("cut short", cut)] {
+        let env = Env::new().await?;
+        let (state, error, result) = upload_bytes(&env, &bytes).await?;
+        assert_eq!(state, "done", "{what}: {error}");
+        assert_eq!(
+            omitted(&result),
+            [(bad.to_string(), "invalid_member".to_string())],
+            "{what}"
+        );
+        assert_readings(&env, result, &[("hr", 70.0, "2024-07-12T09:00:00Z", 0)]).await?;
+    }
+    Ok(())
+}

@@ -37,7 +37,7 @@ pub const PROVIDER: &str = "fitbit_takeout";
 const UNKNOWN: &str = "fitbit_takeout_unknown_layout";
 const UNREADABLE: &str = "fitbit_takeout_unreadable";
 const LIMIT: &str = "fitbit_takeout_limit";
-const NO_READINGS: &str = "fitbit_takeout_no_readings";
+pub(crate) const NO_READINGS: &str = "fitbit_takeout_no_readings";
 const INVALID_CSV: &str = "invalid_csv";
 const INVALID_JSON: &str = "invalid_json";
 /// A damaged member (bad checksum, short data or a method the reader cannot open) is listed and
@@ -400,11 +400,13 @@ impl HeartRateMinute {
     }
 
     fn finish(self, minute: i64) -> (usize, Sample) {
+        // Every minute bucket is created by add_sample, which sets first.
         let (_, tz, file) = self.first.expect("a minute has at least one reading");
         (
             file,
             Sample {
                 metric: "hr",
+                // Metric::sample admits dates from 2000 through tomorrow before bucketing.
                 t: DateTime::from_timestamp(minute * 60, 0).expect("minute of a valid reading"),
                 t_end: None,
                 v: (self.sum / self.values.len() as f64).round(),
@@ -640,9 +642,6 @@ pub(crate) fn scan<R: Read + Seek>(zip: &mut ZipArchive<R>, report: &mut Report)
         if minutes.len() + non_heart_rate.len() > MAX_READINGS {
             return Err(refuse(LIMIT));
         }
-    }
-    if imported.is_empty() {
-        return Err(refuse(NO_READINGS));
     }
     for (minute, readings) in minutes {
         let (member, sample) = readings.finish(minute);

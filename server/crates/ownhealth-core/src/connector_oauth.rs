@@ -406,6 +406,11 @@ async fn discover_smart(issuer: &str, scopes: &str, egress: &Egress) -> Result<E
         status: f.status,
         code: code.into(),
     };
+    // A busy or failing server heals by waiting. A redirect (the egress client follows none) or any
+    // other refusal means the address is wrong.
+    if matches!(f.status, 408 | 425 | 429 | 500..=599) {
+        return Err(bad("discovery_unavailable"));
+    }
     if f.status != 200 {
         return Err(bad("discovery_failed"));
     }

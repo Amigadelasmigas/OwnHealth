@@ -280,3 +280,31 @@ async fn demo_ldl_changes_compare_one_method() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// The docs cite these ids for Alex's LDL and platelet results (architecture.md section 16, mcp.md,
+/// PLAN.md), so `get_source` on the seeded demo resolves each to its own fact.
+#[tokio::test]
+async fn the_documented_ldl_and_platelet_ids_resolve_in_the_demo() -> anyhow::Result<()> {
+    ownhealth_ops::register();
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let settings = db.settings(dir.path())?;
+    let blobs = BlobStore::for_settings(&settings)?;
+    assert!(seed_demo(&db.pool, &settings, &blobs, false).await?);
+    for (id, group, day, value) in [
+        ("src_a04", "ldl_c", "2025-01-20", 79),
+        ("src_a06", "ldl_c", "2025-09-08", 101),
+        ("src_a11", "ldl_c", "2026-09-14", 97),
+        ("src_a14", "platelets", "2026-09-14", 231),
+    ] {
+        let row: Option<(String, String, Decimal)> = sqlx::query_as(
+            "select alias_group, to_char(effective_at at time zone 'UTC', 'YYYY-MM-DD'), value_num \
+             from observation where src_id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&db.pool)
+        .await?;
+        assert_eq!(row, Some((group.into(), day.into(), Decimal::from(value))), "{id}");
+    }
+    Ok(())
+}

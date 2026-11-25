@@ -22,6 +22,7 @@ use crate::Candidate;
 use crate::tables::{self as t, Alias, LoincCode, fold, strip_chars};
 use crate::units::{self as u, Dims, ZERO};
 
+// All invocations use fixed patterns defined in this module.
 macro_rules! re {
     ($name:ident, $pat:expr) => {
         static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new(&$pat).expect("static regex"));
@@ -71,6 +72,7 @@ const SPECIMEN_HINTS: [(&str, &str); 3] = [
 static SPECIMEN_HINT_RES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     SPECIMEN_HINTS
         .iter()
+        // The patterns come from the constant method table above.
         .map(|(code, p)| (*code, Regex::new(p).expect("static regex")))
         .collect()
 });
@@ -206,6 +208,7 @@ pub const EXACT: f64 = 0.95;
 static METHOD_WORD_RES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     METHOD_WORDS
         .iter()
+        // The alternatives come from the constant marker table above.
         .map(|(m, p)| (*m, Regex::new(&format!(r"\b(?:{p})(?:\b|$)")).expect("static regex")))
         .collect()
 });

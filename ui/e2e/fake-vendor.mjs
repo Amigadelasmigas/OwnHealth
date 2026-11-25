@@ -101,6 +101,9 @@ createServer(async (req, res) => {
 	if (req.method === 'GET' && url.pathname === `${owOAuth}/error`) {
 		return json(res, 200, { success: false, message: url.searchParams.get('message') });
 	}
+	if (req.method === 'GET' && /^\/down-(en|es)\/\.well-known\/smart-configuration$/.test(url.pathname)) {
+		return json(res, 503, { error: 'temporarily_unavailable' });
+	}
 	if (req.method === 'GET' && url.pathname === '/.well-known/smart-configuration') {
 		return json(res, 200, {
 			issuer: base,

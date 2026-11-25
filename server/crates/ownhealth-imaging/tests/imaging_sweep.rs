@@ -1614,7 +1614,9 @@ async fn the_sweep_links_an_upload_from_before_the_links_so_one_with_no_recorded
 }
 
 #[tokio::test]
-async fn the_sweep_retries_legacy_links_after_a_zip_entry_fails_to_read() -> R {
+/// A stream cut short is damage in the stored upload, as a bad CRC is: it never reads, so the links
+/// complete without it instead of waiting for a retry that cannot heal it.
+async fn the_sweep_completes_legacy_links_when_an_entry_is_cut_short() -> R {
     use std::io::{Cursor, ErrorKind, Read};
 
     let e = env().await?;
@@ -1626,7 +1628,7 @@ async fn the_sweep_retries_legacy_links_after_a_zip_entry_fails_to_read() -> R {
     e.import().await?;
     let mut extra = series_files(&study, &[2], "DICOM");
     extra.truncate(1);
-    let (later, sha) = e.upload("alex", &extra).await?;
+    let (later, _) = e.upload("alex", &extra).await?;
     e.import().await?;
     as_before_the_links(&e, &[later.import_id]).await?;
 
@@ -1650,18 +1652,13 @@ async fn the_sweep_retries_legacy_links_after_a_zip_entry_fails_to_read() -> R {
         .await?;
 
     let swept = e.sweep().await?;
-    assert_eq!(swept["links_completed"], 1, "{swept}");
-    assert_eq!(links(&e, later.import_id, U1).await?, 0);
-    assert_eq!(remove_now(&e, later.import_id).await?, Removal::Recorded);
-
-    sqlx::query(point_to)
-        .bind(later.import_id)
-        .bind(hex::decode(sha)?)
-        .execute(&e.rt.pool)
-        .await?;
-    assert_eq!(e.sweep().await?["links_completed"], 1);
-    assert_eq!(links(&e, later.import_id, U1).await?, 1);
-    assert_eq!(remove_now(&e, later.import_id).await?, Removal::Recorded);
+    assert_eq!(links(&e, later.import_id, U1).await?, 0, "{swept}");
+    let open = "select count(*) from imaging_import where not links_complete";
+    assert_eq!(e.count(open).await?, 0, "{swept}");
+    assert!(matches!(
+        remove_now(&e, later.import_id).await?,
+        Removal::Removed { .. }
+    ));
     Ok(())
 }
 

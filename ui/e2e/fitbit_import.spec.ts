@@ -29,3 +29,26 @@ test('Fitbit Takeout imports both layouts and explains an unsupported ZIP in Eng
 		await expect(page.getByText(label, { exact: true })).toBeVisible();
 	}
 });
+
+test('a failed Fitbit upload keeps the omitted file and reason in both languages', async ({ page }) => {
+	await page.goto('/import-review?lang=en');
+	await page.getByRole('button', { name: 'Lucía Rivera', exact: true }).click();
+	const open = page.getByRole('button', { name: 'Upload', exact: true });
+	if ((await open.getAttribute('aria-expanded')) !== 'true') await open.click();
+	const panel = page.locator('section.up');
+	await panel.locator('input[type=file]').first().setInputFiles('../fixtures/fitbit/no-readings.zip');
+	await expect(panel.getByText('This Fitbit ZIP contains no usable readings.', { exact: true })).toBeVisible();
+	await panel.getByText('1 entry left out', { exact: true }).click();
+	const member = panel.getByText('Takeout/Fitbit/Global Export Data/heart_rate-2024-07-04.json', { exact: true });
+	await expect(member).toBeVisible();
+	await expect(panel.getByText('No supported readings found')).toBeVisible();
+	await expect(panel.getByRole('link', { name: 'no-readings.zip', exact: true })).toHaveCount(0);
+	await panel.screenshot({ path: test.info().outputPath('fitbit-no-readings-en.png') });
+
+	await page.getByRole('button', { name: 'ES', exact: true }).click();
+	await expect(panel.getByText('Este ZIP de Fitbit no contiene mediciones utilizables.')).toBeVisible();
+	await expect(panel.getByText('1 elemento sin importar')).toBeVisible();
+	await expect(member).toBeVisible();
+	await expect(panel.getByText('No hay mediciones compatibles')).toBeVisible();
+	await panel.screenshot({ path: test.info().outputPath('fitbit-no-readings-es.png') });
+});
