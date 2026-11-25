@@ -250,11 +250,25 @@ fn the_ccd_with_no_information_sections_reads_what_it_has() -> R {
     );
     assert_eq!(made(&c, Section::SocialHistory), counts(&[("Observation", 1)]));
     let held = held_items(&c, "ccda-x", "ccd-2.xml");
-    assert_eq!(held.len(), 1, "{held:?}");
-    assert_eq!(held[0]["section"]["code"], "47519-4");
+    let notes: Vec<_> = held.iter().map(|h| (&h["section"]["code"], &h["notes"])).collect();
+    // no entry points into the allergies paragraph or the social history table
     assert_eq!(
-        held[0]["notes"],
-        json!({"not read: code (original text kept in the uploaded file)": 2})
+        notes,
+        [
+            (
+                &json!("48765-2"),
+                &json!({"not read: section text no entry points at (3 words)": 1})
+            ),
+            (
+                &json!("47519-4"),
+                &json!({"not read: code (original text kept in the uploaded file)": 2})
+            ),
+            (
+                &json!("29762-2"),
+                &json!({"not read: section text no entry points at (17 words)": 1})
+            ),
+        ],
+        "{held:?}"
     );
     Ok(())
 }
@@ -1159,7 +1173,9 @@ fn medication_supply_and_dispense_are_listed_as_not_read() -> R {
         meds.not_read,
         [
             "supply 2.16.840.1.113883.10.20.22.4.17",
-            "supply 2.16.840.1.113883.10.20.22.4.18"
+            "supply 2.16.840.1.113883.10.20.22.4.18",
+            // the medicines table: no entry points into it
+            "section text no entry points at (43 words)"
         ]
     );
     Ok(())
@@ -2886,7 +2902,8 @@ async fn round_3_encounter_text_kept_only_in_xml_is_counted() -> R {
         assert_eq!(visit["extension"][0]["valueString"].as_str(), reference);
         assert!(!visit.to_string().contains("Synthetic visit detail"));
     }
-    assert_eq!(unread, [Some(1), Some(1), None, Some(1)]);
+    // the first and last visits also leave the "Office visit" paragraph unread
+    assert_eq!(unread, [Some(2), Some(1), None, Some(2)]);
     Ok(())
 }
 
@@ -2971,10 +2988,8 @@ async fn round_3_social_history_counts_original_text_missing_from_the_coded_answ
             .await?;
         unread.push(flags["unprojected"].as_i64());
     }
-    assert_eq!(
-        unread,
-        [Some(1), Some(1), Some(1), None, None, None, Some(1), Some(1), None]
-    );
+    // one more each: every answer leaves at least one paragraph of the text unread
+    assert_eq!(unread, [2, 2, 2, 1, 1, 1, 2, 2, 1].map(Some));
     Ok(())
 }
 
@@ -3225,16 +3240,18 @@ fn encounter_with_indication(narrative: &str, inner: &str) -> Vec<u8> {
 #[tokio::test]
 async fn round_6_an_indications_own_text_goes_to_review() -> R {
     let line = "indication (text kept in the uploaded file)";
+    // the paragraph no entry points at, when the indication's text does not
+    let unseen = "section text no entry points at (1 word)";
     let narrative = r#"<paragraph ID="why">Pneumonia</paragraph>"#;
     for (inner, expected) in [
-        ("<text>Seen after assault by partner</text>", vec![line]),
+        ("<text>Seen after assault by partner</text>", vec![line, unseen]),
         (
             r##"<text><reference value="#why"/>Seen after assault by partner</text>"##,
             vec![line],
         ),
-        ("<text><content>Seen after assault</content></text>", vec![line]),
+        ("<text><content>Seen after assault</content></text>", vec![line, unseen]),
         (r##"<text><reference value="#why"/></text>"##, vec![]),
-        ("<text>  </text>", vec![]),
+        ("<text>  </text>", vec![unseen]),
     ] {
         let bytes = encounter_with_indication(narrative, inner);
         assert_eq!(unread_lines(&bytes)?, expected, "{inner}");
@@ -3255,7 +3272,8 @@ async fn round_6_an_indications_own_text_goes_to_review() -> R {
         .bind(doc)
         .fetch_one(&mut *tx)
         .await?;
-    assert_eq!(flags["unprojected"], 1, "{flags}");
+    // the indication's text and the paragraph no entry points at
+    assert_eq!(flags["unprojected"], 2, "{flags}");
     Ok(())
 }
 
@@ -3331,7 +3349,10 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
             let c = convert(&bytes)?;
             let kept = resources(&c, rtype)[0]["note"][0]["text"].as_str();
             assert_eq!(kept, Some(note.as_str()), "{rtype} {}", &text[..text.len().min(40)]);
-            let expected = if *flagged { vec![cut(what)] } else { vec![] };
+            let mut expected = if *flagged { vec![cut(what)] } else { vec![] };
+            // the paragraphs of the text this case does not point at, one word each
+            let unseen = if text.contains("<reference") { 2 } else { 3 };
+            expected.push(format!("section text no entry points at ({unseen} words)"));
             assert_eq!(
                 unread_lines(&bytes)?,
                 expected,
@@ -3384,23 +3405,30 @@ async fn round_7_an_incomplete_note_scan_is_listed_even_without_words() -> R {
         format!(r#"<paragraph ID="late">{beyond}</paragraph><paragraph ID="short">Target words</paragraph>"#);
     let reference_and_late_local = format!(r##"<reference value="#short"/>{beyond}"##);
     for (rtype, tag, template) in NOTE_ACTIVITIES {
-        for (text, retained, cut) in [
-            (beyond.as_str(), None, true),
-            (r##"<reference value="#late"/>"##, None, true),
-            (r##"<reference value="#late"/>Local words"##, Some("Local words"), true),
-            (reference_and_late_local.as_str(), Some("Target words"), true),
-            ("<paragraph> </paragraph>", None, false),
+        // (and the words of the paragraphs the note does not point at: 2 in each)
+        for (text, retained, cut, unseen) in [
+            (beyond.as_str(), None, true, 4),
+            (r##"<reference value="#late"/>"##, None, true, 2),
+            (
+                r##"<reference value="#late"/>Local words"##,
+                Some("Local words"),
+                true,
+                2,
+            ),
+            (reference_and_late_local.as_str(), Some("Target words"), true, 2),
+            ("<paragraph> </paragraph>", None, false, 4),
         ] {
             let bytes = activity_with_note(tag, template, "completed", &narrative, text);
             let c = convert(&bytes)?;
             let activity = resources(&c, rtype)[0];
             assert_eq!(activity["note"][0]["text"].as_str(), retained, "{rtype}");
             assert_eq!(activity.get("note").is_some(), retained.is_some(), "{rtype}");
-            let expected = if cut {
+            let mut expected = if cut {
                 vec![format!("{tag} {template} (note scan limit reached)")]
             } else {
                 vec![]
             };
+            expected.push(format!("section text no entry points at ({unseen} words)"));
             assert_eq!(c.sections[0].not_read, expected, "{rtype}, retained: {retained:?}");
         }
     }
@@ -3532,6 +3560,47 @@ fn round_7_trailing_whitespace_and_empty_markup_do_not_cut_a_note() -> R {
 }
 
 // ------------------------------------------------------ slice 21, round 10 ----
+
+/// CR10-NARR: a block of a section's text that no entry points at is read by nothing. The section's
+/// entries all read, and review still lists the block with its words. A table that holds the cell an
+/// entry points at shows that entry and is not listed.
+#[test]
+fn round_10_section_text_no_entry_points_at_waits_in_review() -> R {
+    let section = |extra: &str| {
+        social_history(&format!(
+            r##"<text><table><tbody><tr><td ID="smk">Current every day smoker</td><td>2014</td></tr></tbody></table>{extra}</text>
+              <entry><observation classCode="OBS" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.78"/>
+                <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
+                <text><reference value="#smk"/></text>
+                <statusCode code="completed"/><effectiveTime value="20140606"/>
+                <value xsi:type="CD" code="449868002" codeSystem="2.16.840.1.113883.6.96" displayName="Current every day smoker"/>
+              </observation></entry>"##
+        ))
+    };
+    let c = convert(&section(""))?;
+    assert_eq!(resources(&c, "Observation").len(), 1);
+    assert!(c.sections[0].not_read.is_empty(), "{:?}", c.sections[0].not_read);
+    assert!(held_items(&c, "t", "s.xml").is_empty());
+    for (extra, line) in [
+        (
+            "<paragraph>Patient also chews tobacco.</paragraph>",
+            "section text no entry points at (4 words)",
+        ),
+        ("Chews", "section text no entry points at (1 word)"),
+    ] {
+        let c = convert(&section(extra))?;
+        assert_eq!(resources(&c, "Observation").len(), 1, "{extra}");
+        assert_eq!(c.sections[0].not_read, [line], "{extra}");
+        let held = held_items(&c, "t", "s.xml");
+        assert_eq!(held.len(), 1, "{extra}");
+        assert_eq!(held[0]["resource_type"], "Social History (C-CDA)");
+        assert_eq!(held[0]["section"]["pointer"], "/section/0");
+        assert_eq!(held[0]["count"], 1);
+        assert_eq!(held[0]["notes"], json!({format!("not read: {line}"): 1}));
+    }
+    Ok(())
+}
 
 /// CR10-STATUS: an activity whose statusCode is no ActStatus code says nothing about how far it got.
 /// It waits in review, never recorded as final or unknown; `completed` keeps its path.

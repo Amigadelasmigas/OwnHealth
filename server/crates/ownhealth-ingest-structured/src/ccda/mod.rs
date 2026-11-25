@@ -13,7 +13,8 @@
 //! - An unsupported section, entry or part of an entry, and a note kept in the file, becomes one
 //!   `fhir_unmapped_summary` review item per section. Omitted document type text has its own review
 //!   item. Sections that hold only narrative text (a core
-//!   section too, unless it says it has no information) are listed in one more item. The stored file
+//!   section too, unless it says it has no information) are listed in one more item. Text of a
+//!   section with entries that no entry points at is a line of its section's item. The stored file
 //!   keeps all of it; nothing is dropped without a count.
 //! - The document is flagged `unprojected` with what those items count. None of that text was
 //!   checked for sensitivity. As with a connector pull,

@@ -54,9 +54,13 @@
 //! - A Results organizer is a DiagnosticReport with the Observations as its results; a Vital Signs
 //!   organizer only groups, so its observations come alone.
 //! - An Encounter's indications are its `reasonCode`, never Conditions: a Condition would claim a
-//!   clinical status the visit does not give. A procedure that is negated, cancelled or `new`, an
-//!   aborted procedure observation, and an activity whose end comes before its start (the end is
-//!   dropped) are listed as not read.
+//!   clinical status the visit does not give. A procedure that is negated, cancelled or `new`, a
+//!   visit or activity observation that is aborted, cancelled or nullified, an activity whose status
+//!   code is no ActStatus this reads, and a Social History observation coded as a pregnancy or
+//!   sexual orientation question (in its code or a translation) are listed as not read. So is an
+//!   activity bound that is no date, or an end before the start (the period keeps what reads).
+//! - Section text that no `<reference>` points into (a paragraph, list, table or loose words at the
+//!   top of the section's `text`) is listed with its word count, even when every entry reads.
 //! - Every section, entry or part the converter does not read is listed in the section's report, and
 //!   the importer turns it into a review item. Nothing is thrown away and nothing throws.
 
@@ -238,9 +242,19 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
             add_labels(&mut doc_labels, entry_labels(entry));
         }
     }
+    let narrative = xml::narrative_ids(&doc);
+    // the narrative elements a `<reference>` points at, so text no entry points at is counted
+    let referenced = root
+        .descendants()
+        .filter(|n| n.has_tag_name((xml::NS, "reference")))
+        .filter_map(|n| attr(n, "value"))
+        .filter_map(|v| narrative.get(v.trim_start_matches('#')))
+        .map(|n| n.id())
+        .collect();
     let mut c = Conv {
         text: &text,
-        narrative: xml::narrative_ids(&doc),
+        narrative,
+        referenced,
         read: HashMap::new(),
         source_labels: HashMap::new(),
         narrative_labels: Vec::new(),
@@ -653,6 +667,8 @@ struct Conv<'a, 'i> {
     /// The whole file, so an entry without an `id` is known by its bytes.
     text: &'i str,
     narrative: HashMap<&'a str, Node<'a, 'i>>,
+    /// The narrative elements a `<reference>` of the document points at.
+    referenced: HashSet<NodeId>,
     /// The text of each narrative element a reference read, so a narrative many entries point at is
     /// read once.
     read: HashMap<NodeId, xml::NarrativeText>,
@@ -1133,6 +1149,15 @@ impl<'a, 'i> Conv<'a, 'i> {
         }
         if kind == Section::Notes && rep.narrative && rep.stored_notes == 0 {
             rep.stored_notes = 1;
+        } else if rep.narrative
+            && rep.entries > 0
+            && let Some(words) = child(sec, "text")
+                .map(|t| self.unreferenced_words(t))
+                .filter(|w| *w > 0)
+        {
+            let unit = if words == 1 { "word" } else { "words" };
+            rep.not_read
+                .push(format!("section text no entry points at ({words} {unit})"));
         }
         self.labels = self.doc_labels.clone();
         for (around, line) in std::mem::take(&mut self.unread_concepts) {
@@ -1141,6 +1166,21 @@ impl<'a, 'i> Conv<'a, 'i> {
             }
         }
         (rep, labels)
+    }
+
+    /// Words in the blocks of a section's text that no `<reference>` points into: a paragraph, list,
+    /// table or loose words at the top of the text that hold no referenced element. A block that holds
+    /// one shows an entry read with it; any other block was read by nothing.
+    fn unreferenced_words(&self, text: Node<'_, '_>) -> usize {
+        if self.referenced.contains(&text.id()) {
+            return 0;
+        }
+        text.children()
+            .filter(|block| !block.descendants().any(|n| self.referenced.contains(&n.id())))
+            .flat_map(|block| block.descendants())
+            .filter_map(|n| n.is_text().then(|| n.text()).flatten())
+            .map(|t| t.split_whitespace().count())
+            .sum()
     }
 
     /// A problem concern act: one Condition per SUBJ observation. False when it holds none.
