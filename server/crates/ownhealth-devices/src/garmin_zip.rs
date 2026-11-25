@@ -875,8 +875,10 @@ async fn import_document(
 fn archive_result(export: &ExportSettings, out: Value) -> jobs::HandlerResult {
     // Every Fitbit import that brought readings has a projected document. A committed empty
     // report is a refusal, even if a new worker has to finish it after the raw ZIP was removed.
+    // The report is already in job.result (committed with the readings), and a dead job keeps it,
+    // so the omitted files still show.
     if export.flag == takeout_fitbit::EXPORT.flag && out[export.flag]["files_imported"] == 0 {
-        return Err(JobError::permanent(takeout_fitbit::NO_READINGS).with_result(out));
+        return Err(JobError::permanent(takeout_fitbit::NO_READINGS));
     }
     Ok(Some(out))
 }

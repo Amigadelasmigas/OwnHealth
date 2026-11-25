@@ -17,9 +17,7 @@ fn handlers() {
         Box::pin(async move { Ok(Some(json!({"seen": job.payload["n"]}))) })
     });
     register_handler("test.flaky", |_ctx, _job| {
-        Box::pin(async {
-            Err(JobError::typed("RuntimeError", "temporary").with_result(json!({"entries_left_out": 1})))
-        })
+        Box::pin(async { Err(JobError::typed("RuntimeError", "temporary")) })
     });
     register_handler("test.bad_input", |_ctx, _job| {
         Box::pin(async { Err(JobError::permanent("unreadable file")) })
@@ -134,20 +132,11 @@ async fn run_success_and_retry_with_backoff() -> R {
     );
     let s = state(&db.pool, flaky).await?;
     assert!(s.state == "queued" && s.attempts == 1 && s.later);
-    assert_eq!(s.result, None, "a retry has no terminal result");
     assert_eq!(s.last_error.as_deref(), Some("RuntimeError: temporary"));
     assert!(
         run_one(&ctx, "core", Some(&only("test.flaky"))).await?.is_none(),
         "backoff: not ready yet"
     );
-    sqlx::query("update job set run_after = now() where id = $1")
-        .bind(flaky)
-        .execute(&db.pool)
-        .await?;
-    run_one(&ctx, "core", Some(&only("test.flaky"))).await?;
-    let s = state(&db.pool, flaky).await?;
-    assert_eq!(s.state, "dead");
-    assert_eq!(s.result, Some(json!({"entries_left_out": 1})));
     Ok(())
 }
 

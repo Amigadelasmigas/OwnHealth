@@ -131,8 +131,6 @@ pub struct JobError {
     /// Not this job's failure: something it needs is not ready yet. It runs again after
     /// [`WAIT_SECONDS`] without spending an attempt.
     pub waits: bool,
-    /// Structured details available when the job ends in dead.
-    result: Option<Box<Value>>,
 }
 
 impl JobError {
@@ -142,7 +140,6 @@ impl JobError {
             message: message.into(),
             permanent: false,
             waits: false,
-            result: None,
         }
     }
 
@@ -152,7 +149,6 @@ impl JobError {
             message: message.into(),
             permanent: true,
             waits: false,
-            result: None,
         }
     }
 
@@ -163,14 +159,7 @@ impl JobError {
             message: message.into(),
             permanent: false,
             waits: false,
-            result: None,
         }
-    }
-
-    /// Keep a structured result when this failure ends the job.
-    pub fn with_result(mut self, result: Value) -> Self {
-        self.result = Some(Box::new(result));
-        self
     }
 
     /// The `last_error` text: `"<Type>: <message>"`, at most 500 characters.
@@ -405,12 +394,11 @@ async fn record_failure(
     }
     let n = sqlx::query(sqlx::AssertSqlSafe(format!(
         "update job set state = 'dead', finished_at = now(), locked_by = null, locked_until = null, \
-         last_error = $2, result = coalesce($4, result) where id = $1 and state = 'running' and {guard_sql}"
+         last_error = $2 where id = $1 and state = 'running' and {guard_sql}"
     )))
     .bind(job.id)
     .bind(&text)
     .bind(worker)
-    .bind(err.result.as_deref())
     .execute(&mut *conn)
     .await?
     .rows_affected();
