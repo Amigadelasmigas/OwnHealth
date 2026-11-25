@@ -4457,6 +4457,7 @@ dependencies = [
  "ownhealth-auth",
  "ownhealth-core",
  "ownhealth-ingest-pdf",
+ "ownhealth-ingest-structured",
  "ownhealth-rules",
  "pdfium-render",
  "qrcode",
