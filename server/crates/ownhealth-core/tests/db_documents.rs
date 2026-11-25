@@ -257,3 +257,67 @@ async fn removing_a_released_upload_keeps_the_bytes_any_blob_column_names() -> R
     );
     Ok(())
 }
+
+async fn a_legacy_inbox_item_keeps_its_upload(linked_document: bool) -> R {
+    use ownhealth_core::blobs::BlobOwner;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let alex = f.profile("alex");
+    let inbox_profile = if linked_document { f.profile("sam") } else { alex };
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label)          values ($1, $2, 'folder', 'LabNorte inbox') returning id",
+    )
+    .bind(f.household_id)
+    .bind(inbox_profile)
+    .fetch_one(&mut *c)
+    .await?;
+    let document = if linked_document {
+        Some(bare_document(&mut c, f.household_id, alex).await?)
+    } else {
+        None
+    };
+    // The inbox item holds the raw file. The document, if linked, holds a different file.
+    let sha = blobs.put_bytes(BlobOwner::Profile(alex), b"LabNorte inbox arrival")?;
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, document_id)          values ($1, 'legacy-arrival', decode($2, 'hex'), $3)",
+    )
+    .bind(source)
+    .bind(&sha)
+    .bind(document)
+    .execute(&mut *c)
+    .await?;
+
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert!(
+        blobs.exists(BlobOwner::Profile(alex), &sha),
+        "the legacy inbox item lost its sealed upload"
+    );
+    if linked_document {
+        let other_sha = blobs.put_bytes(BlobOwner::Profile(inbox_profile), b"LabNorte inbox arrival")?;
+        assert_eq!(sha, other_sha);
+        remove_released_upload(&mut c, &blobs, inbox_profile, &sha).await?;
+        assert!(!blobs.exists(BlobOwner::Profile(inbox_profile), &sha));
+    }
+
+    sqlx::query("update source_item set raw_released_at = now() where source_id = $1")
+        .bind(source)
+        .execute(&mut *c)
+        .await?;
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert!(!blobs.exists(BlobOwner::Profile(alex), &sha));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_legacy_inbox_item_keeps_the_upload_for_its_document_profile() -> R {
+    a_legacy_inbox_item_keeps_its_upload(true).await
+}
+
+#[tokio::test]
+async fn a_legacy_inbox_item_keeps_the_upload_for_its_inbox_profile() -> R {
+    a_legacy_inbox_item_keeps_its_upload(false).await
+}
