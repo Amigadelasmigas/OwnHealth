@@ -1640,6 +1640,9 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
     Ok(report)
 }
 
+/// The comment verify-restore puts on its scratch database when it creates it.
+const SCRATCH_MARKER: &str = "ownhealth verify-restore scratch";
+
 fn database_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -1656,6 +1659,13 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     .execute(&mut *admin)
     .await?;
     let opened = async {
+        // The marker comes first, while no session can connect: only a database that carries it is
+        // ever dropped at the scratch name (`drop_scratch`).
+        sqlx::query(AssertSqlSafe(format!(
+            "comment on database {ident} is '{SCRATCH_MARKER}'"
+        )))
+        .execute(&mut *admin)
+        .await?;
         for sql in [
             format!("revoke connect, temporary on database {ident} from public"),
             format!("alter database {ident} with allow_connections true"),
@@ -1668,7 +1678,8 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     }
     .await;
     if let Err(error) = opened {
-        if let Err(cleanup) = drop_scratch(admin, scratch).await {
+        // This call made the database a moment ago, so it goes even when the marker step failed.
+        if let Err(cleanup) = force_drop(admin, scratch).await {
             tracing::warn!(%scratch, %cleanup, "could not drop the scratch database after a setup step failed");
         }
         return Err(error);
@@ -1676,12 +1687,34 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     Ok(())
 }
 
-async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
+async fn force_drop(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     let ident = database_ident(scratch);
     sqlx::query(AssertSqlSafe(format!("drop database if exists {ident} with (force)")))
         .execute(admin)
         .await?;
     Ok(())
+}
+
+/// Drop the database at the scratch name only when verify-restore made it ([`SCRATCH_MARKER`]). Any
+/// other database there stops the check and stays as it is: an operator's database that happens to
+/// have this name is never dropped.
+async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
+    let comment: Option<Option<String>> = sqlx::query_scalar(
+        "select pg_catalog.shobj_description(oid, 'pg_database') from pg_catalog.pg_database where datname = $1",
+    )
+    .bind(scratch)
+    .fetch_optional(&mut *admin)
+    .await?;
+    match comment {
+        None => Ok(()),
+        Some(Some(marker)) if marker == SCRATCH_MARKER => force_drop(admin, scratch).await,
+        Some(_) => Err(ops_error(format!(
+            "a database named {scratch:?} exists, and verify-restore did not make it (it has no \
+             comment {SCRATCH_MARKER:?}). The check stopped and left that database as it is. Rename or \
+             drop it, then run the check again. A scratch database left by a version before 1.0 has no \
+             comment either: drop it once you know it holds nothing else"
+        ))),
+    }
 }
 
 /// PostgreSQL advisory locks are local to the database where the session takes them.
@@ -2189,6 +2222,53 @@ mod tests {
         assert!(
             kept.is_empty(),
             "a failed step did not fail or kept the scratch (step, calls, left): {kept:?}"
+        );
+        Ok(())
+    }
+
+    /// A database at the scratch name that verify-restore did not make (an operator's copy with that
+    /// name) is never dropped: the check stops, names it, and the database keeps its rows.
+    #[tokio::test]
+    async fn verification_keeps_a_database_it_did_not_make_at_the_scratch_name() -> anyhow::Result<()> {
+        let db = ownhealth_core::testing::TestDb::empty().await?;
+        let scratch = format!("{}_restore_check", db.name);
+        let ident = database_ident(&scratch);
+        let mut admin = PgConnection::connect(&db.url).await?;
+        sqlx::query(AssertSqlSafe(format!("create database {ident}")))
+            .execute(&mut admin)
+            .await?;
+        let mut other = PgConnection::connect(&with_db(&db.url, &scratch)).await?;
+        sqlx::raw_sql("create table kept (note text); insert into kept values ('operator copy')")
+            .execute(&mut other)
+            .await?;
+        other.close().await?;
+        let dir = tempfile::tempdir()?;
+        let settings = settings_for(&db.url, dir.path())?;
+        let result = verify_restore(&settings, &dir.path().join("no-backup")).await;
+        let kept: Option<String> = match PgConnection::connect(&with_db(&db.url, &scratch)).await {
+            Ok(mut conn) => {
+                let note = sqlx::query_scalar("select note from kept")
+                    .fetch_optional(&mut conn)
+                    .await?;
+                conn.close().await?;
+                note
+            }
+            Err(_) => None,
+        };
+        sqlx::query(AssertSqlSafe(format!("drop database if exists {ident} with (force)")))
+            .execute(&mut admin)
+            .await?;
+        admin.close().await?;
+        assert_eq!(
+            kept.as_deref(),
+            Some("operator copy"),
+            "the check dropped a database it did not make"
+        );
+        let error = result.expect_err("the check must stop at a database it did not make");
+        let error = error.to_string();
+        assert!(
+            error.contains(&format!("{scratch:?}")) && error.contains("verify-restore did not make it"),
+            "{error}"
         );
         Ok(())
     }
