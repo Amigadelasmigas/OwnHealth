@@ -629,7 +629,7 @@ returning job.*;
 - **Dedupe:** `state.rebuild` for a profile is enqueued with a dedupe key, so ten imports in a row cause one rebuild after the last. The key is unique among queued jobs only, so an import that lands while a rebuild runs queues a fresh one, which reads the new data. A worker takes a `state.rebuild` only under a per-profile advisory lock, so two rebuilds of one profile never run at once.
 - **Retention:** `done` jobs are deleted after 30 days; `dead` jobs stay until their review item is closed.
 
-v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `wearables.rollup`, `blob.gc`, `backup.run`, `backup.verify_restore`. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
+v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `wearables.rollup`, `blob.gc`. Backups and the weekly restore check are not jobs: `deploy/restic/backup.sh` and `restore-test.sh` run from cron. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
 
 ### PDF import path
 
@@ -825,9 +825,9 @@ A benchmark job in CI runs the synthetic family and fails if a target regresses 
 | `ownhealth_jobs_finished_total` | counter, `kind`, `result` (done, failed, dead) |
 | `ownhealth_import_rows_total` | counter, `importer`, `outcome` (review, accepted, rejected) |
 | `ownhealth_review_items_open` | gauge, `kind` |
-| `ownhealth_backup_last_success_timestamp_seconds` | gauge |
-| `ownhealth_restore_check_last_success_timestamp_seconds` | gauge |
 | `ownhealth_blob_bytes`, `ownhealth_db_bytes` | gauge |
+
+Backups and the restore check run from cron outside the app, so they have no metric here; their result is in `backup.log` (deploy/README.md).
 
 - Logs: JSON lines to stdout with request id, route, status, duration, job id. No document text, values or names in logs.
 - `/healthz` says the process is up; `/readyz` checks the database, the blob directory and the migration state.
