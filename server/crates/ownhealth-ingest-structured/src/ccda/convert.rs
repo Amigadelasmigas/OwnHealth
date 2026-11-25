@@ -933,9 +933,6 @@ impl<'a, 'i> Conv<'a, 'i> {
         let Some(kind) = rep.kind else {
             return (rep, labels);
         };
-        if kind == Section::Notes && entries.is_empty() && rep.narrative {
-            rep.stored_notes = 1;
-        }
         for (j, entry) in entries.into_iter().enumerate() {
             if self.label_copies > MAX_LABEL_COPIES {
                 break; // the file is refused once its sections stop
@@ -989,6 +986,9 @@ impl<'a, 'i> Conv<'a, 'i> {
                     rep.not_read.push(describe(el));
                 }
             }
+        }
+        if kind == Section::Notes && rep.narrative && rep.stored_notes == 0 {
+            rep.stored_notes = 1;
         }
         self.labels = self.doc_labels.clone();
         (rep, labels)

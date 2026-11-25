@@ -2559,3 +2559,19 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
     );
     Ok(())
 }
+
+#[test]
+fn round_2_notes_with_a_security_entry_are_counted_in_review() -> R {
+    let c = convert(&document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.65"/><title>Notes</title>
+             <text><paragraph>Seen for a cough.</paragraph></text><entry>{}</entry>
+           </section></component>"#,
+        security_label("PSY")
+    )))?;
+    let notes = &c.sections[0];
+    assert_eq!((notes.entries, notes.stored_notes), (1, 1));
+    let held = held_items(&c, "test", "n.xml");
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
+    Ok(())
+}
