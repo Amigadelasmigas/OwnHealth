@@ -199,6 +199,12 @@ impl Conv<'_, '_> {
             .collect();
         put(&mut r, "location", (!locations.is_empty()).then(|| json!(locations)));
         put(&mut r, "reasonCode", (!reasons.is_empty()).then(|| json!(reasons)));
+        if children(enc, "text").any(|text| {
+            text.descendants()
+                .any(|n| n.is_text() && n.text().is_some_and(|s| !s.trim().is_empty()))
+        }) {
+            rep.not_read.push("encounter (text kept in the uploaded file)".into());
+        }
         let reference = path(enc, &["text", "reference"])
             .and_then(|r| attr(r, "value"))
             .filter(|r| r.starts_with('#') && r.len() <= 256);

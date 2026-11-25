@@ -2623,3 +2623,52 @@ fn round_2_an_activity_period_compares_full_instants_when_available() -> R {
     );
     Ok(())
 }
+
+// ------------------------------------------------------ slice 21, round 3 ----
+
+#[tokio::test]
+async fn round_3_encounter_text_kept_only_in_xml_is_counted() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = as_isabella(&mut tx, &fam, "lucia").await?;
+    let mut unread = Vec::new();
+    for (i, (entry_text, reference)) in [
+        ("<text>Synthetic visit detail</text>", None),
+        (
+            r##"<text><reference value="#visit"/>Synthetic visit detail</text>"##,
+            Some("#visit"),
+        ),
+        (r##"<text><reference value="#visit"/></text>"##, Some("#visit")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let day = i + 1;
+        let bytes = encounters(&format!(
+            r#"<text><paragraph ID="visit">Office visit</paragraph></text>
+               <entry><encounter moodCode="EVN">
+                 <code code="99213" codeSystem="2.16.840.1.113883.6.12"/>
+                 {entry_text}<statusCode code="completed"/><effectiveTime value="2021030{day}"/>
+               </encounter></entry>"#
+        ));
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "encounter.xml", ccda::MIME).await?;
+        import_ccda(&mut tx, &env.blobs, doc).await?;
+        let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+            .bind(doc)
+            .fetch_one(&mut *tx)
+            .await?;
+        unread.push(flags["unprojected"].as_i64());
+        let visit: Value = sqlx::query_scalar(
+            "select e.fhir from encounter e join src s on s.id = e.src_id where e.profile_id = $1 and s.document_id = $2",
+        )
+        .bind(p)
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+        assert_eq!(visit["extension"][0]["valueString"].as_str(), reference);
+        assert!(!visit.to_string().contains("Synthetic visit detail"));
+    }
+    assert_eq!(unread, [Some(1), Some(1), None]);
+    Ok(())
+}
