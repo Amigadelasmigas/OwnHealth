@@ -427,7 +427,8 @@ pub fn fhir_datetime(ts: &str) -> Option<String> {
         None | Some("+0000" | "-0000") => "Z".to_string(),
         Some(z) => {
             let (h, m) = (z.get(1..3)?, z.get(3..5)?);
-            if !in_range(h, 0, 14) || !in_range(m, 0, 59) {
+            // FHIR offsets run to 14:00 at most
+            if !in_range(h, 0, 14) || !in_range(m, 0, 59) || (h == "14" && m != "00") {
                 return None;
             }
             format!("{}:{}", z.get(..3)?, m)
@@ -1999,6 +2000,21 @@ mod tests {
             assert_eq!(fhir_datetime(bad), None, "{bad}");
         }
         assert_eq!(fhir_date("20141015103026-0500").as_deref(), Some("2014-10-15"));
+    }
+
+    /// F69-m2: FHIR offsets end at 14:00; +1430 is no time zone, +1400 still reads.
+    #[test]
+    fn an_offset_past_fourteen_hours_is_no_time_zone() {
+        assert_eq!(fhir_datetime("20141015103026+1430"), None);
+        assert_eq!(fhir_datetime("20141015103026-1401"), None);
+        assert_eq!(
+            fhir_datetime("20141015103026+1400").as_deref(),
+            Some("2014-10-15T10:30:26+14:00")
+        );
+        assert_eq!(
+            fhir_datetime("20141015103026-1359").as_deref(),
+            Some("2014-10-15T10:30:26-13:59")
+        );
     }
 
     /// C-F8: a day the month does not have is no date.
