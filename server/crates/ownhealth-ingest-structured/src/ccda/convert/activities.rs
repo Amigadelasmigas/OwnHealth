@@ -164,7 +164,13 @@ impl Conv<'_, '_> {
             Some("nullified") => "entered-in-error",
             Some("held" | "suspended") => "onleave",
             Some("new") => "planned",
-            _ => "unknown",
+            Some(_) => {
+                let line = format!("{} (status not recognized)", self.hold(enc));
+                rep.not_read.push(line);
+                return true;
+            }
+            // a nullFlavor or no statusCode says nothing about how far the visit got
+            None => "unknown",
         };
 
         // An indication is why the visit happened: a reason of the Encounter, never a Condition of
@@ -284,8 +290,14 @@ impl Conv<'_, '_> {
             }
             Some("held" | "suspended") => "on-hold",
             Some("completed") => "completed",
+            // a code that is no ActStatus this reads says nothing either, and it may be a typo
+            Some(_) => {
+                let line = format!("{} (status not recognized)", self.hold(n));
+                rep.not_read.push(line);
+                return true;
+            }
             // a nullFlavor or no statusCode says nothing about how far the procedure got
-            _ => "unknown",
+            None => "unknown",
         };
         let Some(code) = self.concept(child(n, "code")) else {
             return false;
@@ -335,11 +347,20 @@ impl Conv<'_, '_> {
         if !event(obs, roots) || is_true(obs, "negationInd") {
             return false;
         }
-        // The FHIR mapper skips these statuses. Hold the activity and its text for review.
-        if let Some(s @ ("aborted" | "cancelled" | "nullified")) = status_of(obs) {
-            let line = format!("{} (status {s})", self.hold(obs));
-            rep.not_read.push(line);
-            return true;
+        // The FHIR mapper skips these statuses. Hold the activity and its text for review. A code that
+        // is no ActStatus this reads would become final: it waits in review too.
+        match status_of(obs) {
+            Some(s @ ("aborted" | "cancelled" | "nullified")) => {
+                let line = format!("{} (status {s})", self.hold(obs));
+                rep.not_read.push(line);
+                return true;
+            }
+            Some("completed" | "active" | "held" | "suspended" | "new") | None => {}
+            Some(_) => {
+                let line = format!("{} (status not recognized)", self.hold(obs));
+                rep.not_read.push(line);
+                return true;
+            }
         }
         let read = self.observation(obs, None, category, at, rep).is_some();
         if read {

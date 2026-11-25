@@ -3526,6 +3526,51 @@ fn round_7_trailing_whitespace_and_empty_markup_do_not_cut_a_note() -> R {
 
 // ------------------------------------------------------ slice 21, round 10 ----
 
+/// CR10-STATUS: an activity whose statusCode is no ActStatus code says nothing about how far it got.
+/// It waits in review, never recorded as final or unknown; `completed` keeps its path.
+#[test]
+fn round_10_an_activity_with_a_status_that_is_no_act_status_waits_in_review() -> R {
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        let c = convert(&activity_with_note(tag, template, "typo", "", "Done under sedation"))?;
+        assert!(resources(&c, rtype).is_empty(), "{rtype}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("{tag} {template} (status not recognized)")],
+            "{rtype}"
+        );
+        let c = convert(&activity_with_note(
+            tag,
+            template,
+            "completed",
+            "",
+            "Done under sedation",
+        ))?;
+        assert_eq!(resources(&c, rtype).len(), 1, "{rtype}");
+        assert!(c.sections[0].not_read.is_empty(), "{rtype}");
+    }
+    let c = convert(&social_history(
+        r#"<entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="229819007" codeSystem="2.16.840.1.113883.6.96" displayName="Tobacco use"/>
+             <statusCode code="typo"/><effectiveTime value="20210301"/><value xsi:type="ST">daily</value>
+           </observation></entry>"#,
+    ))?;
+    assert!(resources(&c, "Observation").is_empty());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["observation 2.16.840.1.113883.10.20.22.4.38 (status not recognized)"]
+    );
+    let c = convert(&encounters(
+        r#"<entry><encounter moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+             <statusCode code="typo"/><effectiveTime value="20210301"/></encounter></entry>"#,
+    ))?;
+    assert!(resources(&c, "Encounter").is_empty());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["encounter 2.16.840.1.113883.10.20.22.4.49 (status not recognized)"]
+    );
+    Ok(())
+}
+
 /// CR10-SENSITIVE: pregnancy status and sexual orientation wait in review by their LOINC code too, in
 /// the code or a translation, when the observation declares only the generic Social History
 /// template. Smoking status keeps its path.
