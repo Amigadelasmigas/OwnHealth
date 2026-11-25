@@ -61,19 +61,24 @@ confidence-threshold = 0.93
 ignore = true
 
 [bans]
-# Two majors of one crate fail the job, except for the crates below, which had two or more when the
-# gate came in. A new duplicate needs a decision; a crate that goes back to one version can leave
-# the list (cargo-deny then warns about the unused entry).
+# Two versions of one crate fail the job, except for the older versions below, which were there when
+# the gate came in. Each entry names a version requirement (`syn@2` is every 2.x), never a bare
+# crate, and the newest version of each crate is not on the list. So a third version of any of them
+# still fails, and every new duplicate needs a decision. An entry whose version left the lockfile
+# can leave the list; cargo-deny warns about it.
 multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
 skip = [
-  "async-channel", "base64", "bit-vec", "block-buffer", "const-oid", "cpufeatures", "crypto-common",
-  "darling", "darling_core", "darling_macro", "der", "digest", "event-listener", "fancy-regex",
-  "getrandom", "hashbrown", "hmac", "itertools", "miniz_oxide", "multiversion", "multiversion-macros",
-  "nom", "pastey", "pem-rfc7468", "pkcs1", "pkcs8", "rand", "rand_chacha", "rand_core", "rsa", "sha2",
-  "signature", "spki", "syn", "synstructure", "thiserror", "thiserror-impl", "tower-http", "typed-path",
-  "weezl", "zip",
+  "async-channel@1", "base64@0.13", "base64@0.21", "base64@0.22", "bit-vec@0.8",
+  "block-buffer@0.10", "const-oid@0.9", "cpufeatures@0.2", "crypto-common@0.1", "darling@0.20",
+  "darling_core@0.20", "darling_macro@0.20", "der@0.7", "digest@0.10", "event-listener@2",
+  "fancy-regex@0.14", "getrandom@0.2", "getrandom@0.3", "hashbrown@0.16", "hmac@0.12",
+  "itertools@0.14", "miniz_oxide@0.8", "multiversion@0.8", "multiversion-macros@0.8", "nom@7",
+  "pastey@0.1", "pem-rfc7468@0.7", "pkcs1@0.7", "pkcs8@0.10", "rand@0.8", "rand@0.9",
+  "rand_chacha@0.3", "rand_chacha@0.9", "rand_core@0.6", "rand_core@0.9", "rsa@0.9", "sha2@0.10",
+  "signature@2", "spki@0.7", "syn@2", "synstructure@0.13", "thiserror@1", "thiserror-impl@1",
+  "tower-http@0.6", "typed-path@0.12", "weezl@0.1", "zip@8",
 ]
 
 [sources]

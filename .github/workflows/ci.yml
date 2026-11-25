@@ -243,7 +243,8 @@ jobs:
       - run: bash contract-tests/run.sh rust
 
   # The dependency gate (server/deny.toml): RustSec advisories, licences that fit AGPL-3.0-or-later,
-  # crates.io as the only source, and no new duplicate major, over Cargo.lock with every feature.
+  # crates.io as the only source, and no crate in two versions beyond the listed older ones, over
+  # Cargo.lock with every feature.
   # cargo-deny reads the same RustSec database as cargo-audit, so there is no separate audit job.
   deny:
     runs-on: ubuntu-latest
