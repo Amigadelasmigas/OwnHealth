@@ -1,6 +1,6 @@
 # C-CDA documents (HL7 samples)
 
-Sample C-CDA documents for the C-CDA importer (`ownhealth_ingest_structured::ccda`, v1.0 slice 20) and its tests (`server/crates/ownhealth-ingest-structured/tests/ccda.rs`).
+Sample C-CDA documents for the C-CDA importer (`ownhealth_ingest_structured::ccda`, v1.0 slices 20 and 21) and its tests (`server/crates/ownhealth-ingest-structured/tests/ccda.rs`).
 
 Every file is a copy, unchanged, of a sample in the HL7 C-CDA-Examples repository (https://github.com/HL7/C-CDA-Examples, commit `ad5007abd912a45bbd04ce96e871c70954c2b2c2`). HL7 publishes those samples under CC0 1.0 Universal (public domain dedication). Each sample describes a fictional person; none is a real patient. The tests read these files from disk and never fetch anything.
 
@@ -16,5 +16,7 @@ Every file is a copy, unchanged, of a sample in the HL7 C-CDA-Examples repositor
 | `sections/medications-none.xml` | `Medications/No Medications/No Medications(C-CDA2.1).xml` |
 | `sections/immunization-refused.xml` | `Immunizations/Immunization not given Patient refused/Immunization not given Patient refused(C-CDA2.1).xml` |
 | `sections/results-less-than.xml` | `Results/Results with less than specific value/Results with less than specific value(C-CDA2.1).xml` |
+| `sections/notes.xml` | `Guide Examples/Notes Section_2.16.840.1.113883.10.20.22.2.65/Note Section Example.xml` |
+| `sections/smoking-current.xml` | `Social History/Current Smoking Status/Current Smoking Status(C-CDA2.1).xml` |
 
 The files under `sections/` hold one section each, not a whole document. The tests put each one inside a minimal `ClinicalDocument`.
