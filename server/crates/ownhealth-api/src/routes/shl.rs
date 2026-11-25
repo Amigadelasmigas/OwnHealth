@@ -28,9 +28,10 @@
 //! share the profile with every category the link carries (a lock set or a grant narrowed after
 //! creation stops it), and the creator's login is open. A lock set or a grant narrowed below a
 //! category a link carries also revokes that link at once (migration 1270, shl_end_unshareable), so
-//! lifting the lock later brings nothing back. Each public answer writes one shl_access
-//! row (the access log the owner reads, with the client address: behind a proxy listed in
-//! OWNHEALTH_TRUSTED_PROXIES, the one it forwarded) and one audit row (actor share, via share). A
+//! lifting the lock later brings nothing back. Each public answer of a live link that names a
+//! recipient and is under the hourly limit writes one shl_access row (the access log the owner
+//! reads, with the client address: behind a proxy listed in OWNHEALTH_TRUSTED_PROXIES, the one it
+//! forwarded) and one audit row (actor share, via share); a 404, a 400 and a 429 write none. A
 //! link answers RATE_PER_HOUR times in any hour; past that it says 429 with Retry-After, the
 //! seconds until the hour has room again. A link out of passcode attempts, or past its expiry,
 //! loses its file.
