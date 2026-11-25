@@ -1050,6 +1050,18 @@ pub async fn rekey_document(
     // (sha, the owners to read it from in order, the owner to store it for, what it is)
     let mut copies: Vec<(String, Vec<BlobOwner>, BlobOwner, &'static str)> =
         files.into_iter().map(|sha| (sha, vec![old], new, "a blob")).collect();
+    // The owner of a released mail's inbox rows depends on where every document of the mail is. So
+    // moves of documents that share a released mail run one at a time from here, and the second reads
+    // the first one's result. Each move holds only its own document's row here, and nothing after
+    // this waits on another document's row, so two moves cannot wait on each other.
+    sqlx::query(
+        "select pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('ownhealth.mail_move'), \
+         pg_catalog.hashtext(id::text)) from (select id from quarantine_item \
+         where $1 = any(released_document_ids) order by id) m",
+    )
+    .bind(document_id)
+    .execute(&mut *conn)
+    .await?;
     let before = inbox_raw_owners(&mut *conn, document_id, from).await?;
     for (row, (sha, after)) in inbox_raw_owners(&mut *conn, document_id, to).await? {
         let was = before.get(&row).and_then(|(_, owner)| *owner);
