@@ -1412,16 +1412,24 @@ fn carrying(text: &str) -> Vec<u8> {
 }
 
 /// What breaks the injection rule in converted output: the marker anywhere but a free-text field
-/// (`title`, `text`, `valueString`, a reference's `display`), or a number that the `.truth` says
-/// must never be a value.
-fn injection_breaches(v: &Value, key: &str, marker: &str, never: &[String], out: &mut Vec<String>) {
+/// (`title`, `text`, `valueString`, the display of the visit's performer or place), or a number that
+/// the `.truth` says must never be a value. `path` is the keys from the resource down, dot-joined.
+fn injection_breaches(v: &Value, path: &str, marker: &str, never: &[String], out: &mut Vec<String>) {
+    let key = path.rsplit('.').next().unwrap_or_default();
+    let free_text = matches!(key, "title" | "text" | "valueString")
+        || matches!(path, "participant.individual.display" | "location.location.display");
     match v {
-        Value::String(s) if s.contains(marker) && !matches!(key, "title" | "text" | "valueString" | "display") => {
-            out.push(format!("{key}: {s}"));
-        }
-        Value::Number(n) if never.contains(&n.to_string()) => out.push(format!("{key}: {n}")),
-        Value::Array(a) => a.iter().for_each(|x| injection_breaches(x, key, marker, never, out)),
-        Value::Object(o) => o.iter().for_each(|(k, x)| injection_breaches(x, k, marker, never, out)),
+        Value::String(s) if s.contains(marker) && !free_text => out.push(format!("{path}: {s}")),
+        Value::Number(n) if never.contains(&n.to_string()) => out.push(format!("{path}: {n}")),
+        Value::Array(a) => a.iter().for_each(|x| injection_breaches(x, path, marker, never, out)),
+        Value::Object(o) => o.iter().for_each(|(k, x)| {
+            let at = if path.is_empty() {
+                k.clone()
+            } else {
+                format!("{path}.{k}")
+            };
+            injection_breaches(x, &at, marker, never, out);
+        }),
         _ => {}
     }
 }
@@ -1438,14 +1446,23 @@ fn injection_fixtures_on_the_ccda_free_text_paths_stay_data() -> R {
     let marker = registry["marker"].as_str().unwrap_or("CANARY");
     // the checker sees a breach: a positive control
     let mut seen = Vec::new();
+    // (a coding display is no free-text field; the visit's performer display is one)
     injection_breaches(
-        &json!({"code": {"coding": [{"code": marker}]}, "valueQuantity": {"value": 45}}),
+        &json!({"code": {"coding": [{"code": marker, "display": marker}]}, "valueQuantity": {"value": 45},
+            "participant": [{"individual": {"display": marker}}]}),
         "",
         marker,
         &["45".to_string()],
         &mut seen,
     );
-    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!(
+        seen,
+        [
+            format!("code.coding.code: {marker}"),
+            format!("code.coding.display: {marker}"),
+            "valueQuantity.value: 45".to_string()
+        ]
+    );
     let plain = "Take one tablet by mouth daily";
     let control = convert(&carrying(plain))?;
     let fixtures = registry["fixtures"].as_array().cloned().unwrap_or_default();
