@@ -12,7 +12,7 @@
 //!
 //! An item on a profile the caller cannot review, whose held values the caller's scopes would not
 //! show, or whose document the caller could not open (a pull's grouped item), answers 404 like an
-//! unknown id.
+//! unknown id. So does a sync-gap alert on a profile the caller does not manage.
 
 use std::collections::HashMap;
 
@@ -21,6 +21,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use ownhealth_auth::household::can_manage;
 use ownhealth_core::access::{Permission, Principal, accessible_profiles, effective_permission};
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::review::{self, ItemQuery, ReviewItem};
@@ -99,11 +100,18 @@ fn truthy(v: Option<&Value>) -> bool {
     }
 }
 
+const SOURCE_GAP: &str = "source_gap";
+
 /// A held payload carries the values it would write: show it only to someone whose scopes would
 /// show the committed fact (its category scope, and read:sensitive for a sensitive one). A held
 /// imaging study names the patient and the study, which the timeline and the viewer show only with
-/// read:records, and a proposed relative is family history, which needs read:records too.
+/// read:records, and a proposed relative is family history, which needs read:records too. A sync-gap
+/// alert names the device's vendor, and a dismissal closes it for the whole household, so it shows
+/// only to who manages the profile and its connections, as the Connections screen does.
 fn visible(item: &ReviewItem, perm: &Permission) -> bool {
+    if item.kind == SOURCE_GAP && !can_manage(perm) {
+        return false;
+    }
     if item.kind == ownhealth_imaging::import::REVIEW_KIND && !perm.has("read:records") {
         return false;
     }
@@ -162,8 +170,9 @@ pub(super) async fn count_shown(
     perms: &[&Permission],
 ) -> Result<i64, ApiError> {
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, *p)).collect();
-    // the list's own query: a held study counts only where the list shows it
+    // the list's own query: a held study or a sync alert counts only where the list shows it
     let imaging_profiles = imaging_review_profiles(perms.iter().copied());
+    let gap_profiles = gap_review_profiles(perms.iter().copied());
     let items = review::list_items_with_kind_profiles(
         &mut *conn,
         &ItemQuery {
@@ -173,7 +182,10 @@ pub(super) async fn count_shown(
             limit: i64::MAX,
             ..ItemQuery::default()
         },
-        Some((ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles)),
+        &[
+            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
+            (SOURCE_GAP, &gap_profiles),
+        ],
     )
     .await?;
     let mut shown = 0;
@@ -291,6 +303,15 @@ fn imaging_review_profiles<'a>(perms: impl IntoIterator<Item = &'a Permission>) 
         .collect()
 }
 
+/// The profiles whose sync alerts the caller sees: the ones it manages (`visible`).
+fn gap_review_profiles<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> Vec<Uuid> {
+    perms
+        .into_iter()
+        .filter(|p| p.can("review") && can_manage(p))
+        .map(|p| p.profile.id)
+        .collect()
+}
+
 async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let principal = &caller.0;
     let mut e = Errors::new();
@@ -310,6 +331,7 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .map(|p| p.profile.id)
         .collect();
     let imaging_profiles = imaging_review_profiles(&perms);
+    let gap_profiles = gap_review_profiles(&perms);
     let items = review::list_items_with_kind_profiles(
         &mut tx,
         &ItemQuery {
@@ -321,7 +343,10 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
             limit,
             offset,
         },
-        Some((ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles)),
+        &[
+            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
+            (SOURCE_GAP, &gap_profiles),
+        ],
     )
     .await?;
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
