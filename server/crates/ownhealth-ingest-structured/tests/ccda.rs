@@ -2517,6 +2517,7 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
         r#"<code code="44261-6" codeSystem="2.16.840.1.113883.6.1"/>"#,
         r#"<code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>"#,
         r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.96"/>"#,
+        r#"<code code="11449-6" codeSystem="2.16.840.1.113883.6.1"/>"#,
     ]
     .map(|code| {
         format!(
@@ -2535,7 +2536,7 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
         .bind(doc)
         .fetch_one(&mut *tx)
         .await?;
-    assert_eq!(flags["sensitive"], 3, "{flags}");
+    assert_eq!(flags["sensitive"], 4, "{flags}");
     assert!(flags.get("unprojected").is_none(), "{flags}");
     assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
 
@@ -2551,6 +2552,7 @@ async fn round_2_sensitive_loinc_codes_protect_unlabelled_social_history_and_its
         by_loinc,
         BTreeMap::from([
             (None, json!([])),
+            (Some("11449-6"), json!(["reproductive"])),
             (Some("44261-6"), json!(["mental_health"])),
             (Some("72166-2"), json!([])),
             (Some("86645-9"), json!(["reproductive"])),

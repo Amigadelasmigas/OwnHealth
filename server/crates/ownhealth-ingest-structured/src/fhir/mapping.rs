@@ -229,7 +229,7 @@ fn social_history_sensitivity(code: &str) -> Option<&'static str> {
             "sexual_health"
         }
         // Pregnancy status, intent, dates and contraception.
-        "8665-2" | "11778-8" | "82810-3" | "86642-6" | "86645-9" | "86649-1" | "86650-9" => "reproductive",
+        "8665-2" | "11449-6" | "11778-8" | "82810-3" | "86642-6" | "86645-9" | "86649-1" | "86650-9" => "reproductive",
         // PHQ-2, PHQ-9 and GAD-7 panels and scores.
         "44249-1" | "44261-6" | "55757-9" | "55758-7" | "69737-5" | "70274-6" => "mental_health",
         _ => return None,
