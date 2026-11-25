@@ -236,10 +236,10 @@ ToS/AI risk means: does the vendor's API agreement restrict feeding the data to 
 | Samsung Health | Through Health Connect; in-app personal data CSV export (unverified current) | Data SDK needs partner approval (T4) | Low via hubs | v2 (Health Connect companion); CSV not scheduled |
 | Fitbit / Google | Google Takeout (T1) + Health Connect. Fitbit Web API shut down autumn 2026; Google Health API v4 not onboarding new projects (unverified today) | None for Takeout | Low for Takeout | v1.0 |
 | Garmin | GDPR "Export Your Data" FIT + JSON (T1); Apple Health / Health Connect. Health API is business-only. Unofficial `python-garminconnect` not in core | None for export | High for scraping; reportedly allows AI processing with disclosure (unverified) | v1.0 |
-| Oura | v2 OAuth via Open Wearables (T2); in-app CSV/JSON | BYO OAuth app (10 users before approval) | Medium: an "API and MCP Agreement" from 2026-06-08 reportedly restricts AI processing (unverified). The connector ships; its data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban | v1.0 |
-| Whoop | v2 OAuth via Open Wearables | BYO OAuth app | Low (unverified) | v1.0 |
+| Oura | v2 OAuth via Open Wearables (T2); in-app CSV/JSON | BYO OAuth app (10 users before approval) | High: the API and MCP Agreement, section 4(d), bans Oura API data as input to any AI model ([oura.md](../connectors/oura.md)). The connector ships; MCP, the rule-pack markers and the calculators withhold its data | v1.0 |
+| Whoop | v2 OAuth via Open Wearables | BYO OAuth app | High: the API terms, section 4, ban using WHOOP Data to develop any AI application or system ([whoop.md](../connectors/whoop.md)); withheld from MCP | v1.0 |
 | Polar | AccessLink v3 via Open Wearables; poll, history is short | BYO app | Low | v1.0 |
-| Withings | Public API via Open Wearables; CSV export | BYO app; Withings+ subscription for accounts after 2026-10-11 (unverified) | Low | v1.0 |
+| Withings | Public API via Open Wearables; CSV export | BYO app; Withings+ subscription to share data with third-party services, with some exceptions (terms 6.4.1, [withings.md](../connectors/withings.md)) | Low | v1.0 |
 | Coros | FIT export; Apple Health / Health Connect | Partner API by application (T4) | Medium | v1.0 (FIT via Garmin FIT parser) |
 | Suunto | FIT export; hubs | API Zone companies only (T4) | Medium | v1.0 (FIT) |
 | Amazfit / Zepp | Gadgetbridge (offline, T1); Zepp → hubs | None for Gadgetbridge | None for Gadgetbridge | v0.2 |
@@ -421,10 +421,10 @@ Plan: v0.1 reads any FHIR R4 bundle, so an EU PS bundle already imports as gener
 Phases above follow the roadmap. These questions are still open:
 
 1. **Dexcom:** decided. Native T2 connector in v1.0, because Open Wearables 0.11.0 has no Dexcom provider. Nightscout stays the other path.
-2. **Oura's 2026 API and MCP agreement.** Oura ships through the sidecar in v1.0 and shows in the UI and over REST. MCP, the rule-pack markers and the calculators withhold it until its connector page quotes terms with no AI ban ([ROADMAP open decisions](https://github.com/GeiserX/OwnHealth/blob/main/docs/ROADMAP.md#open-decisions)).
+2. **Oura's 2026 API and MCP agreement:** decided. Oura ships through the sidecar in v1.0 and shows in the UI and over REST. Its section 4(d) bans Oura API data as input to any AI model, so MCP, the rule-pack markers and the calculators withhold it ([oura.md](../connectors/oura.md)).
 3. **US SMART shared client (option A).** It would need a static relay page on a domain we run. It holds no data and has no backend, but it is still infrastructure run for users, and we run none today. Bring-your-own ships in v1.0 either way.
 4. **Plugin isolation.** Run T3 plugins on the user's desktop, posting files with a per-plugin ingest token (default), or add a fourth `plugins` compose profile next to `ocr`, `imaging` and `wearables`?
-5. **Withings+ requirement** for new accounts and the **Fitbit / Google Health API** status: both unverified today; recheck before v1.0.
+5. **Withings+ requirement:** decided. The Withings terms (6.4.1) ask for a Withings+ subscription to share data with third-party services, with some exceptions ([withings.md](../connectors/withings.md)). The **Fitbit / Google Health API** status is unverified today; recheck before v1.0.
 6. **Paperless-ngx as the recommended single inbox** for people who already run it, with our email-in and watched folder as fallbacks.
 7. **Do any Spanish CCAA portals or HCDSNS give the patient CDA XML?** Unverified; a manual check with a real login decides whether a T1 CDA connector for Spain is worth it before 2029.
 8. **EHDS status of OwnHealth** as an EHR system or a labelled wellness app (section 8).
