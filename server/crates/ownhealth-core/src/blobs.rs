@@ -1405,7 +1405,9 @@ impl BlobStore {
         let parent = target.parent().unwrap_or(&self.root);
         if target.exists() {
             set_mode(&target, 0o440).map_err(named)?;
-            // An older placement may have stopped after its rename and before these flushes.
+            // An older placement may have stopped after its rename and before these flushes, and one
+            // from before this check flushed its bytes may have renamed them unflushed.
+            sync_file(&target).map_err(named)?;
             sync_folders_up_to(parent, &self.root).map_err(named)?;
             return Ok(false);
         }
@@ -2846,6 +2848,11 @@ mod tests {
         assert!(!fresh.place(&sha, &from)?);
         let synced = SYNCED.with(|synced| synced.borrow().clone());
         let target = plain_at(&root, &sha);
+        // An older placement may have renamed the file before its bytes reached the disk.
+        assert!(
+            synced.iter().any(|p| p == &target),
+            "the blob itself was not flushed by the retry: {synced:?}"
+        );
         for folder in target.ancestors().skip(1).take_while(|f| f.starts_with(&root)) {
             assert!(
                 synced.iter().any(|p| p == folder),
