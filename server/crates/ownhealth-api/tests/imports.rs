@@ -275,8 +275,8 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
         "import.pdf",
     ] {
         let id: i64 = sqlx::query_scalar(
-            "insert into job (kind, state, payload, result) values ($1, 'done', \
-             jsonb_build_object('profile_id', $2::text, 'filename', 'run.fit'), $3) returning id",
+            "insert into job (kind, state, payload, result, last_error) values ($1, 'done', \
+             jsonb_build_object('profile_id', $2::text, 'filename', 'run.fit'), $3, 'prior retry error') returning id",
         )
         .bind(kind)
         .bind(alex.to_string())
@@ -345,7 +345,32 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
             ("import.fit".to_string(), serde_json::Value::Null),
         ]
     );
+    for job in v["jobs"].as_array().into_iter().flatten() {
+        let visible = job["kind"] == "import.pdf";
+        assert_eq!(
+            job["filename"],
+            if visible { json!("run.fit") } else { json!(null) },
+            "{job}"
+        );
+        assert_eq!(
+            job["last_error"],
+            if visible {
+                json!("prior retry error")
+            } else {
+                json!(null)
+            },
+            "{job}"
+        );
+    }
     let (_, owner) = a.get("alex", &uri).await?;
+    assert!(
+        owner["jobs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|job| job["filename"] == "run.fit" && job["last_error"] == "prior retry error"),
+        "{owner}"
+    );
     assert!(results(&owner).iter().all(|(_, r)| *r == result), "{owner}");
     Ok(())
 }

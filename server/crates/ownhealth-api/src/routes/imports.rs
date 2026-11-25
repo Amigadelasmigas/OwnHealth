@@ -287,6 +287,8 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         }
         if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
             j["result"] = Value::Null;
+            j["filename"] = Value::Null;
+            j["last_error"] = Value::Null;
         }
         if dicom {
             if let Some(perm) = permission.filter(|p| p.has("read:records")) {
