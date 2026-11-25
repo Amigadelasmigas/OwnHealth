@@ -96,6 +96,13 @@ fn act_encounter_class(code: Option<Node<'_, '_>>) -> Value {
     unknown()
 }
 
+/// Whether a `<text>` holds words of its own. A bare `<reference>` adds none: its words are in the
+/// section narrative.
+fn has_words(text: Node<'_, '_>) -> bool {
+    text.descendants()
+        .any(|n| n.is_text() && n.text().is_some_and(|s| !s.trim().is_empty()))
+}
+
 /// A Reference that can be read without a separate Practitioner resource. The display is a person's
 /// or an organization's name, never the role code ("General physician" names no provider).
 fn assigned_reference(entity: Node<'_, '_>) -> Option<Value> {
@@ -159,6 +166,11 @@ impl Conv<'_, '_> {
                 match indication.then(|| self.concept(child(part, "value"))).flatten() {
                     Some(reason) => {
                         reasons.push(reason);
+                        // The reason keeps the coded value only: words in the indication's own text
+                        // exist only in the file.
+                        if children(part, "text").any(has_words) {
+                            rep.not_read.push("indication (text kept in the uploaded file)".into());
+                        }
                         self.unread_relationships(part, rep);
                     }
                     None => {
@@ -203,10 +215,7 @@ impl Conv<'_, '_> {
             .collect();
         put(&mut r, "location", (!locations.is_empty()).then(|| json!(locations)));
         put(&mut r, "reasonCode", (!reasons.is_empty()).then(|| json!(reasons)));
-        if children(enc, "text").any(|text| {
-            text.descendants()
-                .any(|n| n.is_text() && n.text().is_some_and(|s| !s.trim().is_empty()))
-        }) {
+        if children(enc, "text").any(has_words) {
             rep.not_read.push("encounter (text kept in the uploaded file)".into());
         }
         let reference = path(enc, &["text", "reference"])

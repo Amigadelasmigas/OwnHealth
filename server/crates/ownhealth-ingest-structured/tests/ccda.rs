@@ -3009,3 +3009,61 @@ fn round_5_original_text_of_unread_coded_elements_goes_to_review() -> R {
     );
     Ok(())
 }
+
+// ------------------------------------------------------ slice 21, round 6 ----
+
+/// An Encounter whose only unread content is `inner`, inside an eligible RSON Indication with a
+/// coded value (its reason is read).
+fn encounter_with_indication(narrative: &str, inner: &str) -> Vec<u8> {
+    encounters(&format!(
+        r#"<text>{narrative}</text>
+           <entry><encounter moodCode="EVN"><code code="99213" codeSystem="2.16.840.1.113883.6.12"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <entryRelationship typeCode="RSON"><observation classCode="OBS" moodCode="EVN">
+               <templateId root="2.16.840.1.113883.10.20.22.4.19"/>
+               <code code="404684003" codeSystem="2.16.840.1.113883.6.96"/>{inner}<statusCode code="completed"/>
+               <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96" displayName="Pneumonia"/>
+             </observation></entryRelationship>
+           </encounter></entry>"#
+    ))
+}
+
+/// CR-IND: an Indication's own `<text>` is no part of the reason the Encounter keeps, so words it
+/// holds (alone or beside a reference) go to review and flag the document. A bare reference adds no
+/// words of its own (they are in the section narrative), as for the Encounter's own text.
+#[tokio::test]
+async fn round_6_an_indications_own_text_goes_to_review() -> R {
+    let line = "indication (text kept in the uploaded file)";
+    let narrative = r#"<paragraph ID="why">Pneumonia</paragraph>"#;
+    for (inner, expected) in [
+        ("<text>Seen after assault by partner</text>", vec![line]),
+        (
+            r##"<text><reference value="#why"/>Seen after assault by partner</text>"##,
+            vec![line],
+        ),
+        ("<text><content>Seen after assault</content></text>", vec![line]),
+        (r##"<text><reference value="#why"/></text>"##, vec![]),
+        ("<text>  </text>", vec![]),
+    ] {
+        let bytes = encounter_with_indication(narrative, inner);
+        assert_eq!(unread_lines(&bytes)?, expected, "{inner}");
+        let c = convert(&bytes)?;
+        let visit = resources(&c, "Encounter")[0];
+        assert_eq!(visit["reasonCode"][0]["text"], "Pneumonia");
+        assert!(!visit.to_string().contains("assault"));
+    }
+
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let bytes = encounter_with_indication(narrative, "<text>Seen after assault by partner</text>");
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "encounter.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["unprojected"], 1, "{flags}");
+    Ok(())
+}
