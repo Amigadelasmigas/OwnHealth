@@ -11,7 +11,10 @@ all-features = true
 # Every RustSec advisory fails the job: a vulnerability, an unsound or unmaintained crate, a yanked
 # version. One we accept goes below with its id and the reason it does not reach OwnHealth.
 yanked = "deny"
+# "all": also a crate that is only a dependency of a dependency (the cargo-deny default,
+# "workspace", checks only the direct dependencies of our crates).
 unmaintained = "all"
+unsound = "all"
 ignore = [
   # vulnerabilities with no patched release we can take in 1.0
   { id = "RUSTSEC-2023-0071", reason = "rsa (Marvin attack) recovers a private key from the timing of RSA decryption or signing. openidconnect (ID tokens) and webauthn-rs (passkey attestations) only verify RSA signatures with public keys; OwnHealth holds no RSA private key. rsa 0.10.0 does not resolve: crypto-glue 0.2.2 asks for a feature only the release candidate has." },

@@ -9,8 +9,9 @@ on:
       red_controls:
         description: >-
           Show the deny and fuzz gates failing (a run by hand only): the deny job adds lz4_flex
-          0.10.0 (RUSTSEC-2026-0041) to the lockfile, and the fuzz job takes the inflate cap out of
-          jose.rs, so the committed seed seeds/jose/deflate-bomb.jws crashes the jose target.
+          0.10.0 (RUSTSEC-2026-0041) to the lockfile and moves rand 0.9, which only OCR crates
+          pull in, back to 0.9.2 (unsound, RUSTSEC-2026-0097); the fuzz job takes the inflate cap
+          out of jose.rs, so the committed seed seeds/jose/deflate-bomb.jws crashes the jose target.
         type: boolean
         default: false
 
@@ -267,9 +268,11 @@ jobs:
           echo "13f7e825e9cb811c2f8de63f29b0f45851dfb53004029f0f2501af524728364d  /tmp/cargo-deny.tar.gz" | sha256sum -c -
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
           sudo install -m 0755 /tmp/cargo-deny-0.22.1-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
-      - name: "Red control: a crate with a RustSec advisory joins the lockfile"
+      - name: "Red controls: a vulnerable crate joins the lockfile, and an unsound one deep in the tree"
         if: inputs.red_controls
-        run: cargo add -p ownhealth-core lz4_flex@=0.10.0 --no-default-features
+        run: |
+          cargo add -p ownhealth-core lz4_flex@=0.10.0 --no-default-features
+          cargo update -p rand@0.9 --precise 0.9.2
       - run: cargo deny --locked check
 
   # Fuzzing (server/fuzz, a workspace of its own, so the stable builds above never see it): each
