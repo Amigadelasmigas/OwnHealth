@@ -78,5 +78,13 @@ account with a tool built for their own use. It does not cover every account the
 
 To serve Withings, the person who registered the app reads the partner terms shown at registration.
 If they show no ban on AI processing, no ban on passing the data to software the member chooses and
-no ban on scheduled queries, quote them on this page, set the `withings` line to `mcp: served` in
-`data/connectors/providers.yaml`, and replace the **Withheld by** line with a **Served for** line.
+no ban on scheduled queries, make these changes together:
+
+1. Quote the partner terms on this page.
+2. Set the `withings` line to `mcp: served` in `data/connectors/providers.yaml`.
+3. Change the **MCP policy** line of this page to `served`, and replace the **Withheld by** line with
+   a **Served for** line.
+4. Change the Withings row in `docs/connectors/README.md` to `served`.
+5. Move `withings` from the withheld tests to the served ones in
+   `server/crates/ownhealth-core/src/providers.rs`. Give the `provider_policy` tests of `ownhealth-mcp`
+   and `ownhealth-rules` another withheld cuff.
