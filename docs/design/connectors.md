@@ -239,7 +239,7 @@ ToS/AI risk means: does the vendor's API agreement restrict feeding the data to 
 | Oura | v2 OAuth via Open Wearables (T2); in-app CSV/JSON | BYO OAuth app (10 users before approval) | High: the API and MCP Agreement, section 4(d), bans Oura API data as input to any AI model ([oura.md](../connectors/oura.md)). The connector ships; MCP, the rule-pack markers and the calculators withhold its data | v1.0 |
 | Whoop | v2 OAuth via Open Wearables | BYO OAuth app | High: the API terms, section 4, ban using WHOOP Data to develop any AI application or system ([whoop.md](../connectors/whoop.md)); withheld from MCP | v1.0 |
 | Polar | AccessLink v3 via Open Wearables; poll, history is short | BYO app | Low | v1.0 |
-| Withings | Public API via Open Wearables; CSV export | BYO app; Withings+ subscription to share data with third-party services, with some exceptions (terms 6.4.1, [withings.md](../connectors/withings.md)) | Low | v1.0 |
+| Withings | Public API via Open Wearables; CSV export | BYO app; Withings+ subscription to share data with third-party services, with some exceptions (terms 6.4.1, [withings.md](../connectors/withings.md)) | Medium: another household member's account falls under the partner terms, shown only at registration; withheld from MCP | v1.0 |
 | Coros | FIT export; Apple Health / Health Connect | Partner API by application (T4) | Medium | v1.0 (FIT via Garmin FIT parser) |
 | Suunto | FIT export; hubs | API Zone companies only (T4) | Medium | v1.0 (FIT) |
 | Amazfit / Zepp | Gadgetbridge (offline, T1); Zepp → hubs | None for Gadgetbridge | None for Gadgetbridge | v0.2 |

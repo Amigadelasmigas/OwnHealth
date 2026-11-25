@@ -58,7 +58,7 @@ async fn withheld(w: &World) -> R {
     days(w, "oura", "Oura Ring", "sleep_asleep", &recent, 450.0).await?;
     days(w, "dexcom", "Dexcom G7", "glucose_cgm", &recent, 140.0).await?;
     // a cuff behind a withheld vendor: the calculators would read its 30-day mean
-    days(w, "whoop", "WHOOP MG", "bp_systolic", &[0, 1, 2], 150.0).await
+    days(w, "withings", "BPM Connect", "bp_systolic", &[0, 1, 2], 150.0).await
 }
 
 fn values(env: &Value, list: &str) -> Vec<Option<f64>> {

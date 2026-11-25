@@ -34,16 +34,17 @@ providers:
   # Vendor APIs through Open Wearables: the sidecar's allowlist. The poller's list is
   # ownhealth-devices openwearables.rs PROVIDERS; a test checks that it names exactly these lines.
   # Withheld: Oura's API agreement 4(d) bans its API data as input to any AI model; WHOOP's API
-  # terms section 4 ban using its data to develop any AI application or system.
+  # terms section 4 ban using its data to develop any AI application or system. Withings' terms (6.4)
+  # cover only the member who registered the household app; another member's account falls under the
+  # partner terms, shown only at registration. This line covers every account, so Withings is
+  # withheld until a page quotes those terms (docs/connectors/withings.md).
   oura: {ingest: allow, mcp: withheld, path: "Open Wearables"}
   whoop: {ingest: allow, mcp: withheld, path: "Open Wearables"}
-  # Served: Polar's AccessLink licence (3.1.1) and Withings' terms (6.4) let the member pass the data
-  # to software they choose, and neither bans AI processing. Served for the member's own agent and the
-  # agents of people the member grants read:wearables (docs/connectors/polar.md, withings.md).
-  # Withings 6.4 covers the member who registered the household app; another member's account
-  # connected through it falls under the partner terms shown at registration (withings.md).
+  withings: {ingest: allow, mcp: withheld, path: "Open Wearables"}
+  # Served: Polar's AccessLink licence (3.1.1) lets the member pass the data to software they choose,
+  # and it bans no AI processing. Served for the member's own agent and the agents of people the
+  # member grants read:wearables (docs/connectors/polar.md).
   polar: {ingest: allow, mcp: served, path: "Open Wearables"}
-  withings: {ingest: allow, mcp: served, path: "Open Wearables"}
   # Vendor APIs we connect to ourselves. Withheld: Dexcom's data licence is shown only at registration.
   dexcom: {ingest: allow, mcp: withheld, path: "Dexcom API v3 (native connector)"}
   # Never stored: the Strava API terms ban AI use and MCP servers; Garmin comes in as export files

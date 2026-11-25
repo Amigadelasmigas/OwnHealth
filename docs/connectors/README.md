@@ -50,6 +50,6 @@ do not reach them, so they have no page here and are served.
 | [Oura](oura.md) | Open Wearables | withheld |
 | [WHOOP](whoop.md) | Open Wearables | withheld |
 | [Polar](polar.md) | Open Wearables | served |
-| [Withings](withings.md) | Open Wearables | served |
+| [Withings](withings.md) | Open Wearables | withheld |
 | [Dexcom](dexcom.md) | Dexcom API v3 | withheld |
 | [Strava](strava.md) | none: account export only | withheld |

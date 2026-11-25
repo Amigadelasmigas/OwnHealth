@@ -1,6 +1,6 @@
 //! The provider policy at the rule engine (`engine::wearables`): the pack markers, the state and its
 //! hash, the dashboard and the calculators never read a provider that `data/connectors/providers.yaml`
-//! withholds (Oura, WHOOP, native Dexcom ...), so the UI and MCP get one state_hash. A served
+//! withholds (Oura, WHOOP, Withings, native Dexcom ...), so the UI and MCP get one state_hash. A served
 //! provider is read as before.
 
 mod common;
@@ -135,7 +135,16 @@ async fn the_calculators_never_read_a_withheld_cuff() -> R {
     let cv = cardio::data().expect("the shipped cardiovascular files load");
     let before = cardio::facts(&mut tx, cv, alex, Some("ES"), as_of(), &all_scopes()).await?;
     assert!(!matches!(before.sbp, Some(Sbp::Wearable { .. })), "{:?}", before.sbp);
-    days(&mut tx, alex, "whoop", "WHOOP MG", "bp_systolic", &[0, 1, 2], 160.0).await?;
+    days(
+        &mut tx,
+        alex,
+        "withings",
+        "BPM Connect",
+        "bp_systolic",
+        &[0, 1, 2],
+        160.0,
+    )
+    .await?;
     days(&mut tx, alex, "oura", "Oura Ring", "bp_systolic", &[0, 1, 2], 170.0).await?;
     let after = cardio::facts(&mut tx, cv, alex, Some("ES"), as_of(), &all_scopes()).await?;
     assert!(!matches!(after.sbp, Some(Sbp::Wearable { .. })), "{:?}", after.sbp);

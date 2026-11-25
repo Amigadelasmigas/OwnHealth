@@ -143,9 +143,10 @@ mod tests {
 
     #[test]
     fn the_vendors_whose_terms_ban_ai_or_are_not_public_are_withheld() {
-        // Oura and WHOOP ban giving their API data to AI; Dexcom's data licence is shown only at
-        // registration (docs/connectors/oura.md, whoop.md, dexcom.md)
-        for p in ["oura", "whoop", "dexcom"] {
+        // Oura and WHOOP ban giving their API data to AI. Dexcom's data licence and the Withings
+        // partner terms are shown only at registration (docs/connectors/oura.md, whoop.md, dexcom.md,
+        // withings.md).
+        for p in ["oura", "whoop", "dexcom", "withings"] {
             assert!(!served(p), "{p}");
             assert!(ingest_allowed(p), "{p}");
             assert!(Reader::WearablesPage.sees(p) && !Reader::Shared.sees(p), "{p}");
@@ -153,56 +154,35 @@ mod tests {
     }
 
     #[test]
-    fn polar_and_withings_are_served_because_their_quoted_terms_allow_it() {
-        // docs/connectors/polar.md and withings.md quote the terms
-        for p in ["polar", "withings"] {
-            assert!(served(p) && ingest_allowed(p), "{p}");
-            assert!(Reader::Shared.sees(p), "{p}");
-            assert!(served_providers().contains(&p.to_string()), "{p}");
-        }
+    fn polar_is_served_because_its_quoted_terms_allow_it() {
+        // docs/connectors/polar.md quotes the terms
+        assert!(served("polar") && ingest_allowed("polar"));
+        assert!(Reader::Shared.sees("polar"));
+        assert!(served_providers().contains(&"polar".to_string()));
     }
 
     #[test]
-    fn the_withings_page_sends_another_members_account_to_the_partner_terms() {
-        // Withings terms 6.4 (quoted on the page) cover the person's own data for their own needs.
-        // An app meant for other users falls under the partner terms. One household app serves
-        // every member, so another member's account connected through it is not 6.4.
+    fn no_withings_account_reaches_an_agent_while_the_partner_terms_are_unquoted() {
+        // Withings terms 6.4 cover a member reading their own account with a tool for their own use.
+        // The household's one app serves every member, and another member's account falls under the
+        // partner terms, shown only at registration. The policy is per provider: Reader::sees and
+        // served take no account, so serving Withings would serve every member's account. So no
+        // Withings account reaches MCP, the markers or the calculators, whoever connected it.
+        assert!(!served("withings") && ingest_allowed("withings"));
+        assert!(!Reader::Shared.sees("withings") && Reader::WearablesPage.sees("withings"));
+        assert!(!served_providers().contains(&"withings".to_string()));
+        // the page names what holds it back: the partner terms, which no page quotes
         let pages = pages();
         let page = pages.get("withings").expect("docs/connectors/withings.md");
-        let served_for = page
+        assert_eq!(stated(page), Some("withheld"));
+        let withheld_by = page
             .lines()
-            .find_map(|l| l.strip_prefix("**Served for:**"))
-            .expect("Served for line");
+            .find_map(|l| l.strip_prefix("**Withheld by:**"))
+            .expect("Withheld by line");
+        assert!(withheld_by.contains("partner terms"), "{withheld_by}");
         assert!(
-            served_for.contains("partner terms"),
-            "the Served for line names the partner terms for another member: {served_for}"
-        );
-        // markdown wraps lines, so compare the words
-        let household = page
-            .split("**One app for the household.**")
-            .nth(1)
-            .expect("household bullet")
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert!(
-            household.contains("another household member") && household.contains("partner terms"),
-            "the household bullet says another member falls under the partner terms"
-        );
-        assert!(
-            !household.contains("outside your household"),
-            "6.4 does not cover every member of the household"
-        );
-        let comment = SHIPPED
-            .lines()
-            .skip_while(|l| !l.contains("# Served: Polar"))
-            .take_while(|l| l.starts_with("  #"))
-            .flat_map(|l| l.trim_start_matches([' ', '#']).split_whitespace())
-            .collect::<Vec<_>>()
-            .join(" ");
-        assert!(
-            comment.contains("partner terms"),
-            "the providers.yaml comment names the Withings partner terms: {comment}"
+            !page.lines().any(|l| l.starts_with("**Served for:**")),
+            "a withheld page serves no one"
         );
     }
 
