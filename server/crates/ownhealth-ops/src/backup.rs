@@ -750,17 +750,6 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         }
         !stray
     });
-    let mut bytes = 0u64;
-    let mut plain = Vec::new();
-    let mut sealed = Map::new();
-    for (key, p) in &files {
-        bytes += fs::metadata(p)?.len();
-        if key.contains('/') {
-            sealed.insert(key.clone(), Value::String(sha256_file(p)?));
-        } else {
-            plain.push(key);
-        }
-    }
     // Where each referenced blob sits in this backup: its owner's sealed copy, or the plain one. The
     // keys come from the snapshot and the files from the copy, never from the live store, where a
     // delete after the copy may already have shredded a key or removed a folder. A key that does not
@@ -769,6 +758,7 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     let mut repaired = Vec::new();
     let mut profile_sealed = ProfileBlobs::new();
     let mut accepted_omissions = ProfileBlobs::new();
+    let mut damaged = BTreeSet::new();
     for (owner, sha) in &referenced {
         let slot = owner.slot();
         let accepted_loss = match owner {
@@ -780,13 +770,19 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         {
             let key = blobs::sealed_key(slot, dek, sha)?;
             if let Some(path) = files.get(&key) {
+                if let Some(id) = accepted_loss {
+                    // A copy that does not open repairs nothing: the loss stays, and the damaged copy
+                    // stays out of the backup, so no check takes it for the file.
+                    if !sealed_opens(path, id, dek, sha) {
+                        tracing::warn!(profile = %id, file = %key, "a copy of a file a restore accepted as lost does not open: the backup leaves it out and keeps the loss");
+                        damaged.insert(key);
+                        accepted_omissions.entry(id).or_default().insert(sha.clone());
+                        continue;
+                    }
+                    repaired.push((id, sha.as_str()));
+                }
                 if let keys::Slot::Profile(id) = slot {
                     profile_sealed.entry(id).or_default().insert(sha.clone());
-                }
-                if let Some(id) = accepted_loss
-                    && repaired_file(path, sha, Some((id, dek)))
-                {
-                    repaired.push((id, sha.as_str()));
                 }
                 required.push(key);
                 continue;
@@ -795,7 +791,7 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         let plain = blobs::sha256_hex(sha)?;
         if let Some(path) = files.get(&plain) {
             if let Some(id) = accepted_loss
-                && repaired_file(path, &plain, None)
+                && repaired_file(path, &plain)
             {
                 repaired.push((id, sha.as_str()));
             }
@@ -804,6 +800,22 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
             accepted_omissions.entry(id).or_default().insert(plain);
         } else {
             required.push(plain);
+        }
+    }
+    for key in &damaged {
+        if let Some(p) = files.remove(key) {
+            fs::remove_file(p)?;
+        }
+    }
+    let mut bytes = 0u64;
+    let mut plain = Vec::new();
+    let mut sealed = Map::new();
+    for (key, p) in &files {
+        bytes += fs::metadata(p)?.len();
+        if key.contains('/') {
+            sealed.insert(key.clone(), Value::String(sha256_file(p)?));
+        } else {
+            plain.push(key);
         }
     }
     #[cfg(test)]
@@ -995,16 +1007,19 @@ fn corrupt_file(key: &str, path: &Path, listed: &BTreeSet<String>, sealed: &BTre
 /// Every blob file a backup must hold: the plain and sealed files its manifest lists, and the ones the
 /// database references (older manifests have no "referenced").
 /// A copied file only clears an accepted loss once the matching copy can be read in full.
-fn repaired_file(path: &Path, sha: &str, sealed: Option<(Uuid, &keys::Dek)>) -> bool {
-    let Some((profile, dek)) = sealed else {
-        return sha256_file(path).is_ok_and(|hash| hash == sha);
-    };
+fn repaired_file(path: &Path, sha: &str) -> bool {
+    sha256_file(path).is_ok_and(|hash| hash == sha)
+}
+
+/// Whether the sealed file at `path` opens under `dek` as `owner`'s copy of `sha` and reads in full:
+/// every record authenticates, which a hash of its bytes on disk cannot show.
+fn sealed_opens(path: &Path, owner: Uuid, dek: &keys::Dek, sha: &str) -> bool {
     let mut expected = [0; 32];
     if hex::decode_to_slice(sha, &mut expected).is_err() {
         return false;
     }
     fs::File::open(path)
-        .and_then(|file| keys::SealedReader::open(file, dek, profile, &expected))
+        .and_then(|file| keys::SealedReader::open(file, dek, owner, &expected))
         .and_then(|mut reader| std::io::copy(&mut reader, &mut std::io::sink()))
         .is_ok()
 }
@@ -1363,6 +1378,30 @@ async fn record_lost(
     Ok(())
 }
 
+/// The sealed files of `files` that a referenced blob names and that do not open under the restored
+/// keys. Their bytes may match the manifest, which hashed them as they were at backup time: only
+/// opening a file shows that it was whole then.
+async fn unopened_sealed(conn: &mut PgConnection, kek: &Kek, files: &BTreeMap<String, PathBuf>) -> Result<Vec<String>> {
+    let mut deks = HashMap::new();
+    for (slot, wrapped, fingerprint) in keys::stored_all(&mut *conn).await? {
+        if let Ok(dek) = kek.unwrap_slot(slot, &fingerprint, &wrapped) {
+            deks.insert(slot, dek);
+        }
+    }
+    let mut unopened = BTreeSet::new();
+    for (owner, sha) in referenced_blobs(conn).await? {
+        let Some(slot) = owner.slot() else { continue };
+        let Some(dek) = deks.get(&slot) else { continue };
+        let key = blobs::sealed_key(slot, dek, &sha)?;
+        if let Some(path) = files.get(&key)
+            && !sealed_opens(path, slot.id(), dek, &sha)
+        {
+            unopened.insert(key);
+        }
+    }
+    Ok(unopened.into_iter().collect())
+}
+
 fn ids_text(ids: &[Uuid]) -> String {
     ids.iter().map(Uuid::to_string).collect::<Vec<_>>().join(", ")
 }
@@ -1416,6 +1455,10 @@ async fn compare(
             key_check["ok"] = Value::Bool(false);
         }
     }
+    let unopened = match kek.filter(|_| keyed) {
+        Some(k) => unopened_sealed(&mut tx, k, files).await?,
+        None => Vec::new(),
+    };
     let states = state_hashes(&mut tx, as_of).await?;
     tx.commit().await?;
     conn.close().await?;
@@ -1451,7 +1494,12 @@ async fn compare(
             profiles.insert(pid.clone(), json!({"expected": null, "actual": h, "ok": false}));
         }
     }
-    let blobs = check_blobs(manifest, files)?;
+    let mut blobs = check_blobs(manifest, files)?;
+    if let Some(corrupt) = blobs["corrupt"].as_array_mut() {
+        corrupt.extend(unopened.into_iter().map(Value::String));
+        corrupt.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+        corrupt.dedup();
+    }
     let ok = tables.is_empty()
         && profiles.values().all(|p| p["ok"] == json!(true))
         && blobs["missing"].as_array().is_some_and(Vec::is_empty)

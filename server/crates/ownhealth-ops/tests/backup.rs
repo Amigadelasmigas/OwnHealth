@@ -1186,6 +1186,85 @@ async fn round_seven_restore_refuses_a_reused_blob_store_before_loading() -> R {
     Ok(())
 }
 
+/// One of Alex's sealed documents (not the plain legacy report) and its bytes.
+async fn alex_sealed_document(l: &Live) -> anyhow::Result<(String, Vec<u8>)> {
+    let legacy_sha = hex::encode(sha2::Sha256::digest(&l.legacy));
+    let sha: String = sqlx::query_scalar(
+        "select encode(blob_sha256, 'hex') from document \
+         where profile_id = $1 and encode(blob_sha256, 'hex') <> $2 order by id limit 1",
+    )
+    .bind(l.alex)
+    .bind(legacy_sha)
+    .fetch_one(&l.db.pool)
+    .await?;
+    let bytes = BlobStore::for_settings(&l.settings)?.get_bytes(BlobOwner::Profile(l.alex), &sha)?;
+    Ok((sha, bytes))
+}
+
+/// A copy of a file a restore accepted as lost that no longer opens (damaged on disk): the backup
+/// keeps the loss, leaves the damaged copy out, and never lists the file as required. Before, it
+/// required the damaged copy, and verify-restore passed it on the hash of its bytes.
+#[tokio::test]
+async fn a_damaged_copy_of_an_accepted_loss_stays_an_omission() -> R {
+    use ownhealth_core::keyfile;
+
+    let l = live().await?;
+    let owner = BlobOwner::Profile(l.alex);
+    let (sha, bytes) = alex_sealed_document(&l).await?;
+    let mut ring = keyfile::read(&keyfile::path(&l.settings))?.expect("backup wrote the keyring");
+    assert!(ring.profiles.remove(&l.alex).is_some());
+    keyfile::write(&l.settings.keyring_path(), &ring)?;
+    let (_db, settings) = fresh(&l).await?;
+    ownhealth_ops::restore_with(&settings, &l.archive, true).await?;
+    assert!(read_restore_losses(&settings)?[&l.alex].contains(&sha));
+
+    let store = BlobStore::for_settings(&settings)?;
+    assert_eq!(store.put_bytes(owner, &bytes)?, sha);
+    let key = store.key_of(owner, &sha)?;
+    assert!(key.contains('/'), "the copy is sealed: {key}");
+    flip_last_byte(&tree_files(&settings.blobs_path())?[&key])?;
+
+    let dest = l.dir.path().join("damaged-copy");
+    ownhealth_ops::backup(&settings, &dest).await?;
+    let m = manifest(&dest)?;
+    assert!(!strs(&m["blobs"]["referenced"]).contains(&key), "{m:#}");
+    assert!(!sealed_keys(&m).contains(&key), "{m:#}");
+    assert!(!tree(&dest)?.contains_key(&key));
+    assert!(
+        strs(&m["blobs"]["accepted_omissions"][l.alex.to_string()]).contains(&sha),
+        "{m:#}"
+    );
+    assert!(read_restore_losses(&settings)?[&l.alex].contains(&sha));
+    let report = verify_restore(&settings, &dest).await?;
+    assert_eq!(report["ok"], true, "{report:#}");
+    Ok(())
+}
+
+/// A sealed file damaged on the live disk before the backup: the manifest hashed its bytes as they
+/// were, so the hash matches, but the file no longer opens. verify-restore and restore open every
+/// sealed file they have the key for, and report it as corrupt.
+#[tokio::test]
+async fn a_sealed_file_damaged_before_the_backup_fails_the_check() -> R {
+    let l = live().await?;
+    let owner = BlobOwner::Profile(l.alex);
+    let (sha, _) = alex_sealed_document(&l).await?;
+    let key = BlobStore::for_settings(&l.settings)?.key_of(owner, &sha)?;
+    assert!(key.contains('/'), "the file is sealed: {key}");
+    flip_last_byte(&tree_files(&l.settings.blobs_path())?[&key])?;
+
+    let dest = l.dir.path().join("damaged");
+    ownhealth_ops::backup(&l.settings, &dest).await?;
+    let report = verify_restore(&l.settings, &dest).await?;
+    assert_eq!(report["ok"], false, "{report:#}");
+    assert_eq!(strs(&report["blobs"]["corrupt"]), [key.as_str()], "{report:#}");
+
+    let (_db, fresh) = fresh(&l).await?;
+    let restored = ownhealth_ops::restore(&fresh, &dest).await?;
+    assert_eq!(restored["ok"], false, "{restored:#}");
+    assert_eq!(strs(&restored["blobs"]["corrupt"]), [key.as_str()], "{restored:#}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_backup_requires_a_repaired_file_if_it_goes_missing_again() -> R {
     use ownhealth_core::keyfile;
