@@ -1066,7 +1066,8 @@ async fn a_backup_cannot_carry_a_keyring_reached_through_a_parent_directory() ->
     fs::create_dir(l.dir.path().join("other"))?;
     let mut settings = l.settings.clone();
     settings.keyring_dir = Some(l.dir.path().join("other/../retry/keys"));
-    assert!(ownhealth_ops::backup(&settings, &dest).await.is_err());
+    let err = err_text(ownhealth_ops::backup(&settings, &dest).await);
+    assert!(err.contains("is inside the backup folder"), "{err}");
     assert!(fs::read_dir(dest)?.next().is_none());
     Ok(())
 }
@@ -1527,29 +1528,37 @@ async fn a_damaged_present_key_is_rejected_before_restore_even_with_allow_missin
 
 #[tokio::test]
 async fn restore_waits_for_the_shared_keyring_before_selecting_keys() -> R {
-    use ownhealth_core::keyfile;
+    use ownhealth_core::{keyfile, testing::keyring_waits};
     use std::time::Duration;
 
     let l = live().await?;
     let (db, fresh) = fresh(&l).await?;
+    let lock_path = l.settings.keyring_path().join(".keyring.lock");
     let lock = fs::File::options()
         .write(true)
         .create(true)
         .truncate(false)
-        .open(l.settings.keyring_path().join(".keyring.lock"))?;
+        .open(&lock_path)?;
     lock.try_lock()?;
+    let waits = keyring_waits(&lock_path);
     let mut restore = Box::pin(ownhealth_ops::restore(&fresh, &l.archive));
-    let while_locked = tokio::time::timeout(Duration::from_secs(2), &mut restore).await;
+    // The keyring changes only once the restore is blocked on its lock, however slow the machine.
+    let blocked = async {
+        while keyring_waits(&lock_path) == waits {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore did not wait for the keyring lock: {done:?}"),
+        waited = tokio::time::timeout(Duration::from_secs(60), blocked) => waited?,
+    }
 
     let mut ring = keyfile::read(&keyfile::path(&l.settings))?.unwrap_or_default();
     assert!(ring.profiles.remove(&l.alex).is_some());
     ring.shredded.insert(l.alex);
     keyfile::write(&l.settings.keyring_path(), &ring)?;
     drop(lock);
-    let report = match while_locked {
-        Ok(done) => done?,
-        Err(_) => tokio::time::timeout(Duration::from_secs(30), restore).await??,
-    };
+    let report = tokio::time::timeout(Duration::from_secs(60), restore).await??;
     assert_eq!(report["keys"]["shredded"], serde_json::json!([l.alex]), "{report:#}");
     let row: bool = sqlx::query_scalar("select wrapped_dek is null from profile_key where profile_id = $1")
         .bind(l.alex)

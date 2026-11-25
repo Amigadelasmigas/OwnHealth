@@ -269,10 +269,18 @@ pub async fn lock(settings: &Settings) -> Result<KeyringLock, KeyError> {
         opts.mode(0o600);
     }
     let file = opts.open(&lock_path).map_err(io_error)?;
+    #[cfg(any(test, feature = "testing"))]
+    let mut waiting = false;
     loop {
         match file.try_lock() {
             Ok(()) => return Ok(KeyringLock { _file: file }),
-            Err(TryLockError::WouldBlock) => tokio::time::sleep(Duration::from_millis(50)).await,
+            Err(TryLockError::WouldBlock) => {
+                #[cfg(any(test, feature = "testing"))]
+                if !std::mem::replace(&mut waiting, true) {
+                    crate::testing::note_keyring_wait(&lock_path);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await
+            }
             Err(TryLockError::Error(e)) => return Err(io_error(e)),
         }
     }
