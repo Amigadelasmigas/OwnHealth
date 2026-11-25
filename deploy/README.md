@@ -305,8 +305,8 @@ Keyless backups from v0.4.0 and earlier need no keyring to restore. Restore a ba
 When you delete a profile, OwnHealth removes its key from the database and rewrites `keyring.json` at once, before it deletes the files. If that write fails, the delete still completes, the delete screen says that the key is still in `keyring.json`, and OwnHealth retries the rewrite. Once the rewrite succeeds, no backup opens that profile's files again, as long as no older copy of `keyring.json` exists. So:
 
 - Never back up or version the `keyring/` folder. Tell host-level backup tools (Time Machine, Duplicacy, a NAS snapshot, a volume backup) to skip it.
-- Keep exactly one extra copy off the box, never versioned, and overwrite it after every backup and every profile delete. Without it, files encrypted with missing profile keys stay unreadable (see Restore). Do not put the file in your password manager: only `secrets/secrets_key` goes there.
-- If the delete screen says that the key is still in `keyring.json`, do not refresh the off-box copy yet: that copy would still open the deleted profile's files. Make the keyring folder writable, then run `./deploy/restic/backup.sh`. A backup rewrites `keyring.json`, and stops with an error when it cannot. Refresh the off-box copy after that backup succeeds.
+- Keep exactly one extra copy off the box, never versioned, and overwrite it after every backup that succeeds. Without it, files encrypted with missing profile keys stay unreadable (see Restore). Do not put the file in your password manager: only `secrets/secrets_key` goes there.
+- After a profile delete, refresh the off-box copy only after the next backup succeeds. A backup rewrites `keyring.json`, and stops with an error when it cannot, so a copy taken after it never holds the deleted key. A copy taken straight after the delete may still hold it: the delete screen says so only until the page reloads, and later only the log line `could not rewrite the keyring after a profile delete` shows it. If you see either, make the keyring folder writable and run `./deploy/restic/backup.sh`.
 - After a profile delete, destroy every older copy of `keyring.json` you know of. The delete screen says so too.
 
 A backup still holds the deleted profile's rows (its records, without the files) until retention removes the snapshot: 7 daily, 5 weekly and 12 monthly snapshots by default, so about a year at most. One more exception has the same limit: a held mail, or a document that had no profile yet when the backup ran, has its own key in the dump. If it went to the deleted profile later, that backup still opens it until retention removes the snapshot.
@@ -331,8 +331,8 @@ Run it from cron or a systemd timer:
 
 A backup that was never restored counts as missing. `restic/restore-test.sh` proves the latest snapshot works:
 
-1. restic restores the snapshot into a folder of its own under `/data/backups/restore`, so a second run never deletes the files a running check reads. Each run removes its folder when it ends. The first run a day later removes a folder that a stopped run left.
-2. `ownhealth verify-restore` runs one check at a time per live database. It creates the scratch database `<live_db>_restore_check`, marks it with a comment, and loads the dump there. It first drops a database an earlier check left at that name, which carries the mark. Any other database at that name stops the check and stays as it is: rename it, or drop it once you know it holds nothing else (a check from before 1.0 left no mark).
+1. restic restores the snapshot into a folder of its own under `/data/backups/restore`, so a second run never deletes the files a running check reads. Each run removes its folder when it ends. The first run a day later removes a folder that a stopped run left. Each run also removes anything else in `/data/backups/restore`, such as the files a stopped check of a version before 1.0 left there.
+2. `ownhealth verify-restore` runs one check at a time per live database. It creates the scratch database `<live_db>_restore_check`, marks it with a comment, and loads the dump there. It first drops a database an earlier check left at that name, which carries the mark. Any other database at that name stops the check and stays as it is: rename it, or drop it once you know it holds nothing else. A check from before 1.0 left no mark, and neither does a check stopped between creating the database and marking it.
 3. For a backup with a keyring, it loads the profile keys from `keyring.json`. It compares the row count of every table with the manifest, hashes every blob again, rebuilds the state of every profile and compares each `state_hash` with the manifest. An encrypted file the manifest does not list counts as corrupt. It also opens every encrypted file it has the key for and reads it in full: a file damaged on disk before the backup counts as corrupt, although its bytes match the manifest. It opens every profile's key with the configured secrets key (`keys` in the report). A profile deleted since the backup is listed under `keys.shredded`: its files stay closed, and that is not a failure. A key the keyring lacks without listing the profile as deleted is listed under `keys.missing`, and fails the check. It checks the restored audit log too: it must end at the head the manifest recorded, and hold as far as it held then.
 4. It drops the scratch database and the restored files.
 
@@ -361,7 +361,8 @@ An older compose file keeps the keyring in `/data/keyring` on the data volume. B
 
 ```sh
 cd /opt/ownhealth                 # same compose.yaml, .env and secrets/ as before; keyring/ from the box or its one off-box copy
-export COMPOSE_PROJECT_NAME=ownhealth   # or the name you pass to -p
+export COMPOSE_PROJECT_NAME="$(docker compose config --no-interpolate | sed -n 's/^name: //p')"   # or the name you pass to -p
+echo "$COMPOSE_PROJECT_NAME"      # check it before you remove anything
 docker compose down               # if anything still runs
 docker volume ls --filter "name=${COMPOSE_PROJECT_NAME}_"   # check the two names below
 docker volume rm "${COMPOSE_PROJECT_NAME}_ownhealth-data" "${COMPOSE_PROJECT_NAME}_ownhealth-pg"   # only when you mean to replace them
@@ -370,7 +371,7 @@ docker compose up -d db
 docker compose up -d
 ```
 
-Every `docker compose` command and `restore.sh` use the project that `COMPOSE_PROJECT_NAME` names, and the two volumes carry that name. `restore.sh` prints the snapshot it loads (`restoring snapshot <id>`). Keep that id: a retry of a stopped restore must load the same snapshot.
+The first line takes the project name that Compose uses in this folder: `COMPOSE_PROJECT_NAME` from `.env`, or else `name:` in `compose.yaml`. If you started this install with `-p`, export that name instead. Every `docker compose` command and `restore.sh` then use that project, and the two volumes carry its name. Its keyring folder is `keyring/<project>`. `restore.sh` prints the snapshot it loads (`restoring snapshot <id>`). Keep that id: a retry of a stopped restore must load the same snapshot.
 
 `restore.sh` runs in a one-off admin container before the app starts. Start a new restore with an empty target database and an empty blob store. If the backup names a secrets key fingerprint, use the secrets key that matches it. The restore reports the expected fingerprint before loading data if the key is missing or differs.
 
@@ -383,8 +384,10 @@ A restore that records missing files saves a checkpoint with the profile keys, r
 Every other stopped restore has no checkpoint. When `pg_restore` itself failed, it loaded nothing (it runs as one transaction) and placed no files, so the target is still empty: resolve the error and run the same restore again. Any other stopped restore starts over: a restore with no missing files (a keyless backup too), or one that stopped between loading the database and saving the checkpoint. A rerun on the same target stops with "the target database is not empty" and loads nothing. Only then, empty the target and run the same restore again; the snapshot is not changed. With the Compose install:
 
 ```sh
-export COMPOSE_PROJECT_NAME=ownhealth   # or the name you pass to -p
+export COMPOSE_PROJECT_NAME="$(docker compose config --no-interpolate | sed -n 's/^name: //p')"   # or the name you pass to -p
+echo "$COMPOSE_PROJECT_NAME"      # check it before you remove anything
 docker compose down               # if anything still runs
+docker volume ls --filter "name=${COMPOSE_PROJECT_NAME}_"   # check the two names below
 docker volume rm "${COMPOSE_PROJECT_NAME}_ownhealth-data" "${COMPOSE_PROJECT_NAME}_ownhealth-pg"   # the stopped restore's database and blob store
 docker compose up -d db
 ./deploy/restic/restore.sh <snapshot id>   # the id the first run printed: "restoring snapshot <id>"
