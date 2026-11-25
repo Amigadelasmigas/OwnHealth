@@ -2553,6 +2553,27 @@ fn social_history(entries: &str) -> Vec<u8> {
     ))
 }
 
+/// Round 9 (K21R8-T2): an observation held whole because its code's original text was cut before its
+/// first word is one line in review; its original text is counted with the hold, not again.
+#[test]
+fn round_9_original_text_of_an_observation_held_whole_is_counted_once() -> R {
+    let beyond = text_past_the_node_limit();
+    let c = convert(&social_history(&format!(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code><originalText>{beyond}</originalText></code>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="ST">daily</value>
+           </observation></entry>"#
+    )))?;
+    assert!(resources(&c, "Observation").is_empty());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["observation 2.16.840.1.113883.10.20.22.4.38"]
+    );
+    Ok(())
+}
+
 /// Round 9 (K21R8-T6): a procedure whose status is unknown (a nullFlavor, or no statusCode) is not
 /// recorded as completed.
 #[test]

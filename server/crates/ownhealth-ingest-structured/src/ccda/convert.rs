@@ -255,7 +255,10 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
         out: Vec::new(),
     };
     c.header(root);
-    let header_not_read = std::mem::take(&mut c.unread_concepts);
+    let header_not_read: Vec<String> = std::mem::take(&mut c.unread_concepts)
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect();
     let mut sections = Vec::new();
     // sections and their subsections in document order, with a stack instead of recursion; each
     // subsection inherits the labels of the section around it
@@ -645,8 +648,9 @@ struct Conv<'a, 'i> {
     source_labels: HashMap<NodeId, Vec<Value>>,
     /// Labels of the narrative used to build the current resource.
     narrative_labels: Vec<Value>,
-    /// Omitted original text in the header or the current section.
-    unread_concepts: Vec<String>,
+    /// Omitted original text in the header or the current section, with the `originalText` and the
+    /// elements around it: a notice inside an element held whole is counted with that hold.
+    unread_concepts: Vec<(Vec<NodeId>, String)>,
     /// Every `originalText` a coded concept read or compared with what it kept.
     read_originals: HashSet<NodeId>,
     /// Elements sent to review whole: the original text inside them is counted with them.
@@ -916,8 +920,11 @@ impl<'a, 'i> Conv<'a, 'i> {
             for (field, original) in originals {
                 self.read_originals.insert(original.id());
                 if self.unread_original_text(original, &displays) {
+                    let around = std::iter::successors(Some(original), Node::parent_element)
+                        .map(|n| n.id())
+                        .collect();
                     self.unread_concepts
-                        .push(format!("{field} (original text kept in the uploaded file)"));
+                        .push((around, format!("{field} (original text kept in the uploaded file)")));
                 }
             }
         }
@@ -1116,7 +1123,11 @@ impl<'a, 'i> Conv<'a, 'i> {
             rep.stored_notes = 1;
         }
         self.labels = self.doc_labels.clone();
-        rep.not_read.append(&mut self.unread_concepts);
+        for (around, line) in std::mem::take(&mut self.unread_concepts) {
+            if !around.iter().any(|id| self.held.contains(id)) {
+                rep.not_read.push(line);
+            }
+        }
         (rep, labels)
     }
 
