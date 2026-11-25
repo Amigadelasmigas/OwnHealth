@@ -22,19 +22,31 @@ if [ "${OWNHEALTH_ALLOW_MISSING_KEYS:-}" = 1 ]; then FLAGS=--allow-missing-keys;
 ROLE=${OWNHEALTH_APP_ROLE_SCRIPT:-/opt/ownhealth-db/app-role.sh}
 # Name the snapshot once: a retry of a restore that stopped must load the same one, and "latest" may
 # name a newer snapshot by then (deploy/README.md "Restore").
-ID=$($RUN restic snapshots --json --host ownhealth --tag ownhealth "$SNAPSHOT" \
-  | tr ',' '\n' | sed -n 's/.*"short_id": *"\([0-9a-f]*\)".*/\1/p')
-case $ID in
-  "" | *[!0-9a-f]*)
-    log "no single snapshot $SNAPSHOT with host ownhealth and tag ownhealth"
+if ! LIST=$($RUN restic snapshots --json --host ownhealth --tag ownhealth "$SNAPSHOT"); then
+  log "restic could not list snapshot $SNAPSHOT (its error is above)"
+  exit 1
+fi
+# restic ignores --host and --tag for an explicit id, so check them here. The list is one line of JSON.
+ID=$(printf '%s\n' "$LIST" | tr ',' '\n' | sed -n 's/.*"short_id": *"\([0-9a-f]*\)".*/\1/p')
+HOST=$(printf '%s\n' "$LIST" | tr ',' '\n' | sed -n 's/.*"hostname": *"\([^"]*\)".*/\1/p')
+TAGS=$(printf '%s\n' "$LIST" | sed -n 's/.*"tags": *\[\([^]]*\)\].*/\1/p')
+case $ID in "" | *[!0-9a-f]*) HOST= ;; esac
+case "$HOST,$TAGS," in
+  'ownhealth,'*'"ownhealth",'*) ;;
+  *)
+    log "$SNAPSHOT is not one snapshot with host ownhealth and tag ownhealth"
     exit 1
     ;;
 esac
-AGAIN=
-if [ -n "$FLAGS" ]; then AGAIN="OWNHEALTH_ALLOW_MISSING_KEYS=1 "; fi
+# A retry from a new shell must reach the same Compose project.
+AGAIN=${COMPOSE_PROJECT_NAME:+COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME }
+START=$AGAIN
+if [ -n "$FLAGS" ]; then AGAIN="${AGAIN}OWNHEALTH_ALLOW_MISSING_KEYS=1 "; fi
 log "restoring snapshot $ID; to retry this restore, run it again with the same id: ${AGAIN}./deploy/restic/restore.sh $ID"
+# Its own run folder, like restore-test.sh, so a restore test that runs meanwhile leaves it alone.
+HERE="$SCRATCH/run-$(date +%s)-$$"
 $RUN sh -c "rm -rf '$SCRATCH' \
   && { [ ! -f '$ROLE' ] || sh '$ROLE'; } \
-  && restic restore --quiet --host ownhealth --tag ownhealth '$ID:$STAGING' --target '$SCRATCH' >&2 \
-  && ownhealth restore $FLAGS '$SCRATCH'; status=\$?; rm -rf '$SCRATCH'; exit \$status"
-log "restored; start the app with: docker compose up -d"
+  && restic restore --quiet --host ownhealth --tag ownhealth '$ID:$STAGING' --target '$HERE' >&2 \
+  && ownhealth restore $FLAGS '$HERE'; status=\$?; rm -rf '$HERE'; exit \$status"
+log "restored; start the app with: ${START}docker compose up -d"

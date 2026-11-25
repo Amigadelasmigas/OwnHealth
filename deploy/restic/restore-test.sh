@@ -15,13 +15,18 @@ RUN=${OWNHEALTH_RUN-docker compose run --rm -T admin}
 
 # Each run restores into a folder of its own, so a run never deletes the archive that another run's
 # check is still reading. A folder whose run started a day ago or more is one a stopped run left.
+# Anything else there is a leftover too: versions before 1.0 restored straight into the folder.
 HERE="$SCRATCH/run-$(date +%s)-$$"
 # shellcheck disable=SC2016 # expanded by the inner shell
-$RUN sh -c 'now=$(date +%s); for d in "$1"/run-*; do
-  [ -d "$d" ] || continue
-  t=${d##*/run-}; t=${t%%-*}
-  case $t in "" | *[!0-9]*) continue ;; esac
-  [ $((now - t)) -lt 86400 ] || rm -rf "$d"
+$RUN sh -c 'now=$(date +%s); for d in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+  [ -e "$d" ] || [ -L "$d" ] || continue
+  case ${d##*/} in
+    run-*)
+      t=${d##*/run-}; t=${t%%-*}
+      case $t in "" | *[!0-9]*) ;; *) [ $((now - t)) -ge 86400 ] || continue ;; esac
+      ;;
+  esac
+  rm -rf "$d"
 done' sweep "$SCRATCH"
 log "restic restore $SNAPSHOT"
 $RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$HERE" >&2
