@@ -1,0 +1,84 @@
+# cargo-deny, the dependency gate of the server (CI job `deny`; docs/design/security-privacy.md 14.2
+# and 16). From server/: `cargo deny check`. It reads Cargo.lock and the RustSec advisory database,
+# so it covers what cargo-audit checks; there is no separate cargo-audit job.
+
+[graph]
+# What ships: the two Linux images, the OCR variant included.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+all-features = true
+
+[advisories]
+# Every RustSec advisory fails the job: a vulnerability, an unsound or unmaintained crate, a yanked
+# version. One we accept goes below with its id and the reason it does not reach OwnHealth.
+yanked = "deny"
+unmaintained = "all"
+ignore = [
+  # vulnerabilities with no patched release we can take in 1.0
+  { id = "RUSTSEC-2023-0071", reason = "rsa (Marvin attack) recovers a private key from the timing of RSA decryption or signing. openidconnect (ID tokens) and webauthn-rs (passkey attestations) only verify RSA signatures with public keys; OwnHealth holds no RSA private key. rsa 0.10.0 does not resolve: crypto-glue 0.2.2 asks for a feature only the release candidate has." },
+  { id = "RUSTSEC-2026-0459", reason = "bundled SQLite before 3.54 can return stale memory when a database is opened with a crafted sibling -wal file. The one SQLite reader (ownhealth-devices gadgetbridge.rs read_db) copies the uploaded file alone into a new private temp folder, so no -wal file of anyone else sits next to it. rusqlite 0.41 needs libsqlite3-sys 0.39, which the sqlx 0.9 in the lockfile does not allow yet." },
+  { id = "RUSTSEC-2026-0367", reason = "zip 8.6 comes only with the ocr feature, through oar-ocr =0.10.2. Its one use is indra/lm.rs, which reads an .npz language model with ZipArchive::new and by_name and never calls extract. ownhealth-ocr runs the PP-OCRv5 models and never that code. Our own zip reading is zip 9." },
+  { id = "RUSTSEC-2026-0368", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): oar-ocr never calls ZipArchive::extract, so no symbolic link is made." },
+  { id = "RUSTSEC-2026-0369", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): oar-ocr never calls extract or ZipStreamReader." },
+  { id = "RUSTSEC-2026-0429", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): oar-ocr never calls ZipArchive::extract." },
+  { id = "RUSTSEC-2026-0545", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): built without the aes-crypto feature, and the one reader is code ownhealth-ocr never runs." },
+  { id = "RUSTSEC-2026-0546", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): oar-ocr never calls ZipArchive::extract." },
+  { id = "RUSTSEC-2026-0547", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): built with deflate only, without the legacy Shrink, Reduce and Implode decoders." },
+  { id = "RUSTSEC-2026-0548", reason = "zip 8.6, ocr feature only (see RUSTSEC-2026-0367): oar-ocr never uses ZipStreamReader." },
+  # unmaintained crates: no known vulnerability, and no replacement in 1.0
+  { id = "RUSTSEC-2021-0153", reason = "encoding, unmaintained: character set tables for dicom-encoding (imaging) and rxing (QR codes)." },
+  { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained: a macro that runs at build time only, through the OCR feature (rav1e, tokenizers)." },
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml, unmaintained, under serde_yaml: it parses only YAML files that ship in this repository (rule packs, templates, data/connectors), never a user file." },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser, unmaintained: draws text in the OCR feature (imageproc, ab_glyph) from fonts in the image, never a user file." },
+  { id = "RUSTSEC-2026-0441", reason = "pin-utils, unmaintained: one pinning macro inside async-imap." },
+  { id = "RUSTSEC-2026-0543", reason = "chrono, unmaintained: every date and time of the app; moving off it is not 1.0 work." },
+  { id = "RUSTSEC-2026-0555", reason = "chrono-tz, unmaintained: the time zone table that goes with chrono (see RUSTSEC-2026-0543)." },
+]
+
+[licenses]
+# Licences that may be combined into an AGPL-3.0-or-later program. A crate under several licences
+# (`MIT OR Apache-2.0`) passes when one of them is here.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+# Our own crates: AGPL-3.0-or-later, never published.
+ignore = true
+
+[bans]
+# Two majors of one crate fail the job, except for the crates below, which had two or more when the
+# gate came in. A new duplicate needs a decision; a crate that goes back to one version can leave
+# the list (cargo-deny then warns about the unused entry).
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+skip = [
+  "async-channel", "base64", "bit-vec", "block-buffer", "const-oid", "cpufeatures", "crypto-common",
+  "darling", "darling_core", "darling_macro", "der", "digest", "event-listener", "fancy-regex",
+  "getrandom", "hashbrown", "hmac", "itertools", "miniz_oxide", "multiversion", "multiversion-macros",
+  "nom", "pastey", "pem-rfc7468", "pkcs1", "pkcs8", "rand", "rand_chacha", "rand_core", "rsa", "sha2",
+  "signature", "spki", "syn", "synstructure", "thiserror", "thiserror-impl", "tower-http", "typed-path",
+  "weezl", "zip",
+]
+
+[sources]
+# crates.io only: the lockfile has no git source.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

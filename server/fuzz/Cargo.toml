@@ -1,0 +1,57 @@
+# Fuzz targets for the code that reads what someone outside the household sends
+# (docs/design/security-privacy.md 16). A workspace of its own, so the server's stable builds and its
+# Cargo.lock never see it. It needs a nightly toolchain and cargo-fuzz; CI pins both (.github/workflows/
+# ci.yml, job fuzz). From server/fuzz:
+#   cargo +nightly fuzz run <target> corpus/<target> seeds/<target>
+# The first folder collects what the fuzzer finds (git ignores it); seeds/ holds the committed inputs,
+# and a crash input the fuzzer ever found goes there too, so every run replays it.
+[package]
+name = "ownhealth-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false }
+libfuzzer-sys = "0.4.13"
+ownhealth-core = { path = "../crates/ownhealth-core" }
+ownhealth-ingest-structured = { path = "../crates/ownhealth-ingest-structured" }
+ownhealth-ops = { path = "../crates/ownhealth-ops" }
+# the key type jose.rs verifies with; the version ownhealth-core locks
+p256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
+serde_json = "1"
+
+[[bin]]
+name = "jose"
+path = "fuzz_targets/jose.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keyring"
+path = "fuzz_targets/keyring.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shl_manifest"
+path = "fuzz_targets/shl_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "shl_passcode"
+path = "fuzz_targets/shl_passcode.rs"
+test = false
+doc = false
+bench = false

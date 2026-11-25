@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      red_controls:
+        description: >-
+          Show the deny and fuzz gates failing (a run by hand only): the deny job adds lz4_flex
+          0.10.0 (RUSTSEC-2026-0041) to the lockfile, and the fuzz job takes the inflate cap out of
+          jose.rs, so the committed seed seeds/jose/deflate-bomb.jws crashes the jose target.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,6 +84,9 @@ jobs:
           cache-dependency-glob: server/crates/ownhealth-mcp/tests/py/mcp_client.py.lock
       - run: mkdir -p static # the UI build is embedded only in release builds; tests serve their own
       - run: cargo fmt --all --check
+      - name: cargo fmt of server/fuzz (a workspace of its own)
+        working-directory: server/fuzz
+        run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # Information, never advice: 0 imperative phrases outside attributed quotes in everything we
       # write (crates/ownhealth/tests/wording_all.rs), as its own step so a wording failure is named.
@@ -230,6 +241,88 @@ jobs:
         run: bash scripts/fetch-pdfium.sh linux-x64
       - run: mkdir -p server/static
       - run: bash contract-tests/run.sh rust
+
+  # The dependency gate (server/deny.toml): RustSec advisories, licences that fit AGPL-3.0-or-later,
+  # crates.io as the only source, and no new duplicate major, over Cargo.lock with every feature.
+  # cargo-deny reads the same RustSec database as cargo-audit, so there is no separate audit job.
+  deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: cargo-deny 0.22.1 (pinned, sha256-checked)
+        working-directory: .
+        run: |
+          curl -fsSL -o /tmp/cargo-deny.tar.gz https://github.com/EmbarkStudios/cargo-deny/releases/download/0.22.1/cargo-deny-0.22.1-x86_64-unknown-linux-musl.tar.gz
+          echo "13f7e825e9cb811c2f8de63f29b0f45851dfb53004029f0f2501af524728364d  /tmp/cargo-deny.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/cargo-deny-0.22.1-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+      - name: "Red control: a crate with a RustSec advisory joins the lockfile"
+        if: inputs.red_controls
+        run: cargo add -p ownhealth-core lz4_flex@=0.10.0 --no-default-features
+      - run: cargo deny --locked check
+
+  # Fuzzing (server/fuzz, a workspace of its own, so the stable builds above never see it): each
+  # target replays its committed seeds and then fuzzes for FUZZ_SECONDS on a pinned nightly. A panic,
+  # a failed assertion, a timeout or an out-of-memory turns the job red, and the input that did it
+  # is kept as an artifact.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FUZZ_NIGHTLY: nightly-2026-11-20
+      FUZZ_SECONDS: "60"
+    defaults:
+      run:
+        working-directory: server/fuzz
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust ${{ env.FUZZ_NIGHTLY }}
+        run: rustup toolchain install "$FUZZ_NIGHTLY" --profile minimal
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server/fuzz
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: fuzz-${{ env.FUZZ_NIGHTLY }}
+      - name: cargo-fuzz 0.13.2
+        run: cargo +"$FUZZ_NIGHTLY" install cargo-fuzz --version 0.13.2 --locked
+      - name: The fuzz lockfile is current
+        run: cargo +"$FUZZ_NIGHTLY" metadata --locked --format-version 1 > /dev/null
+      - name: "Red control: jose.rs loses its inflate cap"
+        if: inputs.red_controls
+        working-directory: server/crates/ownhealth-core/src
+        run: |
+          sed -i 's/^    if out.len() > max_len {$/    if false \&\& out.len() > max_len {/' jose.rs
+          test "$(grep -c '^    if false && out.len() > max_len {$' jose.rs)" = 1
+      - run: cargo +"$FUZZ_NIGHTLY" fuzz build
+      - name: Every target, for ${{ env.FUZZ_SECONDS }} seconds each
+        run: |
+          targets="jose keyring shl_manifest shl_passcode"
+          # a target added to Cargo.toml but not to the list above would never run
+          test "$(cargo +"$FUZZ_NIGHTLY" fuzz list | tr '\n' ' ')" = "$targets "
+          for target in $targets; do
+            mkdir -p "corpus/$target"
+            cargo +"$FUZZ_NIGHTLY" fuzz run "$target" "corpus/$target" "seeds/$target" -- \
+              -max_total_time="$FUZZ_SECONDS" -timeout=10 -rss_limit_mb=2048
+          done
+      - name: Keep the input that failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: server/fuzz/artifacts
+          if-no-files-found: ignore
 
   # Which runners the docker job builds on. Main and manual runs always build both platforms. A PR
   # builds amd64 always, and arm64 too when it changes a build input: the Dockerfile and what it
