@@ -713,7 +713,8 @@ async fn restore_test_fails_when_the_latest_snapshot_does_not_match_its_manifest
 
 /// restore-test.sh restores into a folder of its own under OWNHEALTH_RESTORE_DIR. A second run
 /// never deletes the archive another run's check is reading, and the folder of a run that stopped
-/// a day ago or more goes.
+/// a day ago or more goes, with every other leftover, dotfiles too. restore.sh removes only its own
+/// folder there, so a restore test that runs meanwhile keeps its archive.
 #[tokio::test]
 async fn restore_test_leaves_another_runs_folder_alone() -> R {
     let Some(restic) = restic_or_skip() else { return Ok(()) };
@@ -737,9 +738,20 @@ async fn restore_test_leaves_another_runs_folder_alone() -> R {
     std::fs::write(base.join("blobs").join("ab"), b"x")?;
     std::fs::write(base.join("db.dump"), b"x")?;
     std::fs::write(base.join("manifest.json"), b"{}")?;
+    // a dotfile and a name with two leading dots: the sweep's two hidden-name globs
+    std::fs::write(base.join(".left"), b"x")?;
+    std::fs::write(base.join("..left"), b"x")?;
     let check = script("restore-test.sh", &env)?;
     assert!(check.status.success(), "{}", text(&check));
-    assert_eq!(entries(&base)?, [running], "{}", text(&check));
+    assert_eq!(entries(&base)?, std::slice::from_ref(&running), "{}", text(&check));
+
+    let fresh_db = TestDb::empty().await?;
+    let mut fresh = fresh_db.settings(&tmp.path().join("fresh"))?;
+    fresh.secrets_key = s.secrets_key.clone();
+    fresh.keyring_dir = Some(s.keyring_path());
+    let restored = script("restore.sh", &env_for(&fresh, tmp.path()))?;
+    assert!(restored.status.success(), "{}", text(&restored));
+    assert_eq!(entries(&base)?, [running], "{}", text(&restored));
     Ok(())
 }
 

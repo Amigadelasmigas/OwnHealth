@@ -45,8 +45,8 @@ if [ -n "$FLAGS" ]; then AGAIN="${AGAIN}OWNHEALTH_ALLOW_MISSING_KEYS=1 "; fi
 log "restoring snapshot $ID; to retry this restore, run it again with the same id: ${AGAIN}./deploy/restic/restore.sh $ID"
 # Its own run folder, like restore-test.sh, so a restore test that runs meanwhile leaves it alone.
 HERE="$SCRATCH/run-$(date +%s)-$$"
-$RUN sh -c "rm -rf '$SCRATCH' \
-  && { [ ! -f '$ROLE' ] || sh '$ROLE'; } \
+# Other run folders are left to restore-test.sh's sweep of stale ones.
+$RUN sh -c "{ [ ! -f '$ROLE' ] || sh '$ROLE'; } \
   && restic restore --quiet --host ownhealth --tag ownhealth '$ID:$STAGING' --target '$HERE' >&2 \
   && ownhealth restore $FLAGS '$HERE'; status=\$?; rm -rf '$HERE'; exit \$status"
 log "restored; start the app with: ${START}docker compose up -d"
