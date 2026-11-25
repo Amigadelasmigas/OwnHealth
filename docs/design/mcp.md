@@ -350,10 +350,10 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
       {"date": "2023-03-21", "value": 88, "unit": "mg/dL", "canonical": 88, "range": "<130", "src": "src_2c1"},
       {"date": "2023-10-04", "value": 92, "unit": "mg/dL", "canonical": 92, "method": "direct", "src": "src_3c8"},
       {"date": "2024-05-22", "value": 84, "unit": "mg/dL", "canonical": 84, "method": "direct", "src": "src_3d2"},
-      {"date": "2025-01-20", "value": 79, "unit": "mg/dL", "canonical": 79, "range": "<130", "src": "src_a05"},
-      {"date": "2025-09-08", "value": 101, "unit": "mg/dL", "canonical": 101, "range": "<130", "src": "src_a07"},
+      {"date": "2025-01-20", "value": 79, "unit": "mg/dL", "canonical": 79, "range": "<130", "src": "src_a04"},
+      {"date": "2025-09-08", "value": 101, "unit": "mg/dL", "canonical": 101, "range": "<130", "src": "src_a06"},
       {"date": "2026-03-02", "value": 118, "unit": "mg/dL", "canonical": 118, "range": "<130", "src": "src_9f3"},
-      {"date": "2026-09-14", "value": 97, "unit": "mg/dL", "canonical": 97, "range": "<130", "src": "src_a12"}
+      {"date": "2026-09-14", "value": 97, "unit": "mg/dL", "canonical": 97, "range": "<130", "src": "src_a11"}
     ],
     "stats": {"n": 9, "trend": "no significant trend", "last_vs_previous_pct": -18,
               "rcv_pct": 16, "exceeds_rcv": true, "method": "Mann-Kendall, Theil-Sen slope"},
@@ -566,7 +566,7 @@ Output:
 ```json
 {
   "data": {
-    "src_id": "src_a12", "status": "current",
+    "src_id": "src_a11", "status": "current",
     "document": {"id": "doc_2026-09-14_lab1", "kind": "lab_report", "provider": "lab (private, ES)",
                  "received_via": "upload", "sha256": "9e1c…", "pages": 3},
     "location": {"page": 2, "bbox": [72.1, 410.5, 520.0, 424.8], "units": "pt"},
@@ -574,7 +574,7 @@ Output:
     "derived": {"loinc": "13457-7", "ucum": "mg/dL", "canonical": 97},
     "extraction": {"method": "text_layer+table_rule", "parser": "generic-table 0.1.0", "confidence": 0.99,
                    "accepted": "auto", "accepted_at": "2026-09-15"},
-    "crop_url": "https://health.example.lan/ui/doc/doc_2026-09-14_lab1/p/2?box=src_a12",
+    "crop_url": "https://health.example.lan/ui/doc/doc_2026-09-14_lab1/p/2?box=src_a11",
     "text": null
   }
 }

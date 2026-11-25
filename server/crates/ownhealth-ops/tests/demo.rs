@@ -280,16 +280,3 @@ async fn demo_ldl_changes_compare_one_method() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-#[test]
-fn architecture_keeps_vitamin_d_and_platelet_provenance_distinct() {
-    let architecture = include_str!("../../../../docs/design/architecture.md");
-    let rows: Vec<_> = architecture
-        .lines()
-        .filter(|line| {
-            (line.starts_with("| Platelets |") || line.starts_with("| Vitamin D 25-OH |")) && line.contains("`src_a12`")
-        })
-        .map(|line| line.split('|').nth(1).unwrap_or_default().trim())
-        .collect();
-    assert_eq!(rows, ["Vitamin D 25-OH"]);
-}

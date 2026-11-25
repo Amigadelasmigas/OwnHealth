@@ -213,7 +213,7 @@ Scopes: any of `read:genome`, `read:records`, `read:labs`; parts the token canno
   "current_medications": [{"name": "Cenobamate 50 mg", "since": "2026-04-01", "src": ["src_m05"]}],
   "phenoconversion": [{"gene": "CYP2C19", "by": "Cenobamate 50 mg",
                        "text": "Cenobamate is a moderate CYP2C19 inhibitor. CPIC has no conversion rule for CYP2C19; effect not computed."}],
-  "relevant_labs": [{"analyte": "Platelets", "value": 231, "unit": "10*9/L", "date": "2026-09-14", "src": ["src_a12"]}],
+  "relevant_labs": [{"analyte": "Platelets", "value": 231, "unit": "10*9/L", "date": "2026-09-14", "src": ["src_a14"]}],
   "not_assessed": ["drug-drug interactions (no open-licence source configured)"],
   "advice": "Discuss with your prescriber.",
   "db_versions": {"cpic": "2026-09", "owngenome_facts": "ownhealth.genome-facts/v1"}
@@ -235,10 +235,10 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
     {"date": "2023-03-21", "value": 88, "src": "src_2c1"},
     {"date": "2023-10-04", "value": 92, "method": "direct", "src": "src_3c8"},
     {"date": "2024-05-22", "value": 84, "method": "direct", "src": "src_3d2"},
-    {"date": "2025-01-20", "value": 79, "src": "src_a05"},
-    {"date": "2025-09-08", "value": 101, "src": "src_a07"},
+    {"date": "2025-01-20", "value": 79, "src": "src_a04"},
+    {"date": "2025-09-08", "value": 101, "src": "src_a06"},
     {"date": "2026-03-02", "value": 118, "src": "src_9f3"},
-    {"date": "2026-09-14", "value": 97, "src": "src_a12"}
+    {"date": "2026-09-14", "value": 97, "src": "src_a11"}
   ],
   "trend": {"method": "Mann-Kendall", "significant": false},
   "notes": ["2023-10-04 and 2024-05-22 are direct LDL (LOINC 18262-6); the method change is marked.",
@@ -246,7 +246,7 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
 }
 ```
 
-When the agent wants to show the person where 97 came from, it calls `get_source("src_a12")` and gets the document id, page 2, the bounding box and a crop URL. Any free text in that answer is marked `trust: untrusted_text`.
+When the agent wants to show the person where 97 came from, it calls `get_source("src_a11")` and gets the document id, page 2, the bounding box and a crop URL. Any free text in that answer is marked `trust: untrusted_text`.
 
 ## The deterministic current state
 
