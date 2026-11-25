@@ -43,6 +43,7 @@ const SUMMARY_FIELDS: [&str; 21] = [
 const VALIDATED_VALUE_KEYS: [&str; 2] = ["phenotype", "diplotype"];
 
 #[allow(clippy::unwrap_used)]
+// The region pattern is a source literal.
 static REGION_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^chr([0-9XYM]+):(\d+)-(\d+)$").unwrap());
 
 /// Free text from a facts file (`genome.model.untrusted_fact_text`).

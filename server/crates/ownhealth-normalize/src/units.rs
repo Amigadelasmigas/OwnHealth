@@ -175,6 +175,7 @@ fn synonym(low: &str) -> Option<&'static str> {
     })
 }
 
+// All invocations use fixed patterns defined in this module.
 macro_rules! re {
     ($name:ident, $pat:expr) => {
         static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new($pat).expect("static regex"));

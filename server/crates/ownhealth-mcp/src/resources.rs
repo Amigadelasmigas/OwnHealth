@@ -36,6 +36,7 @@ pub const RESOURCE_NOT_FOUND: i32 = -32002;
 pub const INVALID_PARAMS: i32 = -32602;
 
 #[allow(clippy::unwrap_used)]
+// These resource patterns are source literals.
 static PROFILE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^ownhealth://profile/([a-z0-9_-]+)/(status|status\.md|access-log|calculators)$").unwrap()
 });

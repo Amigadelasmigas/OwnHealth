@@ -479,6 +479,7 @@ pub async fn union_scopes(conn: &mut PgConnection, principal: &Principal) -> Res
 }
 
 #[allow(clippy::unwrap_used)]
+// The pattern is a source literal.
 static SAFE_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_:.\-*/>+]{1,64}\n?$").unwrap());
 const HASHED_ARGS: [&str; 4] = ["query", "drug", "payload", "text"];
 const OMITTED_ARGS: [&str; 1] = ["cursor"];

@@ -54,14 +54,14 @@ static DETECTORS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
         ("nhs", Regex::new(r"\b\d{3}\s\d{3}\s\d{4}\b").unwrap()),
     ]
 });
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used)] // literal pattern
 static ISO_DATE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$").unwrap());
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used)] // literal pattern
 static DIGIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d$").unwrap());
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used)] // literal pattern
 static BBOX_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d.]+ -?[\d.]+ -?[\d.]+ -?[\d.]+\t").unwrap());
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used)] // literal pattern
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 fn strictness(mode: &str) -> Option<usize> {

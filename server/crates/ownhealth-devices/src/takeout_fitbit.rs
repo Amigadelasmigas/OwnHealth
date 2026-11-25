@@ -400,11 +400,13 @@ impl HeartRateMinute {
     }
 
     fn finish(self, minute: i64) -> (usize, Sample) {
+        // Every minute bucket is created by add_sample, which sets first.
         let (_, tz, file) = self.first.expect("a minute has at least one reading");
         (
             file,
             Sample {
                 metric: "hr",
+                // Metric::sample admits dates from 2000 through tomorrow before bucketing.
                 t: DateTime::from_timestamp(minute * 60, 0).expect("minute of a valid reading"),
                 t_end: None,
                 v: (self.sum / self.values.len() as f64).round(),

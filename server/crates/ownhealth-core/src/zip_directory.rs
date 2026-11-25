@@ -28,6 +28,7 @@ struct Directory {
     end: u64,
 }
 
+// All callers pass fixed ZIP records and constant offsets that fit the chosen field.
 fn u16_at(bytes: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes(bytes[offset..][..2].try_into().expect("ZIP u16 field"))
 }
@@ -65,6 +66,7 @@ fn zip32_end(reader: &mut (impl Read + Seek)) -> ZipResult<(u64, [u8; END_BYTES]
             (index + END_BYTES + usize::from(u16_at(record, 20)) <= tail.len()).then_some(index)
         })
         .ok_or(BAD_DIRECTORY)?;
+    // The search above admits only a full END_BYTES window.
     let record = &tail[index..index + END_BYTES];
     Ok((start + index as u64, record.try_into().expect("ZIP end record")))
 }

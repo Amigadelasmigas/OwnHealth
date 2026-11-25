@@ -67,6 +67,7 @@ const BLOCK_ALTS: [&str; 2] = ["<NON_REF>", "<*>"];
 
 #[allow(clippy::expect_used)]
 fn re(p: &str) -> Regex {
+    // Only the fixed patterns in this module call this helper.
     Regex::new(p).expect("a constant regex")
 }
 
