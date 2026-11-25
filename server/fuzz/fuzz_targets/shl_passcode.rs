@@ -20,7 +20,7 @@ fuzz_target!(|data: &[u8]| {
         assert!(!r.is_empty(), "an empty recipient");
         assert!(r.chars().count() <= shl::RECIPIENT_MAX, "a recipient over its cap");
         assert!(!r.chars().any(char::is_control), "a control character in a recipient");
-        assert!(!r.starts_with(char::is_whitespace), "an untrimmed recipient");
+        assert_eq!(r.trim(), r, "an untrimmed recipient");
     }
     assert!(asked.passcode.as_deref() != Some(""), "an empty passcode");
 });

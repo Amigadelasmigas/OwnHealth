@@ -101,8 +101,10 @@ impl std::fmt::Debug for ManifestRequest {
 /// [`RECIPIENT_MAX`] characters. "SMART Health Link Manifest Request": recipient is required (1..1).
 pub fn recipient(v: &Value) -> Option<String> {
     let clean: String = v.as_str()?.chars().filter(|c| !c.is_control()).collect();
-    let clean = clean.trim();
-    (!clean.is_empty()).then(|| clean.chars().take(RECIPIENT_MAX).collect())
+    // cut first, then trim, so a cut that lands on a space leaves none at the end
+    let cut: String = clean.trim_start().chars().take(RECIPIENT_MAX).collect();
+    let cut = cut.trim_end();
+    (!cut.is_empty()).then(|| cut.to_string())
 }
 
 /// A sealed file and the key that opens it.
@@ -221,6 +223,13 @@ mod tests {
         assert_eq!(recipient(&json!(" \n ")), None);
         assert_eq!(recipient(&json!(7)), None);
         assert_eq!(recipient(&json!("x".repeat(500))).map(|r| r.len()), Some(RECIPIENT_MAX));
+    }
+
+    #[test]
+    fn a_recipient_cut_at_the_limit_never_ends_in_whitespace() {
+        let name = "x".repeat(RECIPIENT_MAX - 1);
+        assert_eq!(recipient(&json!(format!("{name} y"))), Some(name.clone()));
+        assert_eq!(recipient(&json!(format!("  {name}   y"))), Some(name));
     }
 
     #[test]
