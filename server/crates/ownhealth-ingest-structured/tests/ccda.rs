@@ -113,12 +113,10 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
         counts(&[("DiagnosticReport", 1), ("Observation", 3)])
     );
     assert_eq!(made(&c, Section::VitalSigns), counts(&[("Observation", 6)]));
-    assert_eq!(
-        made(&c, Section::Procedures),
-        counts(&[("Procedure", 2), ("Observation", 1)])
-    );
+    // the aborted procedure observation waits in review, never skipped
+    assert_eq!(made(&c, Section::Procedures), counts(&[("Procedure", 2)]));
     assert_eq!(made(&c, Section::SocialHistory), counts(&[("Observation", 3)]));
-    assert_eq!(c.entries.len(), 28);
+    assert_eq!(c.entries.len(), 27);
     assert_eq!(resources(&c, "Patient").len(), 1);
     assert_eq!(resources(&c, "Composition").len(), 1);
     // The converter reports the medicine's supply order and dispense separately.
@@ -132,7 +130,8 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
         left,
         [
             "supply 2.16.840.1.113883.10.20.22.4.17",
-            "supply 2.16.840.1.113883.10.20.22.4.18"
+            "supply 2.16.840.1.113883.10.20.22.4.18",
+            "observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)"
         ],
         "{left:?}"
     );
@@ -441,7 +440,8 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
             "C-CDA narrative section",
             "FAMILY HISTORY (C-CDA)",
             "MEDICATIONS (C-CDA)",
-            "PLAN OF CARE (C-CDA)"
+            "PLAN OF CARE (C-CDA)",
+            "PROCEDURES (C-CDA)"
         ]
     );
     let values = count(&mut tx, "observation", p).await?;
@@ -451,8 +451,9 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
         12,
         "3 labs, 6 vital signs and 3 social history observations"
     );
-    // The aborted procedure observation is skipped. Four grouped items account for the unread parts.
-    assert_eq!(s.accepted + s.queued + s.skipped, 12 + 12 + 1 + 4, "{s:?}");
+    // Five grouped items account for the unread parts, the aborted procedure observation among them.
+    assert_eq!(s.skipped, 0, "{s:?}");
+    assert_eq!(s.accepted + s.queued, 12 + 12 + 5, "{s:?}");
     let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
         .bind(doc)
         .fetch_one(&mut *tx)
@@ -462,7 +463,7 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     // a second run reads the stored summary and adds nothing
     let again = import_ccda(&mut tx, &env.blobs, doc).await?;
     assert_eq!(again, s);
-    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 4);
+    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 5);
     Ok(())
 }
 
@@ -1326,7 +1327,8 @@ fn planted(dir: &std::path::Path, fixture: &Value, truth: &Value, marker: &str) 
 }
 
 /// A document that carries `text` as its title, in a narrative cell a result's name and value point
-/// at, as the result's value, and as a medicine's sig (Instruction).
+/// at, as the result's value, as a medicine's sig (Instruction), as a visit's type, performer and
+/// place, and as the note of a procedure and of a procedure observation.
 fn carrying(text: &str) -> Vec<u8> {
     let e = escape(text);
     let body = format!(
@@ -1355,7 +1357,28 @@ fn carrying(text: &str) -> Vec<u8> {
               <statusCode code="completed"/><effectiveTime value="20261020"/>
               <value xsi:type="ST">{e}</value>
             </observation></component>
-          </organizer></entry></section></component>"##
+          </organizer></entry></section></component>
+        <component><section><templateId root="2.16.840.1.113883.10.20.22.2.22.1"/><title>ENCOUNTERS</title>
+          <entry><encounter classCode="ENC" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+            <id root="1.2.3.4" extension="enc-inj"/>
+            <code code="99213" codeSystem="2.16.840.1.113883.6.12"><originalText>{e}</originalText></code>
+            <effectiveTime value="20261020"/>
+            <performer><assignedEntity><id root="2.16.840.1.113883.4.6" extension="1234567893"/>
+              <assignedPerson><name>{e}</name></assignedPerson></assignedEntity></performer>
+            <participant typeCode="LOC"><participantRole classCode="SDLOC">
+              <playingEntity classCode="PLC"><name>{e}</name></playingEntity></participantRole></participant>
+          </encounter></entry></section></component>
+        <component><section><templateId root="2.16.840.1.113883.10.20.22.2.7.1"/><title>PROCEDURES</title>
+          <entry><procedure classCode="PROC" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.14"/>
+            <id root="1.2.3.4" extension="proc-inj"/>
+            <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+            <text>{e}</text><statusCode code="completed"/><effectiveTime value="20261020"/>
+          </procedure></entry>
+          <entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.13"/>
+            <id root="1.2.3.4" extension="pobs-inj"/>
+            <code code="274025005" codeSystem="2.16.840.1.113883.6.96" displayName="Colonic polypectomy"/>
+            <text>{e}</text><statusCode code="completed"/><effectiveTime value="20261020"/>
+          </observation></entry></section></component>"##
     );
     String::from_utf8(document(&body))
         .unwrap_or_default()
@@ -1364,10 +1387,11 @@ fn carrying(text: &str) -> Vec<u8> {
 }
 
 /// What breaks the injection rule in converted output: the marker anywhere but a free-text field
-/// (`title`, `text`, `valueString`), or a number that the `.truth` says must never be a value.
+/// (`title`, `text`, `valueString`, a reference's `display`), or a number that the `.truth` says
+/// must never be a value.
 fn injection_breaches(v: &Value, key: &str, marker: &str, never: &[String], out: &mut Vec<String>) {
     match v {
-        Value::String(s) if s.contains(marker) && !matches!(key, "title" | "text" | "valueString") => {
+        Value::String(s) if s.contains(marker) && !matches!(key, "title" | "text" | "valueString" | "display") => {
             out.push(format!("{key}: {s}"));
         }
         Value::Number(n) if never.contains(&n.to_string()) => out.push(format!("{key}: {n}")),
@@ -1378,7 +1402,8 @@ fn injection_breaches(v: &Value, key: &str, marker: &str, never: &[String], out:
 }
 
 /// CR9: the injection fixtures of `fixtures/labslips/injection/` on the C-CDA free-text paths. Each
-/// planted instruction rides in a document's title, narrative (a result's name and value) and sig.
+/// planted instruction rides in a document's title, narrative (a result's name and value), sig,
+/// visit (type, performer, place) and procedure notes.
 /// It is stored as written, as data: the output equals the same document with plain text in those
 /// places, the marker sits only in free-text fields, and no number the `.truth` names becomes a value.
 #[test]
@@ -1420,6 +1445,12 @@ fn injection_fixtures_on_the_ccda_free_text_paths_stay_data() -> R {
             assert_eq!(statement["dosage"][0]["text"], json!(p), "{name}");
             assert_eq!(result["code"]["text"], json!(p), "{name}");
             assert_eq!(result["valueString"], json!(p), "{name}");
+            let visit = resources(&c, "Encounter")[0];
+            assert_eq!(visit["type"][0]["text"], json!(p), "{name}");
+            assert_eq!(visit["participant"][0]["individual"]["display"], json!(p), "{name}");
+            assert_eq!(visit["location"][0]["location"]["display"], json!(p), "{name}");
+            assert_eq!(resources(&c, "Procedure")[0]["note"][0]["text"], json!(p), "{name}");
+            assert_eq!(resources(&c, "Observation")[1]["note"][0]["text"], json!(p), "{name}");
             let mut breaches = Vec::new();
             for e in &c.entries {
                 injection_breaches(&e.resource, "", marker, &never, &mut breaches);
@@ -1976,20 +2007,40 @@ fn round_6_unread_typed_result_text_is_reported() -> R {
 }
 
 #[test]
-fn slice_21_encounters_keep_class_period_and_diagnosis() -> R {
+fn slice_21_encounters_keep_class_period_and_reason() -> R {
     let c = convert(&fixture("ccd-1.xml"))?;
     let encounters = resources(&c, "Encounter");
     assert_eq!(encounters.len(), 1);
     let encounter = encounters[0];
     assert_eq!(encounter["class"]["code"], "AMB");
     assert_eq!(encounter["type"][0]["coding"][0]["code"], "99213");
+    // the words the document shows for the visit, not the CPT paragraph
+    assert_eq!(encounter["type"][0]["text"], "Checkup Examination");
     assert_eq!(encounter["period"]["start"], "2012-09-27T13:00:00-05:00");
-    assert!(encounter["participant"][0]["individual"]["display"].is_string());
-    let diagnosis = encounter["diagnosis"][0]["condition"]["reference"]
-        .as_str()
-        .and_then(|r| r.strip_prefix("Condition/"))
-        .context("missing encounter diagnosis reference")?;
-    assert!(resources(&c, "Condition").iter().any(|r| r["id"] == diagnosis));
+    assert_eq!(
+        encounter["location"][0]["location"]["display"],
+        "Good Health Urgent Care"
+    );
+    // the performer has an NPI and a role, no name: the role names no provider
+    let individual = &encounter["participant"][0]["individual"];
+    assert_eq!(individual["identifier"]["value"], "333444555");
+    assert!(individual.get("display").is_none(), "{individual}");
+    // the indication is why the visit happened, never a condition of its own
+    assert_eq!(encounter["reasonCode"][0]["coding"][0]["code"], "233604007");
+    assert_eq!(encounter["reasonCode"][0]["text"], "Pneumonia");
+    assert!(encounter.get("diagnosis").is_none(), "{encounter}");
+    assert!(made(&c, Section::Encounters).get("Condition").is_none());
+    let pneumonia: Vec<&Value> = resources(&c, "Condition")
+        .into_iter()
+        .filter(|r| r["code"]["coding"][0]["code"] == "233604007")
+        .collect();
+    assert!(!pneumonia.is_empty());
+    assert!(
+        pneumonia
+            .iter()
+            .all(|r| r["clinicalStatus"]["coding"][0]["code"] != "active"),
+        "{pneumonia:?}"
+    );
     Ok(())
 }
 
@@ -2023,7 +2074,11 @@ fn slice_21_notes_are_kept_without_creating_a_clinical_resource() -> R {
     assert_eq!(note.entries, 1);
     assert_eq!(note.stored_notes, 1);
     assert!(note.resources.is_empty(), "{note:?}");
-    assert!(held_items(&c, "notes-test", "notes.xml").is_empty());
+    // the review item is where a person learns the note is in the file
+    let held = held_items(&c, "notes-test", "notes.xml");
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0]["count"], 1);
+    assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
     Ok(())
 }
 
@@ -2066,6 +2121,7 @@ fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
     assert_eq!(c.sections.len(), sections.len());
     assert_eq!(c.sections.iter().filter(|s| s.kind.is_some()).count(), 9);
     let mut entries = 0;
+    let mut without_resource = Vec::new();
     for (section, report) in sections.into_iter().zip(&c.sections) {
         let input = children(section, "entry").count();
         entries += input;
@@ -2080,16 +2136,26 @@ fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
         }
         for i in 0..input {
             let pointer = format!("{}/entry/{i}", report.pointer);
-            assert!(
-                c.entries.iter().any(|e| e.pointer == pointer
+            if !c.entries.iter().any(|e| {
+                e.pointer == pointer
                     || e.pointer.starts_with(&format!("{pointer}#"))
-                    || e.pointer.starts_with(&format!("{pointer}/"))),
-                "missing {pointer} in {}",
-                report.title
-            );
+                    || e.pointer.starts_with(&format!("{pointer}/"))
+            }) {
+                without_resource.push(report.title.clone());
+            }
         }
     }
     assert_eq!(entries, 31);
+    // the one entry with no resource is the aborted procedure observation, and it waits in review
+    assert_eq!(without_resource, ["PROCEDURES"]);
+    let procedures = held
+        .iter()
+        .find(|h| h["resource_type"] == "PROCEDURES (C-CDA)")
+        .context("missing review item for the aborted procedure")?;
+    assert_eq!(
+        procedures["notes"],
+        json!({"not read: observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)": 1})
+    );
     Ok(())
 }
 
@@ -2109,7 +2175,13 @@ async fn slice_21_the_note_count_and_original_are_kept_on_the_document() -> R {
             .await?;
     assert_eq!(flags["ccda"]["sections"][0]["stored_notes"], 1);
     assert_eq!(flags["unprojected"], 1);
-    assert_eq!((s.accepted, s.queued, s.skipped), (0, 0, 0));
+    assert_eq!((s.accepted, s.queued, s.skipped), (0, 1, 0));
+    let held = open_items(&mut tx, doc, "fhir_unmapped_summary").await?;
+    assert_eq!(held.len(), 1);
+    assert_eq!(
+        held[0].payload["notes"],
+        json!({"clinical note kept in the uploaded file": 1})
+    );
     assert_eq!(
         bytes,
         env.blobs
@@ -2165,7 +2237,7 @@ fn a_note_inside_an_encounter_stays_in_the_file_and_an_unknown_part_waits_in_rev
     );
     assert_eq!(resources(&c, "Encounter").len(), 1);
     assert!(resources(&c, "Condition").is_empty());
-    assert_eq!(held_items(&c, "test", "record.xml")[0]["count"], 3);
+    assert_eq!(held_items(&c, "test", "record.xml")[0]["count"], 4);
     assert!(!serde_json::to_string(&c.entries[2].resource)?.contains("Clinical note"));
     Ok(())
 }
@@ -2188,6 +2260,198 @@ fn an_encounter_carries_its_referenced_narrative_labels_to_its_own_resource() ->
     )))?;
     assert_eq!(resources(&c, "Encounter")[0]["type"][0]["text"], "Visit description");
     assert_eq!(label_codes(&c, "Encounter"), [vec!["PSY".to_string()], Vec::new()]);
-    assert_eq!(label_codes(&c, "Condition"), [Vec::<String>::new()]);
+    assert_eq!(
+        resources(&c, "Encounter")[0]["reasonCode"][0]["coding"][0]["code"],
+        "233604007"
+    );
+    assert!(resources(&c, "Condition").is_empty());
+    Ok(())
+}
+
+// ------------------------------------------------------ slice 21, round 1 ----
+
+fn encounters(entries: &str) -> Vec<u8> {
+    document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.22.1"/><title>Encounters</title>
+          {entries}</section></component>"#
+    ))
+}
+
+fn procedures(entries: &str) -> Vec<u8> {
+    document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.7.1"/><title>Procedures</title>
+          {entries}</section></component>"#
+    ))
+}
+
+/// C-L2, M10: the class comes from a CPT code alone; a visit with no code has an unknown class, as
+/// one with a code we do not know has, never ambulatory.
+#[test]
+fn round_1_an_encounter_class_comes_from_its_code_or_is_unknown() -> R {
+    let c = convert(&encounters(
+        r#"<entry><encounter moodCode="EVN"><code code="99283" codeSystem="2.16.840.1.113883.6.12"/>
+            <effectiveTime value="20210302"/></encounter></entry>
+          <entry><encounter moodCode="EVN"><effectiveTime value="20210303"/></encounter></entry>"#,
+    ))?;
+    let visits = resources(&c, "Encounter");
+    assert_eq!(visits.len(), 2);
+    assert_eq!(visits[0]["class"]["code"], "EMER");
+    assert!(visits[1]["class"].get("code").is_none(), "{}", visits[1]);
+    assert_eq!(visits[1]["class"]["extension"][0]["valueCode"], "unknown");
+    Ok(())
+}
+
+/// C-H1, M1, M16: only a reason (RSON) Indication that is not negated is the visit's reason, and it
+/// is never a Condition. Any other part, and a null activity, waits in review.
+#[test]
+fn round_1_only_a_reason_indication_becomes_the_visit_reason() -> R {
+    let indication = |type_code: &str, extra: &str, code: &str| {
+        format!(
+            r#"<entryRelationship typeCode="{type_code}"><observation classCode="OBS" moodCode="EVN" {extra}>
+              <templateId root="2.16.840.1.113883.10.20.22.4.19"/><statusCode code="completed"/>
+              <effectiveTime><low value="20210301"/></effectiveTime>
+              <value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96"/>
+            </observation></entryRelationship>"#
+        )
+    };
+    let c = convert(&encounters(&format!(
+        r#"<entry><encounter moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+            <effectiveTime value="20210302"/>{}{}{}</encounter></entry>
+          <entry><encounter moodCode="EVN" nullFlavor="NI"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+            <effectiveTime value="20210303"/></encounter></entry>"#,
+        indication("RSON", "", "233604007"),
+        indication("COMP", "", "195967001"),
+        indication("RSON", r#"negationInd="true""#, "38341003"),
+    )))?;
+    let visits = resources(&c, "Encounter");
+    assert_eq!(visits.len(), 1);
+    assert_eq!(visits[0]["reasonCode"].as_array().map(Vec::len), Some(1));
+    assert_eq!(visits[0]["reasonCode"][0]["coding"][0]["code"], "233604007");
+    assert!(resources(&c, "Condition").is_empty());
+    let indication = "observation 2.16.840.1.113883.10.20.22.4.19";
+    assert_eq!(
+        c.sections[0].not_read,
+        [indication, indication, "encounter 2.16.840.1.113883.10.20.22.4.49"]
+    );
+    Ok(())
+}
+
+/// C-M2, U-M4, C-L3, M3, M13, M17, M18: a procedure not done, cancelled or new and an aborted
+/// procedure observation wait in review, never skipped; an end before the start is dropped and
+/// listed; an unknown part waits in review; a note stays on its procedure or observation.
+#[test]
+fn round_1_a_procedure_not_done_or_an_aborted_observation_waits_in_review() -> R {
+    let procedure = |attrs: &str, status: &str, time: &str, inner: &str| {
+        format!(
+            r#"<entry><procedure classCode="PROC" moodCode="EVN" {attrs}>
+              <templateId root="2.16.840.1.113883.10.20.22.4.14"/>
+              <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+              <statusCode code="{status}"/>{time}{inner}</procedure></entry>"#
+        )
+    };
+    let observation = |status: &str, inner: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.13"/>
+              <code code="274025005" codeSystem="2.16.840.1.113883.6.96" displayName="Colonic polypectomy"/>
+              <statusCode code="{status}"/><effectiveTime value="20110203"/>{inner}</observation></entry>"#
+        )
+    };
+    let unknown_part = r#"<entryRelationship typeCode="COMP"><observation moodCode="EVN"><templateId root="9.9.9"/></observation></entryRelationship>"#;
+    let c = convert(&procedures(
+        &[
+            procedure(
+                r#"negationInd="true""#,
+                "completed",
+                r#"<effectiveTime value="20200101"/>"#,
+                "",
+            ),
+            procedure("", "cancelled", "", ""),
+            procedure("", "new", "", ""),
+            observation("aborted", ""),
+            procedure(
+                "",
+                "completed",
+                r#"<effectiveTime><low value="2010"/><high value="2009"/></effectiveTime>"#,
+                "<text>Done under sedation</text>",
+            ),
+            procedure("", "completed", r#"<effectiveTime value="20200102"/>"#, unknown_part),
+            observation("completed", "<text>Two polyps removed</text>"),
+        ]
+        .concat(),
+    ))?;
+    let p = "procedure 2.16.840.1.113883.10.20.22.4.14";
+    assert_eq!(
+        c.sections[0].not_read,
+        [
+            format!("{p} (not done)"),
+            format!("{p} (status cancelled)"),
+            format!("{p} (status new)"),
+            "observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)".into(),
+            format!("{p} (ends before it starts)"),
+            "observation 9.9.9".into(),
+        ]
+    );
+    let kept = resources(&c, "Procedure");
+    assert_eq!(kept.len(), 2);
+    assert_eq!(kept[0]["performedPeriod"], json!({"start": "2010"}));
+    assert_eq!(kept[0]["note"][0]["text"], "Done under sedation");
+    assert_eq!(kept[1]["status"], "completed");
+    let observations = resources(&c, "Observation");
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0]["note"][0]["text"], "Two polyps removed");
+    assert_eq!(held_items(&c, "test", "p.xml")[0]["count"], 6);
+    Ok(())
+}
+
+/// C-M1: Pregnancy and Sexual Orientation are reproductive and sexual health. Unlabelled, they are
+/// not read, so the file stays behind read:sensitive and nothing becomes a value.
+#[tokio::test]
+async fn round_1_an_unlabelled_pregnancy_or_sexual_orientation_keeps_the_file_closed() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = as_isabella(&mut tx, &fam, "lucia").await?;
+    let bytes = document(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.17"/><title>Social History</title>
+          <entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.15.3.8"/>
+            <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+            <effectiveTime value="20210301"/>
+            <value xsi:type="CD" code="77386006" codeSystem="2.16.840.1.113883.6.96" displayName="Pregnant"/>
+          </observation></entry>
+          <entry><observation classCode="OBS" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.501"/>
+            <code code="76690-7" codeSystem="2.16.840.1.113883.6.1"/><statusCode code="completed"/>
+            <effectiveTime value="20210301"/>
+            <value xsi:type="CD" code="38628009" codeSystem="2.16.840.1.113883.6.96" displayName="Homosexual"/>
+          </observation></entry>
+        </section></component>"#,
+    );
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "social.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(count(&mut tx, "observation", p).await?, 0);
+    assert!(open_items(&mut tx, doc, "candidate_row").await?.is_empty());
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["unprojected"], 2, "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+/// U-M2, M5, M12: a Notes section with text and no entry is one note kept in the file, and its
+/// review item says so (not the narrative-only item).
+#[test]
+fn round_1_a_notes_section_with_text_only_is_a_stored_note_in_review() -> R {
+    let c = convert(&document(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.65"/><title>Notes</title>
+          <text><paragraph>Seen for a cough.</paragraph></text></section></component>"#,
+    ))?;
+    let notes = &c.sections[0];
+    assert_eq!((notes.entries, notes.stored_notes), (0, 1));
+    let held = held_items(&c, "test", "n.xml");
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert_eq!(held[0]["resource_type"], "Notes (C-CDA)");
+    assert_eq!(held[0]["notes"], json!({"clinical note kept in the uploaded file": 1}));
     Ok(())
 }

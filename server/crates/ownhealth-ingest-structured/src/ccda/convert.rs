@@ -9,10 +9,10 @@
 //! | Immunizations (`2`, `2.1`) | Immunization Activity (`EVN`, not active) | Immunization |
 //! | Results (`3`, `3.1`) | Result Organizer and its Result Observations | DiagnosticReport plus Observations |
 //! | Vital Signs (`4`, `4.1`) | Vital Signs Organizer and its observations | Observations |
-//! | Encounters (`22`, `22.1`) | Encounter Activity and its indications | Encounter and Conditions |
+//! | Encounters (`22`, `22.1`) | Encounter Activity and its indications | Encounter (indications as `reasonCode`) |
 //! | Procedures (`7`, `7.1`) | Procedure Activity Procedure, Act and Observation | Procedure or Observation |
-//! | Notes (`65`) | Note Activity and narrative-only Notes sections | Kept in the XML and counted |
-//! | Social History (`17`, `17.2`) | Smoking status and other Social History observations | Observations |
+//! | Notes (`65`) | Note Activity and narrative-only Notes sections | Kept in the XML, counted in review |
+//! | Social History (`17`, `17.2`) | Smoking status and other Social History observations, not pregnancy or sexual orientation | Observations |
 //!
 //! Differences from Medplum, each on purpose:
 //! - Resource ids come from the C-CDA `id` (a hash of root and extension), or from the entry's bytes
@@ -53,6 +53,10 @@
 //!   (`INT`), another mood or an active one is listed as not read.
 //! - A Results organizer is a DiagnosticReport with the Observations as its results; a Vital Signs
 //!   organizer only groups, so its observations come alone.
+//! - An Encounter's indications are its `reasonCode`, never Conditions: a Condition would claim a
+//!   clinical status the visit does not give. A procedure that is negated, cancelled or `new`, an
+//!   aborted procedure observation, and an activity whose end comes before its start (the end is
+//!   dropped) are listed as not read.
 //! - Every section, entry or part the converter does not read is listed in the section's report, and
 //!   the importer turns it into a review item. Nothing is thrown away and nothing throws.
 
@@ -443,6 +447,24 @@ fn period(n: Option<Node<'_, '_>>) -> Option<Value> {
     put(&mut r, "start", ts(n).map(Value::String));
     put(&mut r, "end", bound(n, "high").map(Value::String));
     (!r.is_empty()).then_some(Value::Object(r))
+}
+
+/// [`period`] of an activity. An end before the start is dropped and listed for review (the encounter
+/// mapper checks its own period the same way).
+fn ordered_period(n: Option<Node<'_, '_>>, of: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
+    let mut p = period(n)?;
+    let date = |key: &str| p.get(key).and_then(Value::as_str).map(String::from);
+    if let (Some(start), Some(end)) = (date("start"), date("end")) {
+        // the date parts, at the precision both have ("2010" against "2009-01-01")
+        let len = start.len().min(end.len()).min(10);
+        if end.as_bytes()[..len] < start.as_bytes()[..len]
+            && let Value::Object(m) = &mut p
+        {
+            m.remove("end");
+            rep.not_read.push(format!("{} (ends before it starts)", describe(of)));
+        }
+    }
+    Some(p)
 }
 
 fn bound(n: Option<Node<'_, '_>>, which: &'static str) -> Option<String> {
@@ -1495,7 +1517,7 @@ impl<'a, 'i> Conv<'a, 'i> {
         let time = child(obs, "effectiveTime");
         let activity = matches!(rep.kind, Some(Section::Procedures | Section::SocialHistory));
         if activity && time.is_some_and(|t| child(t, "low").is_some() || child(t, "high").is_some()) {
-            put(&mut r, "effectivePeriod", period(time));
+            put(&mut r, "effectivePeriod", ordered_period(time, obs, rep));
         } else {
             let when = ts(time).or_else(|| organizer.and_then(|o| ts(child(o, "effectiveTime"))));
             put(&mut r, "effectiveDateTime", when.map(Value::String));

@@ -5,7 +5,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Conv, Section, SectionReport, attr, attr_ts, child, children, coded, describe, digits, elements, has_template,
-    is_security_observation, is_true, lookup, path, period, put, status_of, templates, xml,
+    is_security_observation, is_true, lookup, ordered_period, path, period, put, status_of, templates, xml,
 };
 
 const ENCOUNTER_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.49";
@@ -14,6 +14,9 @@ const PROCEDURE_ACT: &str = "2.16.840.1.113883.10.20.22.4.12";
 const PROCEDURE_OBSERVATION: &str = "2.16.840.1.113883.10.20.22.4.13";
 const PROCEDURE_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.14";
 const NOTE_ACTIVITY: &str = "2.16.840.1.113883.10.20.22.4.202";
+/// Pregnancy (`2.16.840.1.113883.10.20.15.3.8`) and Sexual Orientation (`4.501`) are left out on
+/// purpose: they are reproductive and sexual health, and an unlabelled one would be readable without
+/// read:sensitive once read. Unread, they keep the file behind read:sensitive and wait in review.
 const SOCIAL_OBSERVATIONS: &[&str] = &[
     "2.16.840.1.113883.10.20.22.4.38", // Social History Observation
     "2.16.840.1.113883.10.20.22.4.38.1",
@@ -22,13 +25,11 @@ const SOCIAL_OBSERVATIONS: &[&str] = &[
     "2.16.840.1.113883.10.20.22.4.85", // Tobacco Use
     "2.16.840.1.113883.10.20.22.4.85.2",
     "2.16.840.1.113883.10.20.22.4.200", // Birth Sex
-    "2.16.840.1.113883.10.20.22.4.501", // Sexual Orientation
     "2.16.840.1.113883.10.20.22.4.503", // Basic Occupation
     "2.16.840.1.113883.10.20.22.4.504", // Basic Industry
     "2.16.840.1.113883.10.20.22.4.506", // Tribal Affiliation
     "2.16.840.1.113883.10.20.22.4.507", // Sex
     "2.16.840.1.113883.10.20.22.4.511", // Smoking Status (new template)
-    "2.16.840.1.113883.10.20.15.3.8",   // Pregnancy Observation
 ];
 
 pub(super) fn is_note_activity(n: Node<'_, '_>) -> bool {
@@ -61,8 +62,9 @@ fn act_encounter_class(code: Option<Node<'_, '_>>) -> Value {
         ("SS", "short stay"),
         ("VR", "virtual"),
     ];
+    let unknown = || json!({"extension": [{"url": "http://hl7.org/fhir/StructureDefinition/data-absent-reason", "valueCode": "unknown"}]});
     let Some(code) = code else {
-        return json!({"system": ACT_CODE, "code": "AMB", "display": "ambulatory"});
+        return unknown();
     };
     let codings = || std::iter::once(code).chain(children(code, "translation"));
     for c in codings().filter(|c| attr(*c, "codeSystem") == Some(ACT_CODE_OID)) {
@@ -87,10 +89,11 @@ fn act_encounter_class(code: Option<Node<'_, '_>>) -> Value {
         };
         return json!({"system": ACT_CODE, "code": class.0, "display": class.1});
     }
-    json!({"extension": [{"url": "http://hl7.org/fhir/StructureDefinition/data-absent-reason", "valueCode": "unknown"}]})
+    unknown()
 }
 
-/// A Reference that can be read without a separate Practitioner resource.
+/// A Reference that can be read without a separate Practitioner resource. The display is a person's
+/// or an organization's name, never the role code ("General physician" names no provider).
 fn assigned_reference(entity: Node<'_, '_>) -> Option<Value> {
     let mut reference = Map::new();
     let display = path(entity, &["assignedPerson", "name"])
@@ -102,12 +105,7 @@ fn assigned_reference(entity: Node<'_, '_>) -> Option<Value> {
                 Some(parts.join(" "))
             }
         })
-        .or_else(|| path(entity, &["representedOrganization", "name"]).and_then(xml::text))
-        .or_else(|| {
-            child(entity, "code")
-                .and_then(|c| attr(c, "displayName"))
-                .map(String::from)
-        });
+        .or_else(|| path(entity, &["representedOrganization", "name"]).and_then(xml::text));
     put(&mut reference, "display", display.map(Value::String));
     if let Some(Value::Array(ids)) = Conv::identifiers(&[entity]) {
         put(&mut reference, "identifier", ids.into_iter().next());
@@ -139,31 +137,26 @@ impl Conv<'_, '_> {
             _ => "unknown",
         };
 
-        // Finish each child before reading the encounter's own narrative. Narrative labels apply
-        // to the resource that used the text, including when the target was in another section.
-        let mut diagnoses = Vec::new();
-        for (i, rel) in children(enc, "entryRelationship").enumerate() {
-            for (j, part) in elements(rel).enumerate() {
+        // An indication is why the visit happened: a reason of the Encounter, never a Condition of
+        // its own. A Condition would claim a clinical status the visit does not give, beside the one
+        // the Problems section gives. Narrative the reason uses labels the Encounter.
+        let mut reasons = Vec::new();
+        for rel in children(enc, "entryRelationship") {
+            for part in elements(rel) {
                 if is_note_activity(part) || is_security_observation(part) {
                     continue;
                 }
-                if !matches!(status, "cancelled" | "entered-in-error" | "planned")
-                    && attr(rel, "typeCode") == Some("RSON")
+                let indication = attr(rel, "typeCode") == Some("RSON")
                     && part.has_tag_name((xml::NS, "observation"))
                     && event(part, &[INDICATION])
                     && !is_true(part, "negationInd")
-                    && !matches!(status_of(part), Some("aborted" | "cancelled" | "nullified"))
-                {
-                    let pointer = format!("{at}/entryRelationship/{i}/{j}");
-                    if let Some(id) = self.problem(part, None, &pointer, rep) {
-                        diagnoses.push(json!({
-                            "condition": {"reference": format!("Condition/{id}")},
-                            "use": coded("http://terminology.hl7.org/CodeSystem/diagnosis-role", "AD")
-                        }));
+                    && !matches!(status_of(part), Some("aborted" | "cancelled" | "nullified"));
+                match indication.then(|| self.concept(child(part, "value"))).flatten() {
+                    Some(reason) => {
+                        reasons.push(reason);
+                        unread_relationships(part, rep);
                     }
-                    unread_relationships(part, rep);
-                } else {
-                    rep.not_read.push(describe(part));
+                    None => rep.not_read.push(describe(part)),
                 }
             }
         }
@@ -177,7 +170,7 @@ impl Conv<'_, '_> {
             ("class".into(), act_encounter_class(code)),
         ]);
         put(&mut r, "identifier", Self::identifiers(&[enc]));
-        put(&mut r, "type", self.concept(code).map(|c| json!([c])));
+        put(&mut r, "type", self.encounter_type(code).map(|c| json!([c])));
         put(&mut r, "subject", self.subject());
         put(&mut r, "period", period(child(enc, "effectiveTime")));
         let participants: Vec<_> = children(enc, "performer")
@@ -201,7 +194,7 @@ impl Conv<'_, '_> {
             .map(|display| json!({"location": {"display": display}}))
             .collect();
         put(&mut r, "location", (!locations.is_empty()).then(|| json!(locations)));
-        put(&mut r, "diagnosis", (!diagnoses.is_empty()).then(|| json!(diagnoses)));
+        put(&mut r, "reasonCode", (!reasons.is_empty()).then(|| json!(reasons)));
         let reference = path(enc, &["text", "reference"])
             .and_then(|r| attr(r, "value"))
             .filter(|r| r.starts_with('#') && r.len() <= 256);
@@ -219,24 +212,42 @@ impl Conv<'_, '_> {
         true
     }
 
+    /// The visit type, named by the words the document shows for it (its original text) when it has
+    /// them: a CPT display name is a paragraph of billing rules.
+    fn encounter_type(&mut self, code: Option<Node<'_, '_>>) -> Option<Value> {
+        let mut concept = self.concept(code)?;
+        let shown = code
+            .and_then(|c| child(c, "originalText"))
+            .and_then(|o| self.narrative_of(o));
+        if let (Some(text), Value::Object(cc)) = (shown, &mut concept) {
+            cc.insert("text".into(), Value::String(text));
+        }
+        Some(concept)
+    }
+
     pub(super) fn procedure(&mut self, n: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         let act = n.has_tag_name((xml::NS, "act"));
         let template = if act { PROCEDURE_ACT } else { PROCEDURE_ACTIVITY };
         if !event(n, &[template]) {
             return false;
         }
-        let status = if is_true(n, "negationInd") {
-            "not-done"
-        } else {
-            match status_of(n) {
-                Some("active") => "in-progress",
-                Some("aborted") => "stopped",
-                Some("cancelled" | "new") => "not-done",
-                Some("nullified") => "entered-in-error",
-                Some("held" | "suspended") => "on-hold",
-                None | Some("completed") => "completed",
-                _ => "unknown",
+        // A procedure not done, cancelled or not started yet is no record of care, and the FHIR
+        // mapper would only count it: it waits in review, as a refused vaccine does.
+        if is_true(n, "negationInd") {
+            rep.not_read.push(format!("{} (not done)", describe(n)));
+            return true;
+        }
+        let status = match status_of(n) {
+            Some("active") => "in-progress",
+            Some("aborted") => "stopped",
+            Some(s @ ("cancelled" | "new")) => {
+                rep.not_read.push(format!("{} (status {s})", describe(n)));
+                return true;
             }
+            Some("nullified") => "entered-in-error",
+            Some("held" | "suspended") => "on-hold",
+            None | Some("completed") => "completed",
+            _ => "unknown",
         };
         let Some(code) = self.concept(child(n, "code")) else {
             return false;
@@ -254,7 +265,7 @@ impl Conv<'_, '_> {
         if let Some(date) = attr_ts(time).filter(|_| act) {
             r.insert("performedDateTime".into(), json!(date));
         } else {
-            put(&mut r, "performedPeriod", period(time));
+            put(&mut r, "performedPeriod", ordered_period(time, n, rep));
         }
         let sites: Vec<_> = children(n, "targetSiteCode")
             .filter_map(|c| self.concept(Some(c)))
@@ -282,6 +293,12 @@ impl Conv<'_, '_> {
         };
         if !event(obs, roots) || is_true(obs, "negationInd") {
             return false;
+        }
+        // An aborted procedure observation is kept for a person to read, never skipped: the FHIR
+        // Observation has no status for it but cancelled, which the mapper only counts.
+        if let Some(s @ ("aborted" | "cancelled")) = status_of(obs) {
+            rep.not_read.push(format!("{} (status {s})", describe(obs)));
+            return true;
         }
         let read = self.observation(obs, None, category, at, rep).is_some();
         if read {

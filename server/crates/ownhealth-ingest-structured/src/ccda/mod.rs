@@ -10,12 +10,12 @@
 //! - Sections read: Allergies, Problems, Medications, Immunizations, Results (a DiagnosticReport plus
 //!   its Observations), Vital Signs, Encounters, Procedures and Social History. Note Activities and
 //!   narrative-only Notes sections stay in the original XML. [`convert`] counts them per section.
-//! - An unsupported section, entry or part of an entry becomes one
+//! - An unsupported section, entry or part of an entry, and a note kept in the file, becomes one
 //!   `fhir_unmapped_summary` review item per section. Sections that hold only narrative text (a core
 //!   section too, unless it says it has no information) are listed in one more item. The stored file
 //!   keeps all of it; nothing is dropped without a count.
-//! - The document is flagged `unprojected` with the count of unread content and stored notes. None
-//!   of that text was checked for sensitivity. As with a connector pull,
+//! - The document is flagged `unprojected` with what those items count. None of that text was
+//!   checked for sensitivity. As with a connector pull,
 //!   `ownhealth_core::documents::document_is_sensitive` keeps the file and the items behind
 //!   read:sensitive. A file that carries a DS4P label that makes a record sensitive is flagged
 //!   `sensitive` the same way, even when the dedupe imports nothing from it.
@@ -64,6 +64,10 @@ pub const MIME: &str = "application/hl7-cda+xml";
 /// The `resource_type` of the review item that lists the narrative-only sections (the UI's
 /// `CCDA_NARRATIVE` names it in the reader's language).
 pub const NARRATIVE: &str = "C-CDA narrative section";
+
+/// The note of a review item that counts clinical notes kept in the uploaded file.
+pub const STORED_NOTE: &str = "clinical note kept in the uploaded file";
+
 /// A review item lists this many entry pointers; the stored file holds every entry.
 const ITEM_REFS: usize = 20;
 
@@ -111,8 +115,6 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
         .unwrap_or_else(|| "C-CDA".into());
     let held = held_items(&converted, &key, &label);
     let unread: i64 = held.iter().map(|h| h["count"].as_i64().unwrap_or(0)).sum();
-    let stored_notes: usize = converted.sections.iter().map(|s| s.stored_notes).sum();
-    let unprojected = unread + stored_notes as i64;
     let sensitive = converted
         .entries
         .iter()
@@ -141,7 +143,7 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
          || jsonb_strip_nulls(jsonb_build_object('unprojected', $2::bigint, 'sensitive', $3::bigint)) where id = $4",
     )
     .bind(sections_flag(&converted))
-    .bind((unprojected > 0).then_some(unprojected))
+    .bind((unread > 0).then_some(unread))
     .bind((sensitive > 0).then_some(sensitive as i64))
     .bind(document_id)
     .execute(&mut *conn)
@@ -151,7 +153,7 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
 }
 
 /// The review payloads for what the converter did not read: one per section with entries or parts
-/// left (`resource_type` is the section's title), and one for every section that holds narrative
+/// left, or notes kept in the file (`resource_type` is the section's title), and one for every section that holds narrative
 /// only ([`NARRATIVE`]): a section this version does not read without entries, or a core section with
 /// narrative text and no entries that does not say it has no information. The shape is a connector
 /// pull's `fhir_unmapped_summary`.
@@ -168,7 +170,7 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
         };
         let template = s.templates.first().map_or("no templateId", String::as_str);
         let narrative_only = s.entries == 0 && s.stored_notes == 0 && (s.kind.is_none() || s.narrative);
-        let (count, notes) = match s.kind {
+        let (count, mut notes) = match s.kind {
             _ if narrative_only => {
                 *narrative.entry(format!("{title} ({template})")).or_insert(0) += 1;
                 narrative_refs.push(format!("{key}{}", s.pointer));
@@ -178,7 +180,7 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
                 let note = format!("section {template} is not read yet");
                 (s.entries, BTreeMap::from([(note, s.entries)]))
             }
-            Some(_) if s.not_read.is_empty() => continue,
+            Some(_) if s.not_read.is_empty() && s.stored_notes == 0 => continue,
             Some(_) => {
                 let mut notes = BTreeMap::new();
                 for n in &s.not_read {
@@ -187,6 +189,11 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
                 (s.not_read.len(), notes)
             }
         };
+        // a note is never read into a record: the item is where a person learns it is in the file
+        let count = count + s.stored_notes;
+        if s.stored_notes > 0 {
+            notes.insert(STORED_NOTE.into(), s.stored_notes);
+        }
         out.push(json!({
             "projection": null,
             "resource_type": format!("{title} (C-CDA)"),
