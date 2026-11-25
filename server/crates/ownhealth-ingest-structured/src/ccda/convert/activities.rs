@@ -247,8 +247,7 @@ impl Conv<'_, '_> {
         if !event(n, &[template]) {
             return false;
         }
-        // A procedure not done, cancelled or not started yet is no record of care, and the FHIR
-        // mapper would only count it: it waits in review, as a refused vaccine does.
+        // Procedures that were negated, cancelled, unstarted or nullified wait in review.
         if is_true(n, "negationInd") {
             let line = format!("{} (not done)", self.hold(n));
             rep.not_read.push(line);
@@ -257,12 +256,11 @@ impl Conv<'_, '_> {
         let status = match status_of(n) {
             Some("active") => "in-progress",
             Some("aborted") => "stopped",
-            Some(s @ ("cancelled" | "new")) => {
+            Some(s @ ("cancelled" | "new" | "nullified")) => {
                 let line = format!("{} (status {s})", self.hold(n));
                 rep.not_read.push(line);
                 return true;
             }
-            Some("nullified") => "entered-in-error",
             Some("held" | "suspended") => "on-hold",
             None | Some("completed") => "completed",
             _ => "unknown",
@@ -315,9 +313,8 @@ impl Conv<'_, '_> {
         if !event(obs, roots) || is_true(obs, "negationInd") {
             return false;
         }
-        // An aborted procedure observation is kept for a person to read, never skipped: the FHIR
-        // Observation has no status for it but cancelled, which the mapper only counts.
-        if let Some(s @ ("aborted" | "cancelled")) = status_of(obs) {
+        // The FHIR mapper skips these statuses. Hold the activity and its text for review.
+        if let Some(s @ ("aborted" | "cancelled" | "nullified")) = status_of(obs) {
             let line = format!("{} (status {s})", self.hold(obs));
             rep.not_read.push(line);
             return true;

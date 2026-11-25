@@ -3151,3 +3151,33 @@ fn round_6_a_note_cut_at_the_text_bound_goes_to_review() -> R {
     }
     Ok(())
 }
+
+// ------------------------------------------------------ slice 21, round 7 ----
+
+const NOTE_ACTIVITIES: [(&str, &str, &str); 2] = [
+    ("Procedure", "procedure", "2.16.840.1.113883.10.20.22.4.14"),
+    ("Observation", "observation", "2.16.840.1.113883.10.20.22.4.13"),
+];
+
+fn activity_with_note(tag: &str, template: &str, status: &str, narrative: &str, text: &str) -> Vec<u8> {
+    procedures(&format!(
+        r#"<text>{narrative}</text>
+           <entry><{tag} moodCode="EVN">
+             <templateId root="{template}"/>
+             <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>
+             <text>{text}</text>
+             <statusCode code="{status}"/><effectiveTime value="20210301"/>
+           </{tag}></entry>"#
+    ))
+}
+
+#[test]
+fn round_7_nullified_procedure_activities_are_held() -> R {
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        let bytes = activity_with_note(tag, template, "nullified", "", "Done under sedation");
+        let c = convert(&bytes)?;
+        assert_eq!(c.sections[0].not_read, [format!("{tag} {template} (status nullified)")]);
+        assert!(resources(&c, rtype).is_empty(), "{rtype}");
+    }
+    Ok(())
+}
