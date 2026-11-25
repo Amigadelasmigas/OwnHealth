@@ -1385,8 +1385,9 @@ impl BlobStore {
         })
     }
 
-    /// Put the file `from` of a backup's blob tree where its `key` says, copied whole, made
-    /// read-only and then renamed, so a blob is never there half or writable. A key that is not one
+    /// Put the file `from` of a backup's blob tree where its `key` says, copied whole, flushed to
+    /// disk, made read-only and then renamed, so a blob is never there half or writable; its folders
+    /// are flushed after the rename. A key that is not one
     /// ([`tree_files`]) is refused. False when the file is there already: a resumed restore checked
     /// its bytes first ([`check_restore_target`]), and it is made read-only too, in case an older
     /// placement stopped between its rename and its mode change. An error names the destination.
@@ -1405,14 +1406,25 @@ impl BlobStore {
             return Ok(false);
         }
         let parent = target.parent().unwrap_or(&self.root);
+        // The nearest folder that is there already: it and every folder made below it get a new name.
+        let existing = parent.ancestors().find(|f| f.is_dir()).map(Path::to_path_buf);
         fs::create_dir_all(parent).map_err(named)?;
         let part = restore_part_path(&target, key);
         let placed = fs::copy(from, &part)
+            .and_then(|_| sync_file(&part))
             .and_then(|_| set_mode(&part, 0o440))
             .and_then(|_| rename_part(&part, &target));
         if let Err(e) = placed {
             let _ = fs::remove_file(&part);
             return Err(named(e));
+        }
+        // The new name, and the folders made for it, are on disk before the restore goes on: a power
+        // cut after the restore returns leaves no empty or missing file that the database names.
+        for folder in parent.ancestors() {
+            sync_folder(folder).map_err(named)?;
+            if Some(folder) == existing.as_deref() || folder == self.root {
+                break;
+            }
         }
         Ok(true)
     }
@@ -1425,6 +1437,29 @@ type PartHook = Box<dyn FnOnce(&Path)>;
 #[cfg(test)]
 thread_local! {
     static BEFORE_PLACE_RENAME: std::cell::RefCell<Option<PartHook>> = const { std::cell::RefCell::new(None) };
+}
+
+// Every path [`sync_file`] or [`sync_folder`] made durable, in this test thread only.
+#[cfg(test)]
+thread_local! {
+    static SYNCED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Flush the file at `path` to disk.
+fn sync_file(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()?;
+    #[cfg(test)]
+    SYNCED.with(|synced| synced.borrow_mut().push(path.to_path_buf()));
+    Ok(())
+}
+
+/// Flush the folder at `path` to disk: the names in it, of files and folders made or renamed there.
+fn sync_folder(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(path)?.sync_all()?;
+    #[cfg(test)]
+    SYNCED.with(|synced| synced.borrow_mut().push(path.to_path_buf()));
+    Ok(())
 }
 
 /// The last step of [`BlobStore::place`]: the `.part` file takes the blob's name.
@@ -2679,6 +2714,53 @@ mod tests {
         set_mode(&target, 0o644)?;
         assert!(!fresh.place(&sha, &from)?);
         assert_eq!(mode(&target)?, 0o440, "the reused blob kept a writable mode");
+        Ok(())
+    }
+
+    /// A placed blob is on disk before the restore goes on: its bytes before it takes its name, then
+    /// its name and every folder made for it, so a power cut after a restore leaves no empty or
+    /// missing file behind a database that names it.
+    #[test]
+    fn a_placed_blob_is_flushed_with_its_bytes_and_every_new_folder() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let from = dir.path().join("from");
+        fs::write(&from, b"reference table")?;
+        let sha = sha256_reader(&b"reference table"[..])?;
+        let root = dir.path().join("fresh");
+        let fresh = BlobStore::new(root.clone())?;
+        let target = plain_at(&root, &sha);
+        // Each folder the place makes for the blob, and the folder there already that gets the first
+        // new name: every one of them holds a new name.
+        let mut renamed = Vec::new();
+        for folder in target.ancestors().skip(1) {
+            renamed.push(folder.to_path_buf());
+            if folder.is_dir() {
+                break;
+            }
+        }
+        assert!(renamed.len() >= 2, "the blob needs a new folder: {renamed:?}");
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        let before_rename = std::rc::Rc::new(std::cell::Cell::new(None));
+        let observed = before_rename.clone();
+        BEFORE_PLACE_RENAME.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |part: &Path| {
+                observed.set(Some(SYNCED.with(|synced| synced.borrow().iter().any(|p| p == part))));
+            }));
+        });
+        assert!(fresh.place(&sha, &from)?);
+        assert_eq!(
+            before_rename.get(),
+            Some(true),
+            "the .part file took the blob's name before its bytes were flushed"
+        );
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        for folder in &renamed {
+            assert!(
+                synced.iter().any(|p| p == folder),
+                "{} was not flushed: {synced:?}",
+                folder.display()
+            );
+        }
         Ok(())
     }
 
