@@ -146,6 +146,11 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
             (
                 Section::Procedures,
                 vec!["observation 2.16.840.1.113883.10.20.22.4.13 (status aborted)", original]
+            ),
+            // the sample ends one activity on 31 April: the start stays, the end waits in review
+            (
+                Section::SocialHistory,
+                vec!["observation 2.16.840.1.113883.10.20.22.4.38 (end is not a date)"]
             )
         ]
     );
@@ -463,7 +468,8 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
             "IMMUNIZATIONS (C-CDA)",
             "MEDICATIONS (C-CDA)",
             "PLAN OF CARE (C-CDA)",
-            "PROCEDURES (C-CDA)"
+            "PROCEDURES (C-CDA)",
+            "SOCIAL HISTORY (C-CDA)"
         ]
     );
     let values = count(&mut tx, "observation", p).await?;
@@ -473,9 +479,10 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
         12,
         "3 labs, 6 vital signs and 3 social history observations"
     );
-    // Grouped items account for unread parts, including the aborted procedure observation.
+    // Grouped items account for unread parts, including the aborted procedure observation and the
+    // social history end that is no date.
     assert_eq!(s.skipped, 0, "{s:?}");
-    assert_eq!(s.accepted + s.queued, 12 + 12 + 7, "{s:?}");
+    assert_eq!(s.accepted + s.queued, 12 + 12 + 8, "{s:?}");
     let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
         .bind(doc)
         .fetch_one(&mut *tx)
@@ -485,7 +492,7 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     // a second run reads the stored summary and adds nothing
     let again = import_ccda(&mut tx, &env.blobs, doc).await?;
     assert_eq!(again, s);
-    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 7);
+    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 8);
     Ok(())
 }
 
@@ -3603,6 +3610,54 @@ fn round_10_pregnancy_and_sexual_orientation_codes_wait_in_review_on_a_generic_t
     )))?;
     assert_eq!(resources(&c, "Observation").len(), 1);
     assert!(c.sections[0].not_read.is_empty());
+    Ok(())
+}
+
+/// CR10-PERIOD: a period bound that is written but is no date is listed for review, and the period
+/// keeps the bound that reads. An absent or null end is an open period and is not listed.
+#[test]
+fn round_10_a_period_bound_that_is_no_date_is_listed_and_the_other_kept() -> R {
+    let p = "procedure 2.16.840.1.113883.10.20.22.4.14";
+    for (low, high, period, unread) in [
+        (
+            r#"value="20210228""#,
+            r#"value="20210230""#,
+            json!({"start": "2021-02-28"}),
+            vec![format!("{p} (end is not a date)")],
+        ),
+        (
+            r#"value="20210231""#,
+            r#"value="20210301""#,
+            json!({"end": "2021-03-01"}),
+            vec![format!("{p} (start is not a date)")],
+        ),
+        (
+            r#"nullFlavor="UNK""#,
+            r#"value="20210230""#,
+            Value::Null,
+            vec![format!("{p} (end is not a date)")],
+        ),
+        (
+            r#"value="20210228""#,
+            r#"nullFlavor="UNK""#,
+            json!({"start": "2021-02-28"}),
+            vec![],
+        ),
+    ] {
+        let c = convert(&procedures(&format!(
+            r#"<entry><procedure moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.14"/>
+                 <code code="73761001" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+                 <effectiveTime><low {low}/><high {high}/></effectiveTime></procedure></entry>"#
+        )))?;
+        let kept = resources(&c, "Procedure");
+        assert_eq!(kept.len(), 1, "{low} {high}");
+        assert_eq!(
+            kept[0].get("performedPeriod").cloned().unwrap_or(Value::Null),
+            period,
+            "{low} {high}"
+        );
+        assert_eq!(c.sections[0].not_read, unread, "{low} {high}");
+    }
     Ok(())
 }
 

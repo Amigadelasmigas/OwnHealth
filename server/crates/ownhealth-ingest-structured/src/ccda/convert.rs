@@ -460,8 +460,19 @@ fn period(n: Option<Node<'_, '_>>) -> Option<Value> {
     (!r.is_empty()).then_some(Value::Object(r))
 }
 
-/// An activity period with any reversed end dropped and listed for review.
+/// An activity period with any reversed end dropped and listed for review. A bound written but no
+/// date is listed too, and the period keeps the bound that reads.
 fn ordered_period(n: Option<Node<'_, '_>>, of: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
+    let no_date = |b: Option<Node<'_, '_>>| {
+        b.and_then(|b| attr(b, "value"))
+            .is_some_and(|v| fhir_datetime(v).is_none())
+    };
+    if no_date(n) || no_date(n.and_then(|n| child(n, "low"))) {
+        rep.not_read.push(format!("{} (start is not a date)", describe(of)));
+    }
+    if no_date(n.and_then(|n| child(n, "high"))) {
+        rep.not_read.push(format!("{} (end is not a date)", describe(of)));
+    }
     let mut p = period(n)?;
     let date = |key: &str| p.get(key).and_then(Value::as_str);
     if let (Some(start), Some(end)) = (date("start"), date("end")) {
