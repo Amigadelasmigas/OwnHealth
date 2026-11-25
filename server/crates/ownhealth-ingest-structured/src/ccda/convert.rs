@@ -1,4 +1,4 @@
-//! The mapping: the header to a Patient and a Composition, and the six core sections to FHIR R4
+//! The mapping: the header to a Patient and a Composition, and coded sections to FHIR R4
 //! resources the FHIR importer already reads (`crate::fhir::mapping`).
 //!
 //! | Section (templateId `2.16.840.1.113883.10.20.22.2.x`) | Entry | FHIR |
@@ -9,6 +9,10 @@
 //! | Immunizations (`2`, `2.1`) | Immunization Activity (`EVN`, not active) | Immunization |
 //! | Results (`3`, `3.1`) | Result Organizer and its Result Observations | DiagnosticReport plus Observations |
 //! | Vital Signs (`4`, `4.1`) | Vital Signs Organizer and its observations | Observations |
+//! | Encounters (`22`, `22.1`) | Encounter Activity and its indications | Encounter and Conditions |
+//! | Procedures (`7`, `7.1`) | Procedure Activity Procedure, Act and Observation | Procedure or Observation |
+//! | Notes (`65`) | Note Activity and narrative-only Notes sections | Kept in the XML and counted |
+//! | Social History (`17`, `17.2`) | Smoking status and other Social History observations | Observations |
 //!
 //! Differences from Medplum, each on purpose:
 //! - Resource ids come from the C-CDA `id` (a hash of root and extension), or from the entry's bytes
@@ -64,6 +68,8 @@ use super::xml::{self, attr, child, children, elements, has_template, is_true, p
 use crate::fhir::Entry;
 use crate::fhir::mapping::{ABSENT_UNKNOWN, LOINC, UCUM};
 
+mod activities;
+
 /// One of the sections this version reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Section {
@@ -73,40 +79,60 @@ pub enum Section {
     Results,
     VitalSigns,
     Immunizations,
+    Encounters,
+    Procedures,
+    Notes,
+    SocialHistory,
 }
 
 /// (section, templateId roots, LOINC section code). A section without one of those templateIds is
 /// still read when its code is the LOINC code of the section.
-const SECTIONS: [(Section, [&str; 2], &str); 6] = [
+const SECTIONS: &[(Section, &[&str], &str)] = &[
     (
         Section::Allergies,
-        ["2.16.840.1.113883.10.20.22.2.6", "2.16.840.1.113883.10.20.22.2.6.1"],
+        &["2.16.840.1.113883.10.20.22.2.6", "2.16.840.1.113883.10.20.22.2.6.1"],
         "48765-2",
     ),
     (
         Section::Medications,
-        ["2.16.840.1.113883.10.20.22.2.1", "2.16.840.1.113883.10.20.22.2.1.1"],
+        &["2.16.840.1.113883.10.20.22.2.1", "2.16.840.1.113883.10.20.22.2.1.1"],
         "10160-0",
     ),
     (
         Section::Problems,
-        ["2.16.840.1.113883.10.20.22.2.5", "2.16.840.1.113883.10.20.22.2.5.1"],
+        &["2.16.840.1.113883.10.20.22.2.5", "2.16.840.1.113883.10.20.22.2.5.1"],
         "11450-4",
     ),
     (
         Section::Results,
-        ["2.16.840.1.113883.10.20.22.2.3", "2.16.840.1.113883.10.20.22.2.3.1"],
+        &["2.16.840.1.113883.10.20.22.2.3", "2.16.840.1.113883.10.20.22.2.3.1"],
         "30954-2",
     ),
     (
         Section::VitalSigns,
-        ["2.16.840.1.113883.10.20.22.2.4", "2.16.840.1.113883.10.20.22.2.4.1"],
+        &["2.16.840.1.113883.10.20.22.2.4", "2.16.840.1.113883.10.20.22.2.4.1"],
         "8716-3",
     ),
     (
         Section::Immunizations,
-        ["2.16.840.1.113883.10.20.22.2.2", "2.16.840.1.113883.10.20.22.2.2.1"],
+        &["2.16.840.1.113883.10.20.22.2.2", "2.16.840.1.113883.10.20.22.2.2.1"],
         "11369-6",
+    ),
+    (
+        Section::Encounters,
+        &["2.16.840.1.113883.10.20.22.2.22", "2.16.840.1.113883.10.20.22.2.22.1"],
+        "46240-8",
+    ),
+    (
+        Section::Procedures,
+        &["2.16.840.1.113883.10.20.22.2.7", "2.16.840.1.113883.10.20.22.2.7.1"],
+        "47519-4",
+    ),
+    (Section::Notes, &["2.16.840.1.113883.10.20.22.2.65"], "11488-4"),
+    (
+        Section::SocialHistory,
+        &["2.16.840.1.113883.10.20.22.2.17", "2.16.840.1.113883.10.20.22.2.17.2"],
+        "29762-2",
     ),
 ];
 
@@ -129,6 +155,10 @@ impl Section {
             Section::Results => "results",
             Section::VitalSigns => "vital_signs",
             Section::Immunizations => "immunizations",
+            Section::Encounters => "encounters",
+            Section::Procedures => "procedures",
+            Section::Notes => "notes",
+            Section::SocialHistory => "social_history",
         }
     }
 }
@@ -148,6 +178,8 @@ pub struct SectionReport {
     pub entries: usize,
     /// FHIR resources made from it, by type.
     pub resources: BTreeMap<String, usize>,
+    /// Notes available in the stored XML, with no clinical resource made from them.
+    pub stored_notes: usize,
     /// One line per entry, or part of an entry, that was not read (`observation 2.16.840...`).
     pub not_read: Vec<String>,
     /// The section has narrative text of its own and does not say it has no information (no
@@ -405,6 +437,14 @@ fn ts(n: Option<Node<'_, '_>>) -> Option<String> {
         .and_then(fhir_datetime)
 }
 
+/// A point is the start of a period. An interval can have either bound.
+fn period(n: Option<Node<'_, '_>>) -> Option<Value> {
+    let mut r = Map::new();
+    put(&mut r, "start", ts(n).map(Value::String));
+    put(&mut r, "end", bound(n, "high").map(Value::String));
+    (!r.is_empty()).then_some(Value::Object(r))
+}
+
 fn bound(n: Option<Node<'_, '_>>, which: &'static str) -> Option<String> {
     child(n?, which).and_then(|b| attr(b, "value")).and_then(fhir_datetime)
 }
@@ -543,7 +583,7 @@ const OBSERVATION_CATEGORY: &str = "http://terminology.hl7.org/CodeSystem/observ
 // ---------------------------------------------------------------- converter ----
 
 enum ObservationValue {
-    Read(&'static str, Value),
+    Read(&'static str, Value, bool),
     Missing,
     Unsupported,
 }
@@ -871,17 +911,26 @@ impl<'a, 'i> Conv<'a, 'i> {
         let Some(kind) = rep.kind else {
             return (rep, labels);
         };
+        if kind == Section::Notes && entries.is_empty() && rep.narrative {
+            rep.stored_notes = 1;
+        }
         for (j, entry) in entries.into_iter().enumerate() {
             if self.label_copies > MAX_LABEL_COPIES {
                 break; // the file is refused once its sections stop
             }
             let at = format!("{}/entry/{j}", rep.pointer);
+            if elements(entry).next().is_none() {
+                rep.not_read.push("entry (no activity)".into());
+                continue;
+            }
+            rep.stored_notes += entry.descendants().filter(|n| activities::is_note_activity(*n)).count();
             self.labels = labels.clone();
             add_labels(&mut self.labels, entry_labels(entry));
             for (k, el) in elements(entry).enumerate() {
                 let at = if k == 0 { at.clone() } else { format!("{at}/{k}") };
-                if is_security_observation(el) {
-                    continue; // read above, as a label of the section
+                self.narrative_labels.clear();
+                if is_security_observation(el) || activities::is_note_activity(el) {
+                    continue; // counted above as a label or a stored note
                 }
                 let read = match (kind, el.tag_name().name()) {
                     (Section::Allergies, "act") => self.allergy_concern(el, &at, &mut rep),
@@ -889,7 +938,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                         self.allergy(el, None, &at, &mut rep);
                         true
                     }
-                    (Section::Problems, "act") => self.concern(el, &at, &mut rep, Self::problem),
+                    (Section::Problems, "act") => self.problem_concern(el, &at, &mut rep),
                     (Section::Problems, "observation") => {
                         self.problem(el, None, &at, &mut rep);
                         true
@@ -907,6 +956,11 @@ impl<'a, 'i> Conv<'a, 'i> {
                     (Section::VitalSigns, "observation") => {
                         self.observation(el, None, "vital-signs", &at, &mut rep).is_some()
                     }
+                    (Section::Encounters, "encounter") => self.encounter(el, &at, &mut rep),
+                    (Section::Procedures, "procedure" | "act") => self.procedure(el, &at, &mut rep),
+                    (Section::Procedures | Section::SocialHistory, "observation") => {
+                        self.activity_observation(el, &at, &mut rep)
+                    }
                     _ => false,
                 };
                 if !read {
@@ -919,17 +973,11 @@ impl<'a, 'i> Conv<'a, 'i> {
     }
 
     /// A problem concern act: one Condition per SUBJ observation. False when it holds none.
-    fn concern(
-        &mut self,
-        act: Node<'_, '_>,
-        at: &str,
-        rep: &mut SectionReport,
-        each: fn(&mut Self, Node<'_, '_>, Option<Node<'_, '_>>, &str, &mut SectionReport),
-    ) -> bool {
+    fn problem_concern(&mut self, act: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         let subjects: Vec<Node<'_, '_>> = related(act, Some("SUBJ")).collect();
         for (i, obs) in subjects.iter().enumerate() {
             let at = if i == 0 { at.to_string() } else { format!("{at}#{i}") };
-            each(self, *obs, Some(act), &at, rep);
+            self.problem(*obs, Some(act), &at, rep);
         }
         !subjects.is_empty()
     }
@@ -1063,7 +1111,13 @@ impl<'a, 'i> Conv<'a, 'i> {
         self.push(Some(rep), at, Value::Object(r));
     }
 
-    fn problem(&mut self, obs: Node<'_, '_>, act: Option<Node<'_, '_>>, at: &str, rep: &mut SectionReport) {
+    fn problem(
+        &mut self,
+        obs: Node<'_, '_>,
+        act: Option<Node<'_, '_>>,
+        at: &str,
+        rep: &mut SectionReport,
+    ) -> Option<String> {
         let negated = is_true(obs, "negationInd");
         let value = child(obs, "value");
         let nodes: Vec<Node<'_, '_>> = act.into_iter().chain([obs]).collect();
@@ -1078,7 +1132,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             // disagree, so a person decides
             rep.not_read
                 .push(format!("{} (status active with an end date)", describe(obs)));
-            return;
+            return None;
         }
         let nothing = negated && self.names_nothing(value);
         let verification = if nullified {
@@ -1105,10 +1159,15 @@ impl<'a, 'i> Conv<'a, 'i> {
                 verification,
             ),
         );
+        let (category, display) = if rep.kind == Some(Section::Encounters) {
+            ("encounter-diagnosis", "Encounter Diagnosis")
+        } else {
+            ("problem-list-item", "Problem List Item")
+        };
         r.insert(
             "category".into(),
             json!([{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-category",
-                "code": "problem-list-item", "display": "Problem List Item"}]}]),
+                "code": category, "display": display}]}]),
         );
         if nothing {
             r.insert("code".into(), absent("no-known-problems", "no known problems"));
@@ -1129,6 +1188,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             .or_else(|| author_time(obs));
         put(&mut r, "recordedDate", recorded.map(Value::String));
         self.push(Some(rep), at, Value::Object(r));
+        Some(id)
     }
 
     fn material<'b, 'j>(sa: Node<'b, 'j>) -> Option<Node<'b, 'j>> {
@@ -1432,12 +1492,24 @@ impl<'a, 'i> Conv<'a, 'i> {
         r.insert("category".into(), json!([coded(OBSERVATION_CATEGORY, category)]));
         r.insert("code".into(), code);
         put(&mut r, "subject", self.subject());
-        let when = ts(child(obs, "effectiveTime")).or_else(|| organizer.and_then(|o| ts(child(o, "effectiveTime"))));
-        put(&mut r, "effectiveDateTime", when.map(Value::String));
+        let time = child(obs, "effectiveTime");
+        let activity = matches!(rep.kind, Some(Section::Procedures | Section::SocialHistory));
+        if activity && time.is_some_and(|t| child(t, "low").is_some() || child(t, "high").is_some()) {
+            put(&mut r, "effectivePeriod", period(time));
+        } else {
+            let when = ts(time).or_else(|| organizer.and_then(|o| ts(child(o, "effectiveTime"))));
+            put(&mut r, "effectiveDateTime", when.map(Value::String));
+        }
+        if activity {
+            put(&mut r, "note", self.activity_note(obs));
+        }
         if let Some(v) = child(obs, "value") {
             match self.value(v) {
-                ObservationValue::Read(field, value) => {
+                ObservationValue::Read(field, value, unread_text) => {
                     r.insert(field.into(), value);
+                    if unread_text {
+                        rep.not_read.push("observation (text beside a typed value)".into());
+                    }
                 }
                 ObservationValue::Missing => {}
                 ObservationValue::Unsupported => {
@@ -1552,14 +1624,16 @@ impl<'a, 'i> Conv<'a, 'i> {
             "RTO" | "RTO_PQ_PQ" => None,
             _ => self.narrative_of(v).map(|text| ("valueString", Value::String(text))),
         };
+        let inline_text = v
+            .children()
+            .any(|n| n.is_text() && n.text().is_some_and(|text| !text.trim().is_empty()));
+        let structured = matches!(
+            kind,
+            "PQ" | "REAL" | "MO" | "IVL_PQ" | "CD" | "CE" | "CV" | "CO" | "CS" | "INT" | "BL" | "TS"
+        );
         match field {
-            Some((key, value)) => ObservationValue::Read(key, value),
-            None if v
-                .children()
-                .any(|n| n.is_text() && n.text().is_some_and(|text| !text.trim().is_empty())) =>
-            {
-                ObservationValue::Unsupported
-            }
+            Some((key, value)) => ObservationValue::Read(key, value, structured && inline_text),
+            None if inline_text => ObservationValue::Unsupported,
             // Checked after the type: a coded value outside the value set is `nullFlavor="OTH"`
             // with its translation or original text, and that is still the result.
             None if attr(v, "nullFlavor").is_some() => ObservationValue::Missing,

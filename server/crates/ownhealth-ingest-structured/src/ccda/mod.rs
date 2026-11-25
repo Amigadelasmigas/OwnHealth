@@ -1,21 +1,21 @@
-//! C-CDA import, part 1 (slice 20; ingestion.md 3.3, connectors.md 2.2). Job kind `import.ccda`.
+//! C-CDA import (ingestion.md 3.3, connectors.md 2.2). Job kind `import.ccda`.
 //!
 //! A US portal's "download my record" is usually a C-CDA document (a CCD, a referral or discharge
 //! note): one XML `ClinicalDocument` with coded sections. The upload sniff (`ownhealth_core::documents`)
-//! sends a file whose root element is `ClinicalDocument` here. The converter turns the six core
+//! sends a file whose root element is `ClinicalDocument` here. The converter turns the coded
 //! sections into FHIR R4 resources, and [`crate::fhir::import_resources`] imports them under the same
 //! rules as a FHIR file: valid LOINC and UCUM with a matching patient auto-accept, the rest waits in
 //! review, and a resource seen before is a duplicate.
 //!
 //! - Sections read: Allergies, Problems, Medications, Immunizations, Results (a DiagnosticReport plus
-//!   its Observations) and Vital Signs. [`convert`] says per section what it made.
-//! - Any other section (encounters, procedures, notes and social history are part 2), and any entry
-//!   or part of an entry of a known section that the converter does not read, becomes one
+//!   its Observations), Vital Signs, Encounters, Procedures and Social History. Note Activities and
+//!   narrative-only Notes sections stay in the original XML. [`convert`] counts them per section.
+//! - An unsupported section, entry or part of an entry becomes one
 //!   `fhir_unmapped_summary` review item per section. Sections that hold only narrative text (a core
 //!   section too, unless it says it has no information) are listed in one more item. The stored file
 //!   keeps all of it; nothing is dropped without a count.
-//! - What those items count was read by nothing, so nothing checked it for sensitive content: the
-//!   document is flagged `unprojected` with that count, as a connector pull is, and
+//! - The document is flagged `unprojected` with the count of unread content and stored notes. None
+//!   of that text was checked for sensitivity. As with a connector pull,
 //!   `ownhealth_core::documents::document_is_sensitive` keeps the file and the items behind
 //!   read:sensitive. A file that carries a DS4P label that makes a record sensitive is flagged
 //!   `sensitive` the same way, even when the dedupe imports nothing from it.
@@ -111,6 +111,8 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
         .unwrap_or_else(|| "C-CDA".into());
     let held = held_items(&converted, &key, &label);
     let unread: i64 = held.iter().map(|h| h["count"].as_i64().unwrap_or(0)).sum();
+    let stored_notes: usize = converted.sections.iter().map(|s| s.stored_notes).sum();
+    let unprojected = unread + stored_notes as i64;
     let sensitive = converted
         .entries
         .iter()
@@ -139,7 +141,7 @@ pub async fn import_ccda(conn: &mut PgConnection, blobs: &BlobStore, document_id
          || jsonb_strip_nulls(jsonb_build_object('unprojected', $2::bigint, 'sensitive', $3::bigint)) where id = $4",
     )
     .bind(sections_flag(&converted))
-    .bind((unread > 0).then_some(unread))
+    .bind((unprojected > 0).then_some(unprojected))
     .bind((sensitive > 0).then_some(sensitive as i64))
     .bind(document_id)
     .execute(&mut *conn)
@@ -165,7 +167,7 @@ pub fn held_items(c: &Converted, key: &str, label: &str) -> Vec<Value> {
             s.title.clone()
         };
         let template = s.templates.first().map_or("no templateId", String::as_str);
-        let narrative_only = s.entries == 0 && (s.kind.is_none() || s.narrative);
+        let narrative_only = s.entries == 0 && s.stored_notes == 0 && (s.kind.is_none() || s.narrative);
         let (count, notes) = match s.kind {
             _ if narrative_only => {
                 *narrative.entry(format!("{title} ({template})")).or_insert(0) += 1;
@@ -215,14 +217,18 @@ fn sections_flag(c: &Converted) -> Value {
         .sections
         .iter()
         .map(|s| {
-            json!({
+            let mut section = json!({
                 "title": s.title,
                 "template": s.templates.first(),
                 "kind": s.kind.map(Section::name),
                 "entries": s.entries,
                 "resources": s.resources,
                 "not_read": s.not_read.len(),
-            })
+            });
+            if s.stored_notes > 0 {
+                section["stored_notes"] = json!(s.stored_notes);
+            }
+            section
         })
         .collect();
     json!({"title": c.title, "sections": sections})

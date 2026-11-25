@@ -112,11 +112,15 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
         counts(&[("DiagnosticReport", 1), ("Observation", 3)])
     );
     assert_eq!(made(&c, Section::VitalSigns), counts(&[("Observation", 6)]));
-    // the patient and the composition, then 3 + 2 + 1 + 4 + 4 + 6 clinical resources
-    assert_eq!(c.entries.len(), 22);
+    assert_eq!(
+        made(&c, Section::Procedures),
+        counts(&[("Procedure", 2), ("Observation", 1)])
+    );
+    assert_eq!(made(&c, Section::SocialHistory), counts(&[("Observation", 3)]));
+    assert_eq!(c.entries.len(), 28);
     assert_eq!(resources(&c, "Patient").len(), 1);
     assert_eq!(resources(&c, "Composition").len(), 1);
-    // every entry of the six sections was read; the medicine's supply order and dispense were not
+    // The converter reports the medicine's supply order and dispense separately.
     let left: Vec<&String> = c
         .sections
         .iter()
@@ -131,7 +135,7 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
         ],
         "{left:?}"
     );
-    // 17 sections: the six, 4 more with entries, 7 with narrative only
+    // 17 sections: 8 supported, 2 more with entries, 7 with narrative only.
     assert_eq!(c.sections.len(), 17);
     let other: Vec<(&str, usize)> = c
         .sections
@@ -139,15 +143,7 @@ fn the_history_and_physical_sample_gives_exact_resources_per_section() -> R {
         .filter(|s| s.kind.is_none() && s.entries > 0)
         .map(|s| (s.title.as_str(), s.entries))
         .collect();
-    assert_eq!(
-        other,
-        [
-            ("FAMILY HISTORY", 1),
-            ("PLAN OF CARE", 4),
-            ("PROCEDURES", 3),
-            ("SOCIAL HISTORY", 3)
-        ]
-    );
+    assert_eq!(other, [("FAMILY HISTORY", 1), ("PLAN OF CARE", 4)]);
     assert_eq!(
         c.sections.iter().filter(|s| s.kind.is_none() && s.entries == 0).count(),
         7
@@ -229,19 +225,12 @@ fn the_ccd_with_no_information_sections_reads_what_it_has() -> R {
         .ok_or_else(|| anyhow::anyhow!("no BMI"))?;
     assert_eq!(bmi["valueQuantity"]["value"], json!(37.58));
     assert_eq!(bmi["category"][0]["coding"][0]["code"], "vital-signs");
-    // procedures and social history wait for part 2, each as one review item
-    let held = held_items(&c, "ccda-x", "ccd-2.xml");
-    let types: Vec<(&str, i64)> = held
-        .iter()
-        .map(|h| {
-            (
-                h["resource_type"].as_str().unwrap_or_default(),
-                h["count"].as_i64().unwrap_or(0),
-            )
-        })
-        .collect();
-    assert_eq!(types, [("PROCEDURES (C-CDA)", 3), ("SOCIAL HISTORY (C-CDA)", 1)]);
-    assert_eq!(held[0]["source"], json!({"kind": "ccda", "label": "ccd-2.xml"}));
+    assert_eq!(
+        made(&c, Section::Procedures),
+        counts(&[("Procedure", 2), ("Observation", 1)])
+    );
+    assert_eq!(made(&c, Section::SocialHistory), counts(&[("Observation", 1)]));
+    assert!(held_items(&c, "ccda-x", "ccd-2.xml").is_empty());
     Ok(())
 }
 
@@ -432,13 +421,13 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     let bytes = fixture("history-and-physical.xml");
     let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "hp.xml", ccda::MIME).await?;
     let s = import_ccda(&mut tx, &env.blobs, doc).await?;
-    // 2 problems, 3 allergies, 1 medicine and the 3 vaccines given are records; the refused vaccine
-    // waits in review; every lab and vital sign is a value or a review row; 6 held section items (the
-    // medicine's supply order and dispense among them)
+    // The conditions, allergies, medicine, completed procedures and given vaccines are records.
+    // The refused vaccine waits in review.
     assert_eq!(count(&mut tx, "condition", p).await?, 2);
     assert_eq!(count(&mut tx, "allergy", p).await?, 3);
     assert_eq!(count(&mut tx, "medication_statement", p).await?, 1);
     assert_eq!(count(&mut tx, "immunization", p).await?, 3);
+    assert_eq!(count(&mut tx, "procedure", p).await?, 2);
     let held = open_items(&mut tx, doc, "fhir_unmapped_summary").await?;
     let mut types: Vec<String> = held
         .iter()
@@ -451,16 +440,18 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
             "C-CDA narrative section",
             "FAMILY HISTORY (C-CDA)",
             "MEDICATIONS (C-CDA)",
-            "PLAN OF CARE (C-CDA)",
-            "PROCEDURES (C-CDA)",
-            "SOCIAL HISTORY (C-CDA)"
+            "PLAN OF CARE (C-CDA)"
         ]
     );
     let values = count(&mut tx, "observation", p).await?;
     let rows = open_items(&mut tx, doc, "candidate_row").await?.len() as i64;
-    assert_eq!(values + rows, 9, "3 labs and 6 vital signs");
-    // 10 records (one of them the refused vaccine), 9 values, 6 held items: each counted once
-    assert_eq!(s.accepted + s.queued + s.skipped, 10 + 9 + 6, "{s:?}");
+    assert_eq!(
+        values + rows,
+        12,
+        "3 labs, 6 vital signs and 3 social history observations"
+    );
+    // The aborted procedure observation is skipped. Four grouped items account for the unread parts.
+    assert_eq!(s.accepted + s.queued + s.skipped, 12 + 12 + 1 + 4, "{s:?}");
     let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
         .bind(doc)
         .fetch_one(&mut *tx)
@@ -470,7 +461,7 @@ async fn the_history_and_physical_imports_into_the_matching_profile_and_holds_th
     // a second run reads the stored summary and adds nothing
     let again = import_ccda(&mut tx, &env.blobs, doc).await?;
     assert_eq!(again, s);
-    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 6);
+    assert_eq!(open_items(&mut tx, doc, "fhir_unmapped_summary").await?.len(), 4);
     Ok(())
 }
 
@@ -1980,5 +1971,220 @@ fn round_6_unread_typed_result_text_is_reported() -> R {
         assert!(observations[0].get("valueDateTime").is_none());
         assert!(observations[0].get("valueString").is_none());
     }
+    Ok(())
+}
+
+#[test]
+fn slice_21_encounters_keep_class_period_and_diagnosis() -> R {
+    let c = convert(&fixture("ccd-1.xml"))?;
+    let encounters = resources(&c, "Encounter");
+    assert_eq!(encounters.len(), 1);
+    let encounter = encounters[0];
+    assert_eq!(encounter["class"]["code"], "AMB");
+    assert_eq!(encounter["type"][0]["coding"][0]["code"], "99213");
+    assert_eq!(encounter["period"]["start"], "2012-09-27T13:00:00-05:00");
+    assert!(encounter["participant"][0]["individual"]["display"].is_string());
+    let diagnosis = encounter["diagnosis"][0]["condition"]["reference"].as_str().unwrap();
+    assert!(
+        resources(&c, "Condition")
+            .iter()
+            .any(|r| format!("Condition/{}", r["id"].as_str().unwrap()) == diagnosis)
+    );
+    Ok(())
+}
+
+#[test]
+fn slice_21_procedures_keep_the_act_procedure_and_result() -> R {
+    let c = convert(&fixture("ccd-2.xml"))?;
+    let procedures = resources(&c, "Procedure");
+    assert_eq!(procedures.len(), 2);
+    let appendectomy = procedures
+        .iter()
+        .find(|p| p["code"]["coding"][0]["code"] == "6025007")
+        .unwrap();
+    assert_eq!(appendectomy["performedPeriod"]["start"], "2014-10-02T10:30:26-05:00");
+    assert_eq!(appendectomy["performedPeriod"]["end"], "2014-10-02T12:42:45-05:00");
+    assert_eq!(appendectomy["bodySite"][0]["coding"][0]["code"], "181255000");
+    assert!(procedures.iter().any(|p| p["code"]["coding"][0]["code"] == "61310001"));
+    let observations = resources(&c, "Observation");
+    let ecg = observations
+        .iter()
+        .find(|p| p["code"]["coding"][0]["code"] == "268400002")
+        .unwrap();
+    assert_eq!(ecg["valueCodeableConcept"]["coding"][0]["code"], "251135002");
+    Ok(())
+}
+
+#[test]
+fn slice_21_notes_are_kept_without_creating_a_clinical_resource() -> R {
+    let c = convert(&section_file("notes.xml"))?;
+    let note = &c.sections[0];
+    assert_eq!(note.kind.map(Section::name), Some("notes"));
+    assert_eq!(note.entries, 1);
+    assert_eq!(note.stored_notes, 1);
+    assert!(note.resources.is_empty(), "{note:?}");
+    assert!(held_items(&c, "notes-test", "notes.xml").is_empty());
+    Ok(())
+}
+
+#[test]
+fn slice_21_smoking_status_is_a_social_history_observation() -> R {
+    let c = convert(&section_file("smoking-current.xml"))?;
+    let observations = resources(&c, "Observation");
+    assert_eq!(observations.len(), 2);
+    let smoking = observations
+        .iter()
+        .find(|r| r["code"]["coding"][0]["code"] == "72166-2")
+        .unwrap();
+    assert_eq!(smoking["category"][0]["coding"][0]["code"], "social-history");
+    assert_eq!(smoking["valueCodeableConcept"]["coding"][0]["code"], "449868002");
+    assert_eq!(smoking["effectiveDateTime"], "2014-06-06T10:32:00-05:00");
+    let detail = observations
+        .iter()
+        .find(|r| r["code"]["coding"][0]["code"] == "11367-0")
+        .unwrap();
+    assert_eq!(detail["effectivePeriod"]["start"], "1992");
+    assert!(held_items(&c, "smoking-test", "smoking.xml").is_empty());
+    Ok(())
+}
+
+#[test]
+fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
+    use ownhealth_ingest_structured::ccda::xml::{child, children, parse, text_of_file};
+    let bytes = fixture("ccd-1.xml");
+    let text = text_of_file(&bytes)?;
+    let doc = parse(&text)?;
+    let top = doc
+        .root_element()
+        .descendants()
+        .find(|n| n.has_tag_name("structuredBody"))
+        .unwrap();
+    let c = convert(&bytes)?;
+    let held = held_items(&c, "full", "ccd-1.xml");
+    let sections: Vec<_> = children(top, "component").filter_map(|n| child(n, "section")).collect();
+    assert_eq!(sections.len(), 15);
+    assert_eq!(c.sections.len(), sections.len());
+    assert_eq!(c.sections.iter().filter(|s| s.kind.is_some()).count(), 9);
+    let mut entries = 0;
+    for (section, report) in sections.into_iter().zip(&c.sections) {
+        let input = children(section, "entry").count();
+        entries += input;
+        assert_eq!(report.entries, input, "{}", report.title);
+        if report.kind.is_none() {
+            let item = held.iter().find(|h| h["section"]["pointer"] == report.pointer).unwrap();
+            assert_eq!(item["count"], input, "{}", report.title);
+            continue;
+        }
+        for i in 0..input {
+            let pointer = format!("{}/entry/{i}", report.pointer);
+            assert!(
+                c.entries.iter().any(|e| e.pointer == pointer
+                    || e.pointer.starts_with(&format!("{pointer}#"))
+                    || e.pointer.starts_with(&format!("{pointer}/"))),
+                "missing {pointer} in {}",
+                report.title
+            );
+        }
+    }
+    assert_eq!(entries, 31);
+    Ok(())
+}
+
+#[tokio::test]
+async fn slice_21_the_note_count_and_original_are_kept_on_the_document() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = as_isabella(&mut tx, &fam, "lucia").await?;
+    let bytes = section_file("notes.xml");
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "notes.xml", ccda::MIME).await?;
+    let s = import_ccda(&mut tx, &env.blobs, doc).await?;
+    let (flags, sha): (Value, String) =
+        sqlx::query_as("select flags, encode(blob_sha256, 'hex') from document where id = $1")
+            .bind(doc)
+            .fetch_one(&mut *tx)
+            .await?;
+    assert_eq!(flags["ccda"]["sections"][0]["stored_notes"], 1);
+    assert_eq!(flags["unprojected"], 1);
+    assert_eq!((s.accepted, s.queued, s.skipped), (0, 0, 0));
+    assert_eq!(
+        bytes,
+        env.blobs
+            .get_bytes(ownhealth_core::blobs::BlobOwner::Profile(p), &sha)?
+    );
+    assert_eq!(import_ccda(&mut tx, &env.blobs, doc).await?, s);
+    Ok(())
+}
+
+#[test]
+fn slice_21_typed_social_history_value_reports_unread_inline_text() -> R {
+    let original = String::from_utf8(section_file("smoking-current.xml"))?;
+    let edited = original.replace(
+        r#"displayName="Smokes tobacco daily"/>"#,
+        r#"displayName="Smokes tobacco daily">Additional untyped description</value>"#,
+    );
+    assert_ne!(original, edited);
+    let c = convert(edited.as_bytes())?;
+    assert_eq!(c.sections[0].not_read, ["observation (text beside a typed value)"]);
+    assert_eq!(
+        resources(&c, "Observation")[0]["valueCodeableConcept"]["coding"][0]["code"],
+        "449868002"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_note_inside_an_encounter_stays_in_the_file_and_an_unknown_part_waits_in_review() -> R {
+    let c = convert(&document(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.22.1"/><title>Encounters</title>
+          <entry><encounter moodCode="EVN">
+            <effectiveTime><low value="20210302"/><high value="20210303"/></effectiveTime>
+            <entryRelationship typeCode="COMP"><act moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.202"/><text>Clinical note</text>
+            </act></entryRelationship>
+            <entryRelationship typeCode="RSON"><observation moodCode="EVN">
+              <templateId root="9.9.9"/><value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96"/>
+            </observation></entryRelationship>
+          </encounter></entry>
+          <entry><encounter moodCode="INT"><effectiveTime value="20210401"/></encounter></entry>
+          <entry/>
+        </section></component>"#,
+    ))?;
+    let section = &c.sections[0];
+    assert_eq!(section.stored_notes, 1);
+    assert_eq!(
+        section.not_read,
+        [
+            "observation 9.9.9",
+            "encounter without a templateId",
+            "entry (no activity)"
+        ]
+    );
+    assert_eq!(resources(&c, "Encounter").len(), 1);
+    assert!(resources(&c, "Condition").is_empty());
+    assert_eq!(held_items(&c, "test", "record.xml")[0]["count"], 3);
+    assert!(!serde_json::to_string(&c.entries[2].resource)?.contains("Clinical note"));
+    Ok(())
+}
+
+#[test]
+fn an_encounter_carries_its_referenced_narrative_labels_to_its_own_resource() -> R {
+    let c = convert(&document(&format!(
+        r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.22.1"/>
+          <entry><encounter moodCode="EVN">
+            <code><originalText><reference value="#visit"/></originalText></code>
+            <effectiveTime value="20210302"/>
+            <entryRelationship typeCode="RSON"><observation moodCode="EVN">
+              <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96"/>
+            </observation></entryRelationship>
+          </encounter></entry>
+          <entry><encounter moodCode="EVN"><effectiveTime value="20210303"/></encounter></entry>
+        </section></component>
+        <component><section><text><paragraph ID="visit">Visit description</paragraph></text><entry>{}</entry></section></component>"##,
+        security_label("PSY")
+    )))?;
+    assert_eq!(resources(&c, "Encounter")[0]["type"][0]["text"], "Visit description");
+    assert_eq!(label_codes(&c, "Encounter"), [vec!["PSY".to_string()], Vec::new()]);
+    assert_eq!(label_codes(&c, "Condition"), [Vec::<String>::new()]);
     Ok(())
 }
