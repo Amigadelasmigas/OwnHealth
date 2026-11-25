@@ -1518,8 +1518,9 @@ mod tests {
     /// One documented id, one fact: wherever the docs cite an id from ALEX_SRC_IDS next to a date, they
     /// give that id's date and name its analyte. A table row reads alone. Elsewhere the citation reads
     /// with up to 12 lines on each side, up to a blank line or a fence, as JSON examples span lines,
-    /// and a trend point may give the demo value instead of the name. A citation with no date near it
-    /// (the id format in mcp.md) is not a fact.
+    /// and a trend point may give the demo value instead of the name. A citation inside a dated JSON
+    /// object must carry its date in that object, since the lines around it hold the dates of other
+    /// points. A citation with no date near it (the id format in mcp.md) is not a fact.
     #[test]
     fn every_documented_alex_id_names_its_own_fact() {
         let docs = [
@@ -1545,10 +1546,21 @@ mod tests {
                 other => panic!("no doc name for {other}"),
             }
         };
-        let cites = |line: &str, id: &str| {
+        let cited_at = |line: &str, id: &str| -> Vec<usize> {
             line.match_indices(id)
-                .any(|(at, _)| !line[at + id.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|(at, _)| !line[at + id.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
+                .map(|(at, _)| at)
+                .collect()
         };
+        // The JSON object on the line that holds the citation at `at`, when there is one.
+        fn object(line: &str, at: usize) -> Option<&str> {
+            let start = line[..at].rfind('{')?;
+            if line[start..at].contains('}') {
+                return None;
+            }
+            let end = at + line[at..].find('}')?;
+            Some(&line[start..=end])
+        }
         let value = |line: &str| {
             let (_, rest) = line.split_once("\"value\": ")?;
             let rest = rest.trim_start_matches('"');
@@ -1577,7 +1589,8 @@ mod tests {
             let lines: Vec<&str> = text.lines().collect();
             for (n, line) in lines.iter().enumerate() {
                 for ((analyte, date), id) in ALEX_SRC_IDS {
-                    if !cites(line, id) {
+                    let cites = cited_at(line, id);
+                    if cites.is_empty() {
                         continue;
                     }
                     let (mut from, mut to) = (n, n);
@@ -1604,7 +1617,13 @@ mod tests {
                         && lines[from.max(n.saturating_sub(2))..=n]
                             .iter()
                             .any(|l| value(l) == demo);
-                    if !around.contains(date) || !(named || trend) {
+                    // A citation inside a dated JSON object takes its date from that object only: the lines
+                    // around it hold other points' dates. The context only names the analyte.
+                    let on_date = cites.iter().all(|&at| match object(line, at).filter(|o| dated(o)) {
+                        Some(object) => object.contains(date),
+                        None => around.contains(date),
+                    });
+                    if !on_date || !(named || trend) {
                         wrong.push(format!("{path}:{}: {id} is {analyte} on {date}: {line}", n + 1));
                     }
                 }
