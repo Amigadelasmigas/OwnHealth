@@ -3605,3 +3605,27 @@ fn round_10_pregnancy_and_sexual_orientation_codes_wait_in_review_on_a_generic_t
     assert!(c.sections[0].not_read.is_empty());
     Ok(())
 }
+
+/// CR10-CANCELLED: a cancelled, aborted or nullified visit waits in review, as such a procedure does;
+/// the FHIR mapper would skip it with no review item.
+#[test]
+fn round_10_a_cancelled_aborted_or_nullified_visit_waits_in_review() -> R {
+    for status in ["cancelled", "aborted", "nullified", "completed"] {
+        let c = convert(&encounters(&format!(
+            r#"<entry><encounter moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.49"/>
+                 <statusCode code="{status}"/><effectiveTime value="20210301"/>
+                 <text>Synthetic visit detail</text></encounter></entry>"#
+        )))?;
+        if status == "completed" {
+            assert_eq!(resources(&c, "Encounter").len(), 1);
+            continue;
+        }
+        assert!(resources(&c, "Encounter").is_empty(), "{status}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("encounter 2.16.840.1.113883.10.20.22.4.49 (status {status})")]
+        );
+        assert_eq!(held_items(&c, "t", "e.xml")[0]["count"], 1, "{status}");
+    }
+    Ok(())
+}

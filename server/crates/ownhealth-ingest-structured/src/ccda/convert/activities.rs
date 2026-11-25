@@ -160,8 +160,12 @@ impl Conv<'_, '_> {
         let status = match status_of(enc) {
             Some("active") => "in-progress",
             Some("completed") => "finished",
-            Some("aborted" | "cancelled") => "cancelled",
-            Some("nullified") => "entered-in-error",
+            // The FHIR mapper skips these. Hold the visit and its text for review, as a procedure.
+            Some(s @ ("aborted" | "cancelled" | "nullified")) => {
+                let line = format!("{} (status {s})", self.hold(enc));
+                rep.not_read.push(line);
+                return true;
+            }
             Some("held" | "suspended") => "onleave",
             Some("new") => "planned",
             Some(_) => {
