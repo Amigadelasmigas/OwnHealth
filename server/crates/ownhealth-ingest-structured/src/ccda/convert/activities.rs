@@ -265,7 +265,8 @@ impl Conv<'_, '_> {
                 return true;
             }
             Some("held" | "suspended") => "on-hold",
-            None | Some("completed") => "completed",
+            Some("completed") => "completed",
+            // a nullFlavor or no statusCode says nothing about how far the procedure got
             _ => "unknown",
         };
         let Some(code) = self.concept(child(n, "code")) else {

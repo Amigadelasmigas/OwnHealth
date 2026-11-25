@@ -2553,6 +2553,25 @@ fn social_history(entries: &str) -> Vec<u8> {
     ))
 }
 
+/// Round 9 (K21R8-T6): a procedure whose status is unknown (a nullFlavor, or no statusCode) is not
+/// recorded as completed.
+#[test]
+fn round_9_a_procedure_with_no_usable_status_is_unknown() -> R {
+    for status in [r#"<statusCode nullFlavor="UNK"/>"#, "", r#"<statusCode code="completed"/>"#] {
+        let c = convert(&procedures(&format!(
+            r#"<entry><procedure classCode="PROC" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.14"/>
+              <code code="73761001" codeSystem="2.16.840.1.113883.6.96" displayName="Colonoscopy"/>{status}
+              <effectiveTime value="20200101"/></procedure></entry>"#
+        )))?;
+        let p = resources(&c, "Procedure");
+        assert_eq!(p.len(), 1, "{status}");
+        let want = if status.contains("completed") { "completed" } else { "unknown" };
+        assert_eq!(p[0]["status"], want, "{status}");
+        assert!(c.sections[0].not_read.is_empty(), "{status}: {:?}", c.sections[0].not_read);
+    }
+    Ok(())
+}
+
 /// Round 9 (K21R8-M1): a local original text that is only part of a word of the referenced narrative
 /// ("reactive" inside "nonreactive") is a label of its own. It joins the projected text, or review lists
 /// it, never neither. The same label in another case or spacing is still one label.
