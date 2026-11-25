@@ -988,8 +988,10 @@ pub async fn lock_files_owner(conn: &mut PgConnection, document_id: Uuid) -> Res
 }
 
 /// After document `document_id` moved from profile `from` to `to` (`None`: no profile): every blob of
-/// the document (the file, its page layers and images, its OCR layers) is stored for `to` as well, so
-/// the new profile's key opens them, and the removal of `from`'s copies is queued
+/// the document (the file, its page layers and images, its OCR layers, and the raw file of a live
+/// legacy inbox item linked to it, which `blobs::HOLDERS` and `seal-legacy` read as the document's
+/// profile) is stored for `to` as well, so the new profile's key opens them, and the removal of
+/// `from`'s copies is queued
 /// ([`DROP_MOVED_JOB`]). A document that had no profile was sealed under its own item key: that key
 /// is shredded here, in the move's transaction. Run it in the transaction of the move, with `from` read under the document's
 /// row lock, before the commit: the re-import the move queues reads them as `to`'s.
@@ -1011,7 +1013,10 @@ pub async fn rekey_document(
         "select distinct encode(h, 'hex') from (select blob_sha256 as h from document where id = $1 \
          union all select words_blob from document_page where document_id = $1 \
          union all select image_blob from document_page where document_id = $1 \
-         union all select words_blob from ocr_run where document_id = $1) x where h is not null",
+         union all select words_blob from ocr_run where document_id = $1 \
+         union all select i.blob_sha256 from source_item i where i.document_id = $1 and i.profile_id is null \
+         and i.raw_released_at is null and (i.quarantine_id is null or exists (select 1 from quarantine_item q \
+         where q.id = i.quarantine_id and q.status = 'released'))) x where h is not null",
     )
     .bind(document_id)
     .fetch_all(&mut *conn)
