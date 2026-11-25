@@ -2640,6 +2640,7 @@ async fn round_3_encounter_text_kept_only_in_xml_is_counted() -> R {
             Some("#visit"),
         ),
         (r##"<text><reference value="#visit"/></text>"##, Some("#visit")),
+        ("<text><content>Synthetic visit detail</content></text>", None),
     ]
     .into_iter()
     .enumerate()
@@ -2669,7 +2670,7 @@ async fn round_3_encounter_text_kept_only_in_xml_is_counted() -> R {
         assert_eq!(visit["extension"][0]["valueString"].as_str(), reference);
         assert!(!visit.to_string().contains("Synthetic visit detail"));
     }
-    assert_eq!(unread, [Some(1), Some(1), None]);
+    assert_eq!(unread, [Some(1), Some(1), None, Some(1)]);
     Ok(())
 }
 
@@ -2682,6 +2683,7 @@ async fn round_3_social_history_counts_original_text_missing_from_the_coded_answ
     let mut unread = Vec::new();
     let long_answer = "a".repeat(2_000);
     let long_display = format!(r#"displayName="{long_answer}""#);
+    let empty_elements = "<content/>".repeat(20_000);
     for (display, original_text, expected_text) in [
         (
             r#"displayName="Never smoker""#,
@@ -2714,12 +2716,24 @@ async fn round_3_social_history_counts_original_text_missing_from_the_coded_answ
             r##"<originalText><reference value="#long"/></originalText>"##,
             long_answer.as_str(),
         ),
+        (
+            r#"displayName="Never smoker""#,
+            r##"<originalText><reference value="#many-nodes"/></originalText>"##,
+            "Never smoker",
+        ),
+        (
+            r#"displayName="Never smoker""#,
+            r#"<originalText>Never smoked tobacco</originalText>
+               <translation code="X1" codeSystem="1.2.3" displayName="Never smoked tobacco"/>"#,
+            "Never smoker",
+        ),
     ] {
         let bytes = social_history(&format!(
             r#"<text>
                  <paragraph ID="answer">Never smoker</paragraph>
                  <paragraph ID="extra">Additional detail</paragraph>
                  <paragraph ID="long">{long_answer}Additional detail</paragraph>
+                 <paragraph ID="many-nodes">Never smoker{empty_elements}Additional detail</paragraph>
                </text>
                <entry><observation classCode="OBS" moodCode="EVN">
                  <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
@@ -2741,6 +2755,9 @@ async fn round_3_social_history_counts_original_text_missing_from_the_coded_answ
             .await?;
         unread.push(flags["unprojected"].as_i64());
     }
-    assert_eq!(unread, [Some(1), Some(1), Some(1), None, None, None, Some(1)]);
+    assert_eq!(
+        unread,
+        [Some(1), Some(1), Some(1), None, None, None, Some(1), Some(1), None]
+    );
     Ok(())
 }
