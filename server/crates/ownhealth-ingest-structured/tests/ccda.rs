@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use common::{Env, R, family, store_doc};
 use ownhealth_core::Error;
 use ownhealth_core::documents::{StoredFile, dispatch_upload, sniff};
@@ -1984,12 +1985,11 @@ fn slice_21_encounters_keep_class_period_and_diagnosis() -> R {
     assert_eq!(encounter["type"][0]["coding"][0]["code"], "99213");
     assert_eq!(encounter["period"]["start"], "2012-09-27T13:00:00-05:00");
     assert!(encounter["participant"][0]["individual"]["display"].is_string());
-    let diagnosis = encounter["diagnosis"][0]["condition"]["reference"].as_str().unwrap();
-    assert!(
-        resources(&c, "Condition")
-            .iter()
-            .any(|r| format!("Condition/{}", r["id"].as_str().unwrap()) == diagnosis)
-    );
+    let diagnosis = encounter["diagnosis"][0]["condition"]["reference"]
+        .as_str()
+        .and_then(|r| r.strip_prefix("Condition/"))
+        .context("missing encounter diagnosis reference")?;
+    assert!(resources(&c, "Condition").iter().any(|r| r["id"] == diagnosis));
     Ok(())
 }
 
@@ -2001,7 +2001,7 @@ fn slice_21_procedures_keep_the_act_procedure_and_result() -> R {
     let appendectomy = procedures
         .iter()
         .find(|p| p["code"]["coding"][0]["code"] == "6025007")
-        .unwrap();
+        .context("missing laparoscopic appendectomy")?;
     assert_eq!(appendectomy["performedPeriod"]["start"], "2014-10-02T10:30:26-05:00");
     assert_eq!(appendectomy["performedPeriod"]["end"], "2014-10-02T12:42:45-05:00");
     assert_eq!(appendectomy["bodySite"][0]["coding"][0]["code"], "181255000");
@@ -2010,7 +2010,7 @@ fn slice_21_procedures_keep_the_act_procedure_and_result() -> R {
     let ecg = observations
         .iter()
         .find(|p| p["code"]["coding"][0]["code"] == "268400002")
-        .unwrap();
+        .context("missing electrocardiogram")?;
     assert_eq!(ecg["valueCodeableConcept"]["coding"][0]["code"], "251135002");
     Ok(())
 }
@@ -2035,14 +2035,14 @@ fn slice_21_smoking_status_is_a_social_history_observation() -> R {
     let smoking = observations
         .iter()
         .find(|r| r["code"]["coding"][0]["code"] == "72166-2")
-        .unwrap();
+        .context("missing smoking status")?;
     assert_eq!(smoking["category"][0]["coding"][0]["code"], "social-history");
     assert_eq!(smoking["valueCodeableConcept"]["coding"][0]["code"], "449868002");
     assert_eq!(smoking["effectiveDateTime"], "2014-06-06T10:32:00-05:00");
     let detail = observations
         .iter()
         .find(|r| r["code"]["coding"][0]["code"] == "11367-0")
-        .unwrap();
+        .context("missing tobacco use history")?;
     assert_eq!(detail["effectivePeriod"]["start"], "1992");
     assert!(held_items(&c, "smoking-test", "smoking.xml").is_empty());
     Ok(())
@@ -2058,7 +2058,7 @@ fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
         .root_element()
         .descendants()
         .find(|n| n.has_tag_name("structuredBody"))
-        .unwrap();
+        .context("missing CCD body")?;
     let c = convert(&bytes)?;
     let held = held_items(&c, "full", "ccd-1.xml");
     let sections: Vec<_> = children(top, "component").filter_map(|n| child(n, "section")).collect();
@@ -2071,7 +2071,10 @@ fn slice_21_full_ccd_accounts_for_every_section_and_entry() -> R {
         entries += input;
         assert_eq!(report.entries, input, "{}", report.title);
         if report.kind.is_none() {
-            let item = held.iter().find(|h| h["section"]["pointer"] == report.pointer).unwrap();
+            let item = held
+                .iter()
+                .find(|h| h["section"]["pointer"] == report.pointer)
+                .with_context(|| format!("missing review item for {}", report.title))?;
             assert_eq!(item["count"], input, "{}", report.title);
             continue;
         }
