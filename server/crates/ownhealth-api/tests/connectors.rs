@@ -1029,6 +1029,26 @@ async fn smart_launch_distinguishes_a_missing_document_from_a_vendor_outage() ->
         .route(
             "/down/.well-known/smart-configuration",
             get(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+        )
+        .route(
+            "/busy/.well-known/smart-configuration",
+            get(|| async { StatusCode::TOO_MANY_REQUESTS }),
+        )
+        .route(
+            "/slow/.well-known/smart-configuration",
+            get(|| async { StatusCode::REQUEST_TIMEOUT }),
+        )
+        .route(
+            "/moved/.well-known/smart-configuration",
+            get(|| async {
+                (
+                    StatusCode::MOVED_PERMANENTLY,
+                    [(
+                        "location",
+                        "https://elsewhere.example/r4/.well-known/smart-configuration",
+                    )],
+                )
+            }),
         );
     let mut server = tokio::task::JoinSet::new();
     server.spawn(async move { axum::serve(listener, fake).await });
@@ -1037,6 +1057,10 @@ async fn smart_launch_distinguishes_a_missing_document_from_a_vendor_outage() ->
         (format!("{base}/missing"), "not_a_smart_server"),
         (format!("{base}/empty"), "not_a_smart_server"),
         (format!("{base}/down"), "vendor_unreachable"),
+        (format!("{base}/busy"), "vendor_unreachable"),
+        (format!("{base}/slow"), "vendor_unreachable"),
+        // the egress client follows no redirect, so waiting never fixes one
+        (format!("{base}/moved"), "not_a_smart_server"),
     ] {
         let response = browser
             .post(

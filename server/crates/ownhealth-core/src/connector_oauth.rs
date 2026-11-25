@@ -406,11 +406,13 @@ async fn discover_smart(issuer: &str, scopes: &str, egress: &Egress) -> Result<E
         status: f.status,
         code: code.into(),
     };
-    if (400..500).contains(&f.status) {
-        return Err(bad("discovery_failed"));
+    // A busy or failing server heals by waiting. A redirect (the egress client follows none) or any
+    // other refusal means the address is wrong.
+    if matches!(f.status, 408 | 425 | 429 | 500..=599) {
+        return Err(bad("discovery_unavailable"));
     }
     if f.status != 200 {
-        return Err(bad("discovery_unavailable"));
+        return Err(bad("discovery_failed"));
     }
     let meta: Value = serde_json::from_slice(&f.body).map_err(|_| bad("discovery_failed"))?;
     let field = |k: &str| meta[k].as_str().filter(|s| !s.is_empty()).map(String::from);
