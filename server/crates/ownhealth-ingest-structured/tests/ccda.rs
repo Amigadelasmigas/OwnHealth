@@ -2544,6 +2544,48 @@ fn social_history(entries: &str) -> Vec<u8> {
     ))
 }
 
+/// Round 9 (K21R8-M1): a local original text that is only part of a word of the referenced narrative
+/// ("reactive" inside "nonreactive") is a label of its own. It joins the projected text, or review lists
+/// it, never neither. The same label in another case or spacing is still one label.
+#[test]
+fn round_9_a_local_original_text_inside_a_narrative_word_is_not_dropped() -> R {
+    let observation = |display: &str, local: &str| {
+        format!(
+            r##"<text><paragraph ID="t1">nonreactive</paragraph></text>
+           <entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="266919005" codeSystem="2.16.840.1.113883.6.96" {display}>
+               <originalText><reference value="#t1"/>{local}</originalText></value>
+           </observation></entry>"##
+        )
+    };
+    let read = |xml: String| -> anyhow::Result<(Value, Vec<String>)> {
+        let c = convert(&social_history(&xml))?;
+        let o = resources(&c, "Observation");
+        anyhow::ensure!(o.len() == 1, "{o:?}");
+        Ok((o[0]["valueCodeableConcept"]["text"].clone(), c.sections[0].not_read.clone()))
+    };
+    let unread = "value (original text kept in the uploaded file)";
+    // the display keeps the narrative word only: review lists the local label
+    assert_eq!(
+        read(observation(r#"displayName="nonreactive""#, "reactive"))?,
+        (json!("nonreactive"), vec![unread.to_string()])
+    );
+    // no display: the projected text keeps both labels
+    assert_eq!(
+        read(observation("", "reactive"))?,
+        (json!("nonreactive; reactive"), vec![])
+    );
+    // the same label in another case and spacing adds nothing
+    assert_eq!(
+        read(observation(r#"displayName="nonreactive""#, " NonReactive "))?,
+        (json!("nonreactive"), vec![])
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn round_2_excluded_observation_templates_override_social_history() -> R {
     let env = Env::new().await?;

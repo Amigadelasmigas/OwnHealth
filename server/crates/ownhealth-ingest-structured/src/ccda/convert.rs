@@ -829,7 +829,8 @@ impl<'a, 'i> Conv<'a, 'i> {
             }
         }
         local.value = Some(match local.value {
-            Some(own) if !referenced.contains(&own) => {
+            // a local label inside a narrative word ("reactive" in "nonreactive") is a label of its own
+            Some(own) if normalized_text(&referenced) != normalized_text(&own) => {
                 local.truncated |= xml::joined_cuts(&referenced, &own);
                 xml::joined(&referenced, &own)
             }
@@ -1709,7 +1710,9 @@ impl<'a, 'i> Conv<'a, 'i> {
             return true;
         }
         match (target.and_then(|text| text.value.as_deref()), own.value.as_deref()) {
-            (Some(target), Some(text)) if !target.contains(text) => !retained(&format!("{target}; {text}")),
+            (Some(target), Some(text)) if normalized_text(target) != normalized_text(text) => {
+                !retained(&format!("{target}; {text}"))
+            }
             (Some(target), _) => !retained(target),
             (None, Some(text)) => !retained(text),
             (None, None) => false,
