@@ -60,6 +60,9 @@ const SOURCES: &[(&str, Source)] = &[
     ("shc", |_| {
         Box::pin(async { Ok(vec![ownhealth_ingest_structured::shc::phrases()]) })
     }),
+    ("shl_receive", |_| {
+        Box::pin(async { Ok(vec![ownhealth_ingest_structured::shl_receive::phrases()]) })
+    }),
     ("session_report", |_| Box::pin(async { session_report_words() })),
     ("smart_poller", |_| {
         Box::pin(async { Ok(vec![ownhealth_ingest_structured::smart::phrases()]) })
