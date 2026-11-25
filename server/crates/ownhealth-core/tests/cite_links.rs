@@ -10,9 +10,15 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
+/// Run the script with no proxy from the caller's environment. With one, curl would send the `.invalid`
+/// request to the proxy, and a proxy that cannot be reached is a transfer error (could not be checked),
+/// not a dead host.
 fn run(args: &[&str]) -> Output {
-    Command::new("bash")
-        .arg(repo().join("scripts/cite-links.sh"))
+    let mut cmd = Command::new("bash");
+    for var in ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"] {
+        cmd.env_remove(var).env_remove(var.to_lowercase());
+    }
+    cmd.arg(repo().join("scripts/cite-links.sh"))
         .args(args)
         .output()
         .expect("bash runs scripts/cite-links.sh")
