@@ -853,6 +853,9 @@ async fn reconcile_gap(
     .fetch_one(&mut *tx)
     .await?;
     if newest.is_some_and(|newest| newest > now) {
+        // Keep the stamp repair. Rolled back, a far-future stamp would order the passes again once real
+        // time came within FUTURE_STAMP_SLACK of it.
+        tx.commit().await?;
         return Ok(());
     }
     let payload = match (checks.get(&source.kind), source.enabled, source.profile_id) {

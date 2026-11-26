@@ -2829,3 +2829,58 @@ async fn an_open_far_future_alert_still_orders_the_passes_after_it() -> anyhow::
     );
     Ok(())
 }
+
+/// An alert was filed by a pass 2 h ahead and last evaluated by a pass 25 h ahead. A pass at the right
+/// time sets the 25 h stamp to its own time, then leaves the alert to the newer pass that filed it. The
+/// repair must stay: once real time passes the filing, a sync recovers the alert.
+#[tokio::test]
+async fn a_stamp_repair_stays_when_the_pass_then_leaves_the_alert() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(10)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    let t = a + Duration::days(12);
+    sqlx::query(
+        "update review_item set created_at = $2, \
+         payload = payload || jsonb_build_object('evaluated_at', to_jsonb($3::timestamptz)) where id = $1",
+    )
+    .bind(item)
+    .bind(t + Duration::hours(2))
+    .bind(t + Duration::hours(25))
+    .execute(&env.ctx.pool)
+    .await?;
+    synced(t).await?;
+    sources::scheduler_tick_at(&env.ctx, t).await?;
+    let evaluated: Option<DateTime<Utc>> =
+        sqlx::query_scalar("select (payload->>'evaluated_at')::timestamptz from review_item where id = $1")
+            .bind(item)
+            .fetch_one(&env.ctx.pool)
+            .await?;
+    assert_eq!(evaluated, Some(t), "the repair was rolled back");
+    sources::scheduler_tick_at(&env.ctx, t + Duration::hours(3)).await?;
+    assert_eq!(
+        alert_reason(&env, item).await?,
+        ("dismissed".into(), Some("sync_recovered".into()), true),
+        "the rolled-back stamp held the alert open"
+    );
+    Ok(())
+}
