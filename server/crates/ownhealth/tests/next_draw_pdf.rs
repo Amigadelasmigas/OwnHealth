@@ -1,13 +1,16 @@
 //! The printed next-draw request (`ownhealth_rules::next_draw` + `ownhealth_ops::next_draw_pdf`), read
-//! back the way a reader would (PDFium): Alex and Carmen in es and en, with and without their name.
+//! back the way a reader would (PDFium): Alex and Carmen in every registry language, with and without
+//! their name.
 //! Every test line names its rule and src ids, the text layer is information and not advice, two
-//! renders give the same bytes, and the footer carries the rules versions.
+//! renders give the same bytes, the footer carries the rules versions, and every text of the sheet is
+//! WinAnsi (cp1252), never folded to a look-alike or a '?'.
 
 #[path = "../../ownhealth-rules/tests/common/mod.rs"]
 mod common;
 
 use common::{as_of, seeded};
 use ownhealth_core::access::get_profile;
+use ownhealth_core::langs::LANGS;
 use ownhealth_ingest_pdf::textcheck::assert_text_layer;
 use ownhealth_ops::next_draw_pdf::render;
 use ownhealth_rules::load_pack;
@@ -49,8 +52,34 @@ fn src_check(model: &Value) -> impl FnMut(&str) -> Result<(), String> + use<> {
     }
 }
 
+/// Every string of a sheet model, for the cp1252 check.
+fn strings(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => out.push(s.clone()),
+        Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+        Value::Object(m) => m.values().for_each(|x| strings(x, out)),
+        _ => {}
+    }
+}
+
+/// The texts of a model that `pdfwrite` would fold (a letter cp1252 lacks).
+fn folded(model: &Value) -> Vec<String> {
+    let mut texts = Vec::new();
+    strings(model, &mut texts);
+    texts
+        .into_iter()
+        .filter(|t| !ownhealth_core::pdfwrite::encode(t).1.is_empty())
+        .collect()
+}
+
+#[test]
+fn control_a_letter_outside_cp1252_is_seen() {
+    assert_eq!(folded(&json!({"a": ["Größe ½ œ l·l ã"]})), Vec::<String>::new());
+    assert_eq!(folded(&json!({"a": ["Łódź"]})), vec!["Łódź".to_string()]);
+}
+
 #[tokio::test]
-async fn alex_and_carmen_print_in_both_languages_with_and_without_their_name() -> R {
+async fn alex_and_carmen_print_in_every_language_with_and_without_their_name() -> R {
     let s = seeded().await?;
     let mut tx = s.pool().begin().await?;
     let pack = load_pack()?;
@@ -59,11 +88,12 @@ async fn alex_and_carmen_print_in_both_languages_with_and_without_their_name() -
             .await?
             .ok_or_else(|| anyhow::anyhow!("no {slug}"))?;
         let plan = next_draw::build(&mut tx, s.pid(slug), as_of()).await?;
-        for lang in ["en", "es"] {
+        for lang in LANGS {
             for hide in [false, true] {
                 let what = format!("{slug} {lang} hide={hide}");
                 let mut model = next_draw::render(&plan, &pack, lang)?;
                 model["person"] = next_draw::person(&profile, as_of(), lang, hide)?;
+                assert_eq!(folded(&model), Vec::<String>::new(), "{what}: letters outside cp1252");
                 let sheet = render(&model);
                 assert_eq!(render(&model).pdf, sheet.pdf, "{what}: two renders differ");
                 let lines = assert_text_layer(&sheet.pdf, src_check(&model));
@@ -136,8 +166,9 @@ fn a_person_with_nothing_to_list_gets_a_sheet_that_says_so() -> R {
     let body = json!({"profile": "empty", "as_of": "2026-11-07", "state_hash": "sha256:00", "flags": []});
     let prevention = json!({"items": [], "rules": "es.yaml prevention-es 0.2.0", "prevention_hash": "sha256:11"});
     let plan = next_draw::plan(&body, &prevention, &pack, next_draw::load()?);
-    for lang in ["en", "es"] {
+    for lang in LANGS {
         let model = next_draw::render(&plan, &pack, lang)?;
+        assert_eq!(folded(&model), Vec::<String>::new(), "{lang}: letters outside cp1252");
         let lines = assert_text_layer(&render(&model).pdf, src_check(&model));
         let empty = model["labels"]["empty"].as_str().unwrap_or("no label");
         assert!(lines.join(" ").contains(empty), "{lang}: {lines:#?}");

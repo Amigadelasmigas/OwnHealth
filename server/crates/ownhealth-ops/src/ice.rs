@@ -367,3 +367,45 @@ pub fn encrypt(dek: &Dek, profile: Uuid, id: Uuid, sealed_key: &[u8], content: &
         .map_err(|_| anyhow::anyhow!("Invalid ICE key length"))?;
     Ok(jose::encrypt(key, content, Some(crate::shl::CONTENT_TYPE), true)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ownhealth_core::langs::LANGS;
+
+    /// The words a card prints in `lang` that `pdfwrite` would fold (a letter cp1252 lacks).
+    fn folded(labels: &Labels) -> Vec<String> {
+        let mut texts = vec![
+            labels.qr_title,
+            labels.contacts,
+            labels.online,
+            labels.offline,
+            labels.expires,
+            labels.title,
+        ];
+        texts.extend(labels.sections);
+        texts
+            .into_iter()
+            .filter(|t| !ownhealth_core::pdfwrite::encode(t).1.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The card prints in every registry language: its own labels, all of them cp1252, and a wallet PDF
+    /// and a lock-screen PNG come out of each.
+    #[test]
+    fn every_language_prints_its_card_in_cp1252() -> anyhow::Result<()> {
+        assert_eq!(missing_langs(&LANGS), Vec::<String>::new());
+        let day = NaiveDate::from_ymd_opt(2026, 11, 26).ok_or_else(|| anyhow::anyhow!("date"))?;
+        for lang in LANGS {
+            assert_eq!(folded(&langs::pick(LABELS, lang)), Vec::<String>::new(), "{lang}");
+            let files = render(lang, day, "ICE\nAlergias: penicilina", Some("shlink:/test"))?;
+            assert!(files.pdf.starts_with(b"%PDF"), "{lang}");
+            assert!(files.png.starts_with(b"\x89PNG"), "{lang}");
+        }
+        let mut bad = LABELS[0].1;
+        bad.title = "Łódź";
+        assert_eq!(folded(&bad), vec!["Łódź".to_string()], "control");
+        Ok(())
+    }
+}
