@@ -107,7 +107,8 @@ const SOURCE_GAP: &str = "source_gap";
 /// imaging study names the patient and the study, which the timeline and the viewer show only with
 /// read:records, and a proposed relative is family history, which needs read:records too. A sync-gap
 /// alert names the device's vendor, and a dismissal closes it for the whole household, so it shows
-/// only to who manages the profile and its connections, as the Connections screen does.
+/// only to who manages the profile and its connections, as the Connections screen does. A FHIR
+/// resource a file import held unmapped carries the whole resource ([`resource_shows`]).
 fn visible(item: &ReviewItem, perm: &Permission) -> bool {
     if item.kind == SOURCE_GAP && !can_manage(perm) {
         return false;
@@ -139,6 +140,11 @@ fn visible(item: &ReviewItem, perm: &Permission) -> bool {
                 .filter_map(Value::as_object),
         );
     }
+    if let Some(resource) = p.get("resource").filter(|r| r.is_object())
+        && !resource_shows(resource, perm)
+    {
+        return false;
+    }
     let record = p.get("record").and_then(Value::as_object);
     if let Some(record) = record
         && (!perm.has("read:records")
@@ -151,6 +157,36 @@ fn visible(item: &ReviewItem, perm: &Permission) -> bool {
         let scope = obs_scope(category);
         perm.has(scope) && (!truthy(o.get("sensitivity")) || perm.may_read_sensitive(scope))
     })
+}
+
+/// A held FHIR resource (`fhir_unmapped` from a file: the item holds the `resource` as received) shows
+/// on the terms of the fact it would be: an Observation with the scope of each of its categories (as
+/// [`obs_scope`] maps them; read:labs without one), any other type with read:records, and with
+/// read:sensitive too when a security label or a social-history code makes it sensitive.
+fn resource_shows(resource: &Value, perm: &Permission) -> bool {
+    let mut scopes: Vec<&str> = Vec::new();
+    if resource.get("resourceType").and_then(Value::as_str) == Some("Observation") {
+        scopes.extend(
+            resource
+                .get("category")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c.get("coding").and_then(Value::as_array))
+                .flatten()
+                .filter_map(|c| c.get("code").and_then(Value::as_str))
+                .map(|code| obs_scope(Some(code))),
+        );
+        if scopes.is_empty() {
+            scopes.push(obs_scope(None));
+        }
+    } else {
+        scopes.push("read:records");
+    }
+    let sensitive = !ownhealth_ingest_structured::fhir::mapping::sensitivity(resource).is_empty();
+    scopes
+        .iter()
+        .all(|s| perm.has(s) && (!sensitive || perm.may_read_sensitive(s)))
 }
 
 /// A pull's grouped item carries no values: it points at the bundle that holds them. It shows to

@@ -867,3 +867,78 @@ async fn carmen_flags(a: &App, doc: Uuid) -> anyhow::Result<(Value, Value)> {
         .ok_or_else(|| anyhow::anyhow!("the list leaves the document out: {list}"))?;
     Ok((one["flags"].clone(), listed))
 }
+
+/// U-F1: a FHIR resource a file import held unmapped (`fhir_unmapped` with the whole `resource`) shows
+/// on the terms of the fact it would be: an Observation with the scope of its category, any other type
+/// with read:records, and a sensitive one (a security label) with read:sensitive too. The same rule
+/// holds for the document's count.
+#[tokio::test]
+async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive() -> R {
+    let a = app().await?;
+    let doc = carmen_document(&a, "vacunas.json", json!({})).await?;
+    let held = |resource: Value| {
+        json!({"projection": null, "note": "not-done", "resource_type": resource["resourceType"],
+               "json_pointer": "/entry/0/resource", "src": {"import_ref": "vacunas#1"}, "resource": resource})
+    };
+    let mut ids = Vec::new();
+    for resource in [
+        json!({"resourceType": "Immunization", "status": "not-done",
+               "vaccineCode": {"text": "HIV vaccine trial dose (synthetic)"},
+               "meta": {"security": [{"code": "R"}, {"code": "HIV"}]}}),
+        json!({"resourceType": "Immunization", "status": "not-done", "vaccineCode": {"text": "Influenza"}}),
+        json!({"resourceType": "Observation", "status": "cancelled",
+               "category": [{"coding": [{"code": "laboratory"}]}], "code": {"text": "Glucosa"}}),
+    ] {
+        let id = item(&a, "carmen", "fhir_unmapped", Some(held(resource)), json!({})).await?;
+        sqlx::query("update review_item set document_id = $1 where id = $2")
+            .bind(doc)
+            .bind(id)
+            .execute(&a.rt.pool)
+            .await?;
+        ids.push(id);
+    }
+    let (hiv, flu, glucose) = (ids[0], ids[1], ids[2]);
+    let shown = |grant: &'static [&'static str]| {
+        let a = &a;
+        async move {
+            alex_on_carmen(a, grant).await?;
+            let (s, queue) = a.get("alex", "/review?profile=carmen").await?;
+            assert_eq!(s, StatusCode::OK, "{queue}");
+            let mut listed: Vec<Uuid> = Vec::new();
+            for id in [hiv, flu, glucose] {
+                let in_list = queue["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|i| i["id"] == json!(id));
+                let one = a.get("alex", &format!("/review/{id}")).await?.0;
+                assert_eq!(
+                    in_list,
+                    one == StatusCode::OK,
+                    "{grant:?}: list and item disagree on {id}"
+                );
+                if in_list {
+                    listed.push(id);
+                }
+            }
+            if grant.contains(&"read:records") {
+                let (s, one) = a.get("alex", &format!("/documents/{doc}")).await?;
+                assert_eq!(s, StatusCode::OK, "{one}");
+                assert_eq!(one["open_review"], json!(listed.len()), "{grant:?}: {one}");
+            }
+            anyhow::Ok(listed)
+        }
+    };
+    assert_eq!(shown(&["read:summary", "read:labs"]).await?, [glucose], "labs only");
+    assert_eq!(
+        shown(&["read:summary", "read:records"]).await?,
+        [flu],
+        "records, no read:sensitive"
+    );
+    assert_eq!(
+        shown(&["read:summary", "read:labs", "read:records", "read:sensitive"]).await?,
+        [hiv, flu, glucose],
+        "every scope"
+    );
+    Ok(())
+}
