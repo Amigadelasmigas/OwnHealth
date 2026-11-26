@@ -254,9 +254,10 @@ fn social_history_snomed_sensitivity(code: &str) -> Option<&'static str> {
     })
 }
 
-/// Word starts that name a sensitive concept in a Social History question or answer, in English and
+/// Word stems that name a sensitive concept in a Social History question or answer, in English and
 /// Spanish. They cover a local code or a free-text answer that no code list can know ("Sexual
-/// activity: active, two partners"). "Sex" alone (sex assigned at birth) is not one.
+/// activity: active, two partners"). A stem matches anywhere in a word ("bisexual", "nonpregnant"),
+/// so a longer word fails closed. "Sex" alone (sex assigned at birth) is not one.
 const SOCIAL_HISTORY_WORDS: [(&str, &str); 5] = [
     ("sexual", "sexual_health"),
     ("pregnan", "reproductive"),
@@ -273,7 +274,7 @@ fn social_history_words_sensitivity(text: &str) -> Vec<&'static str> {
         tags.extend(
             SOCIAL_HISTORY_WORDS
                 .iter()
-                .filter(|(start, _)| word.starts_with(start))
+                .filter(|(stem, _)| word.contains(stem))
                 .map(|(_, tag)| *tag),
         );
     }

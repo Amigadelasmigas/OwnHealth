@@ -3928,6 +3928,11 @@ async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
             r#"<code code="SH-2" codeSystem="1.2.3" displayName="Sex assigned at birth"/>"#,
             r#"<value xsi:type="ST">Female</value>"#,
         ),
+        // R1-M1: the word inside another word (bisexual, homosexual) is the same concept
+        social_observation(
+            r#"<code code="SH-5" codeSystem="1.2.3" displayName="Q orientation words"/>"#,
+            r#"<value xsi:type="ST">Bisexual</value>"#,
+        ),
     ]
     .concat();
     let bytes = social_history(&entries);
@@ -3944,6 +3949,7 @@ async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
             ("Q local words".to_string(), json!(["reproductive"])),
             ("Q multiple".to_string(), json!(["sexual_health"])),
             ("Q orientation".to_string(), json!(["sexual_health"])),
+            ("Q orientation words".to_string(), json!(["sexual_health"])),
             ("Q other system".to_string(), json!([])),
             ("Q pregnancy".to_string(), json!(["reproductive"])),
             ("Q single".to_string(), json!(["sexual_health"])),
@@ -3957,7 +3963,7 @@ async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
         .bind(doc)
         .fetch_one(&mut *tx)
         .await?;
-    assert_eq!(flags["sensitive"], 11, "{flags}");
+    assert_eq!(flags["sensitive"], 12, "{flags}");
     assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
     Ok(())
 }
