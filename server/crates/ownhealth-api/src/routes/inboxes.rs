@@ -28,7 +28,7 @@
 //! not answer): a viewer is sent no more than before v1.0. A source token gets none of them and no
 //! `can_manage`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use axum::extract::{FromRequestParts, Path, Query, State};
@@ -694,7 +694,13 @@ async fn health_all(State(rt): State<Runtime>, who: HealthCaller, Query(q): Quer
     let rows = async {
         let mut conn = rt.pool.acquire().await?;
         match who {
-            HealthCaller::Person(c) => visible(&mut conn, &c).await,
+            HealthCaller::Person(c) => {
+                let rows = visible(&mut conn, &c).await?;
+                if known_format(&q) {
+                    audit_health(&mut conn, &c, "GET /api/inboxes/health", &rows).await?;
+                }
+                Ok::<_, ApiError>(rows)
+            }
             HealthCaller::Source(s) => Ok(sources::source_health(&mut conn, s.household_id)
                 .await?
                 .into_iter()
@@ -721,19 +727,29 @@ async fn health_one(
     let row = async {
         let id = Uuid::parse_str(&id).map_err(|_| ApiError::not_found())?;
         let mut conn = rt.pool.acquire().await?;
-        let rows = match who {
-            HealthCaller::Person(c) => visible(&mut conn, &c).await?,
+        let (rows, person) = match who {
+            HealthCaller::Person(c) => (visible(&mut conn, &c).await?, Some(c)),
             // a token answers for its own source only; another id is not found, not forbidden
-            HealthCaller::Source(s) if s.id == id => sources::source_health(&mut conn, s.household_id)
-                .await?
-                .into_iter()
-                .map(|h| (h, None))
-                .collect(),
-            HealthCaller::Source(_) => Vec::new(),
+            HealthCaller::Source(s) if s.id == id => (
+                sources::source_health(&mut conn, s.household_id)
+                    .await?
+                    .into_iter()
+                    .map(|h| (h, None))
+                    .collect(),
+                None,
+            ),
+            HealthCaller::Source(_) => (Vec::new(), None),
         };
-        rows.into_iter()
+        let row = rows
+            .into_iter()
             .find(|(h, _)| h.id == id)
-            .ok_or_else(ApiError::not_found)
+            .ok_or_else(ApiError::not_found)?;
+        if let Some(c) = person
+            && known_format(&q)
+        {
+            audit_health(&mut conn, &c, "GET /api/inboxes/{id}/health", std::slice::from_ref(&row)).await?;
+        }
+        Ok::<_, ApiError>(row)
     };
     match row.await {
         Ok(row) => {
@@ -742,6 +758,39 @@ async fn health_one(
         }
         Err(e) => e.into_response(),
     }
+}
+
+/// Whether [`answer`] knows the requested format (a 422 shows no source).
+fn known_format(q: &HealthQuery) -> bool {
+    matches!(q.format.as_deref(), None | Some("json" | "prometheus"))
+}
+
+/// A person's or agent's health read shows which sources a profile has, and a source's kind names a
+/// device, so a response that shows at least one source writes one read row per profile it shows (no
+/// profile for the household's own sources), naming those sources. A source's own token (the
+/// Prometheus scrape path) writes none (RUST-CONTRACTS.md section 3).
+async fn audit_health(
+    conn: &mut PgConnection,
+    caller: &Caller,
+    tool: &str,
+    rows: &[(SourceHealth, Option<bool>)],
+) -> Result<(), ApiError> {
+    let mut by_profile: BTreeMap<Option<Uuid>, Vec<String>> = BTreeMap::new();
+    for (h, _) in rows {
+        by_profile.entry(h.profile_id).or_default().push(h.id.to_string());
+    }
+    for (profile_id, ids) in by_profile {
+        let mut e = AuditEvent::new(caller.0.actor_kind(), "ui", "read");
+        e.actor_id = caller.0.user_id;
+        e.token_id = caller.0.token_id;
+        e.tool = Some(tool.into());
+        e.profile_id = profile_id;
+        e.resource_type = Some("source".into());
+        e.rows_out = i32::try_from(ids.len()).ok();
+        e.resource_ids = Some(ids);
+        write_audit(&mut *conn, &e).await?;
+    }
+    Ok(())
 }
 
 /// `json` as JSON, or `rows` as Prometheus text.

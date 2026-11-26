@@ -646,3 +646,66 @@ async fn a_run_where_every_item_failed_is_not_a_successful_sync() -> R {
     );
     Ok(())
 }
+
+/// The `read` rows `tool` wrote for `actor` (None: no actor), as (profile, source ids), sorted.
+async fn health_reads(env: &Env, tool: &str, actor: Option<Uuid>) -> anyhow::Result<Vec<(Option<Uuid>, Vec<String>)>> {
+    let mut rows: Vec<(Option<Uuid>, Vec<String>)> = sqlx::query_as(
+        "select profile_id, resource_ids from audit_event where action = 'read' and tool = $1 \
+         and actor_id is not distinct from $2",
+    )
+    .bind(tool)
+    .bind(actor)
+    .fetch_all(env.pool())
+    .await?;
+    rows.sort();
+    Ok(rows)
+}
+
+/// L-AUDITRULE (a): the health list tells a person which sources a profile has, and a source's kind
+/// names a device, so a response that shows a source writes one read row per profile it shows (and one
+/// with no profile for the household's own sources). The single row writes one for its profile. A
+/// source's own token, the Prometheus scrape path, writes none.
+#[tokio::test]
+async fn a_health_read_that_shows_a_source_writes_one_read_row_per_profile() -> R {
+    let env = Env::new(true).await?;
+    let ids = setup(&env).await?;
+    let alex = env.user("alex");
+    let mut c = env.as_user(alex).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let mut expected = vec![
+        (None, vec![ids.folder.to_string()]),
+        (Some(env.profile("alex")), vec![ids.alex_email.to_string()]),
+        (Some(env.profile("carmen")), vec![ids.carmen_nightscout.to_string()]),
+        (Some(env.profile("lucia")), vec![ids.lucia_hae.to_string()]),
+    ];
+    expected.sort();
+    assert_eq!(health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?, expected);
+    let r = c.get(&format!("/api/inboxes/{}/health", ids.alex_email)).await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/{id}/health", Some(alex)).await?,
+        [(Some(env.profile("alex")), vec![ids.alex_email.to_string()])]
+    );
+    // a source's own token reads its own health and writes nothing
+    let mut conn = env.pool().acquire().await?;
+    let token = sources::issue_token(&mut conn, ids.alex_email).await?;
+    let before: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(env.pool())
+        .await?;
+    let mut monitor = env.anon();
+    for path in [
+        "/api/inboxes/health?format=prometheus".to_string(),
+        format!("/api/inboxes/{}/health?format=prometheus", ids.alex_email),
+    ] {
+        let r = monitor
+            .send(Method::GET, &path, None, &[("authorization", &format!("Bearer {token}"))])
+            .await?;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+    }
+    let after: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(env.pool())
+        .await?;
+    assert_eq!(after, before, "the scrape path writes no row");
+    Ok(())
+}
