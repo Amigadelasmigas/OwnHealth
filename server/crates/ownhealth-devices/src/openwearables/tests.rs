@@ -2926,3 +2926,43 @@ async fn an_unreadable_day_starts_its_clock_even_when_a_later_store_fails() -> a
     );
     Ok(())
 }
+
+/// The same, on the first poll: the cursor holds no health of Polar yet when its day is stored and the
+/// WHOOP store fails. The commit that stores the Polar day writes Polar's health with the clock started.
+#[tokio::test]
+async fn an_unreadable_first_day_starts_its_clock_even_when_a_later_store_fails() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+        fake.rows.retain(|r| r["source"]["provider"] != "polar");
+        fake.scores.clear();
+        let mut bad = sample("raw", "polar", "heart_rate", 0., "bpm", Utc::now());
+        bad["value"] = json!("n/a");
+        fake.rows.push(bad);
+    }
+    sqlx::raw_sql(
+        "create function stop_whoop_mark() returns trigger language plpgsql as $$ begin \
+         if new.cursor #> '{providers,whoop}' is distinct from old.cursor #> '{providers,whoop}' \
+         then raise exception 'store refused'; end if; return new; end $$; \
+         create trigger stop_whoop_mark before update on source for each row execute function stop_whoop_mark();",
+    )
+    .execute(&env.ctx.pool)
+    .await?;
+    assert!(poll(&env.ctx, &env.base, id).await.is_err(), "the WHOOP day was stored");
+    let started = unreadable_since(&env, id, "polar").await?;
+    assert!(started.is_some(), "the first Polar day was stored without its clock");
+    sqlx::raw_sql("drop trigger stop_whoop_mark on source")
+        .execute(&env.ctx.pool)
+        .await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(
+        unreadable_since(&env, id, "polar").await?,
+        started,
+        "the retry lost or restarted the clock"
+    );
+    Ok(())
+}

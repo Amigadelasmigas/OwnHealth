@@ -783,7 +783,18 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
             };
             // Rows that do not read on days past the mark and no new usable row of the vendor yet: if this
             // day stores none either, its clock starts in the commit that moves the mark past these rows.
-            let unreadable_from = (unreadable_new > 0 && out.new == new_before).then_some(now);
+            // A vendor the cursor holds no health of yet gets it from this poll's report, as the end of
+            // the poll would write it.
+            let unreadable_start = connections
+                .get(provider)
+                .filter(|_| unreadable_new > 0 && out.new == new_before)
+                .map(|report| ConnectionHealth {
+                    seen_since: report.last_synced_at.is_none().then_some(now),
+                    failing_since: None,
+                    unreadable_since: Some(now),
+                    observed_at: Some(now),
+                    ..*report
+                });
             let Some(next) = store_day(
                 ctx,
                 source,
@@ -792,7 +803,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                 provider,
                 to,
                 bundle,
-                unreadable_from,
+                unreadable_start,
                 &mut out,
             )
             .await?
@@ -971,8 +982,9 @@ async fn lock_live_binding(
 }
 
 /// Store one vendor's day and move its cursor to `to`, in one transaction. None when the binding
-/// changed since the poll read it: nothing is written then. `unreadable_from` starts the vendor's clock
-/// for rows that do not read, if it is not running, when the day stores no new usable row.
+/// changed since the poll read it: nothing is written then. `unreadable_start` starts the vendor's clock
+/// for rows that do not read, if it is not running, when the day stores no new usable row; it is the
+/// vendor's whole health when the cursor holds none yet.
 #[allow(clippy::too_many_arguments)]
 async fn store_day(
     ctx: &JobContext,
@@ -982,7 +994,7 @@ async fn store_day(
     provider: &str,
     to: DateTime<Utc>,
     bundle: Bundle,
-    unreadable_from: Option<DateTime<Utc>>,
+    unreadable_start: Option<ConnectionHealth>,
     out: &mut RunOutcome,
 ) -> Result<Option<Value>> {
     let mut tx = ctx.pool.begin().await?;
@@ -999,6 +1011,7 @@ async fn store_day(
     // A new usable row ends the vendor's clock for rows that do not read, and a day past the mark with
     // only such rows starts it, in the commit that moves the mark: if a later day of this poll fails,
     // the next poll reads these rows again as known.
+    let unreadable_start = unreadable_start.filter(|_| out.new == new_before);
     if let Some(health) = next
         .get_mut(gaps::CURSOR_KEY)
         .and_then(|c| c.get_mut(provider))
@@ -1006,11 +1019,18 @@ async fn store_day(
     {
         if out.new > new_before {
             health.shift_remove("unreadable_since");
-        } else if let Some(at) = unreadable_from
+        } else if let Some(start) = unreadable_start
             && health.get("unreadable_since").is_none_or(Value::is_null)
         {
-            health.insert("unreadable_since".into(), json!(at));
+            health.insert("unreadable_since".into(), json!(start.unreadable_since));
         }
+    } else if let Some(start) = unreadable_start
+        && let Some(observed) = next
+            .as_object_mut()
+            .map(|c| c.entry(gaps::CURSOR_KEY).or_insert_with(|| json!({})))
+            .and_then(Value::as_object_mut)
+    {
+        observed.insert(provider.into(), json!(start));
     }
     sqlx::query("update source set cursor = $2 where id = $1")
         .bind(source)
