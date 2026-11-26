@@ -172,26 +172,26 @@ const ALLOWED: &[(&str, &str)] = &[
     // which `text_tables` below checks against the registry
     (
         "ownhealth-core/src/family.rs",
-        r#"[("es", &self.es), ("en", &self.en)]"#,
+        r#"let es_en = [("es", &self.es), ("en", &self.en)];"#,
     ),
     (
         "ownhealth-core/src/family.rs",
-        r#"[("es", &self.short_es), ("en", &self.short_en)]"#,
+        r#"let es_en = [("es", &self.short_es), ("en", &self.short_en)];"#,
     ),
     (
         "ownhealth-normalize/src/tables.rs",
-        r#"[("es", &self.name_es), ("en", &self.name_en)]"#,
+        r#"let es_en = [("es", &self.name_es), ("en", &self.name_en)];"#,
     ),
     (
         "ownhealth-ingest-structured/src/wearables.rs",
-        r#"[("es", &self.label_es), ("en", &self.label_en)]"#,
+        r#"let es_en = [("es", &self.label_es), ("en", &self.label_en)];"#,
     ),
     // the FHIR text we store is English whatever the reader's language (`fhir_text`)
     ("ownhealth-core/src/family.rs", "&self.en"),
     // the vaccine names as `vaccines.tsv` holds them, checked by `prevention::missing_langs`
     (
         "ownhealth-rules/src/prevention.rs",
-        r#"name: json!({"en": label_en.trim(), "es": label_es.trim()}),"#,
+        r#"let mut name = json!({"en": label_en.trim(), "es": label_es.trim()});"#,
     ),
     // English-only phrase lists for the wording lint, never shown in a language
     (

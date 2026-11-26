@@ -95,10 +95,19 @@ pub struct Catalog {
     pub conditions: Vec<ConditionKind>,
 }
 
+/// `(code, text)` rows for `langs::pick`: es and en, then the other languages the catalog carries.
+fn rows<'a>(
+    es_en: [(&'static str, &'a String); 2],
+    more: &[(&'static str, &'a String)],
+) -> Vec<(&'static str, &'a str)> {
+    es_en.iter().chain(more).map(|(l, t)| (*l, t.as_str())).collect()
+}
+
 impl Relationship {
     /// The name in each language the catalog carries, for `langs::pick`.
-    pub fn names(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.es), ("en", &self.en)]
+    pub fn names(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.es), ("en", &self.en)];
+        rows(es_en, &[])
     }
 
     /// The `text` of the FHIR relationship we store: English, whatever language the person reads.
@@ -109,13 +118,15 @@ impl Relationship {
 
 impl ConditionKind {
     /// The name in each language the catalog carries, for `langs::pick`.
-    pub fn names(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.es), ("en", &self.en)]
+    pub fn names(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.es), ("en", &self.en)];
+        rows(es_en, &[])
     }
 
     /// The short name (the pedigree's label) in each language, for `langs::pick`.
-    pub fn shorts(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.short_es), ("en", &self.short_en)]
+    pub fn shorts(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.short_es), ("en", &self.short_en)];
+        rows(es_en, &[])
     }
 
     /// The `text` of the FHIR condition we store: English, whatever language the person reads.

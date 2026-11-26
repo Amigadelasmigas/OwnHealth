@@ -9,6 +9,10 @@
 //! aliases/specimen_twins.tsv  the same analyte in another specimen (creatinine in urine ...)
 //! molar/molar_mass.tsv        molar mass and valence per alias_group, cited
 //! ```
+//!
+//! The analyte names in the registry languages beyond es and en live in `data/names/analytes.tsv`,
+//! outside `terminology/`: a translation is display text and leaves `tables_hash` (and with it every
+//! derivation version) as it is.
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -79,24 +83,73 @@ pub struct Group {
 }
 
 impl Group {
-    /// The analyte's name in each language the table carries, for `langs::pick`.
-    pub fn names(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.name_es), ("en", &self.name_en)]
+    /// The analyte's name in each language `groups.tsv` and `names/analytes.tsv` carry, for
+    /// `langs::pick`.
+    pub fn names(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.name_es), ("en", &self.name_en)];
+        let more = MORE_NAMES.get(&self.alias_group).map_or(&[][..], Vec::as_slice);
+        es_en
+            .into_iter()
+            .map(|(l, t)| (l, t.as_str()))
+            .chain(more.iter().map(|(l, t)| (*l, t.as_str())))
+            .collect()
     }
 }
 
-/// The registry languages the analyte names lack: the table's columns are `name_es` and `name_en`,
-/// so a registry language beyond them is named here (`tests/langs.rs`).
-pub fn missing_langs(langs: &[&str]) -> Vec<String> {
-    let have: Vec<&str> = groups()
-        .values()
+/// `names/analytes.tsv`: one row per alias group, one column per registry language beyond es and en
+/// (`alias_group`, then the language codes).
+const NAMES_TSV: &str = include_str!("../../../../data/names/analytes.tsv");
+
+/// The names of [`NAMES_TSV`] by alias group; a column whose header is not a known locale is left out.
+static MORE_NAMES: LazyLock<HashMap<String, Vec<(&'static str, String)>>> = LazyLock::new(|| {
+    let mut lines = NAMES_TSV
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty());
+    let header: Vec<Option<&'static str>> = lines
         .next()
-        .map(|g| g.names().iter().map(|(c, _)| *c).collect())
-        .unwrap_or_default();
-    ownhealth_core::langs::missing(&have, langs)
-        .into_iter()
-        .map(|l| format!("analyte names have no `name_{l}` column"))
+        .unwrap_or_default()
+        .split('\t')
+        .map(|h| ownhealth_core::langs::LOCALES.iter().copied().find(|l| *l == h.trim()))
+        .collect();
+    lines
+        .map(|line| {
+            let cells: Vec<&str> = line.split('\t').collect();
+            let names = header
+                .iter()
+                .zip(&cells)
+                .filter_map(|(l, c)| l.map(|l| (l, c.trim().to_string())))
+                .collect();
+            (cells[0].trim().to_string(), names)
+        })
         .collect()
+});
+
+/// The registry languages the analyte names lack: `groups.tsv` has `name_es` and `name_en`, and
+/// `names/analytes.tsv` one column per other language, so a registry language without its column, or
+/// a group without its name, is named here (`tests/langs.rs`). A row for a group `groups.tsv` lacks is
+/// named too.
+pub fn missing_langs(langs: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for l in langs {
+        let lacking: Vec<&str> = groups()
+            .values()
+            .filter(|g| !g.names().iter().any(|(c, t)| c == l && !t.trim().is_empty()))
+            .map(|g| g.alias_group.as_str())
+            .collect();
+        if lacking.len() == groups().len() {
+            out.push(format!("analyte names have no `{l}` column"));
+        } else {
+            out.extend(lacking.iter().map(|g| format!("analyte {g} has no `{l}` name")));
+        }
+    }
+    let mut unknown: Vec<&String> = MORE_NAMES.keys().filter(|g| !groups().contains_key(*g)).collect();
+    unknown.sort();
+    out.extend(
+        unknown
+            .into_iter()
+            .map(|g| format!("names/analytes.tsv names an unknown group {g}")),
+    );
+    out
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

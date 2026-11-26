@@ -8,6 +8,7 @@ data/*
 !data/family
 !data/genome-facts
 !data/genome
+!data/names
 !data/prevention
 !data/rules
 !data/summary

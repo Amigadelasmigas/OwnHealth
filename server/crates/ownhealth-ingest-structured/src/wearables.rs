@@ -40,23 +40,33 @@ pub struct Metric {
     pub daily: bool,
     pub label_en: String,
     pub label_es: String,
+    /// The label in the registry languages beyond es and en ([`LABELS`]).
+    pub more: &'static [(&'static str, &'static str)],
 }
 
 impl Metric {
-    /// The label in each language [`METRICS`] carries, for `langs::pick`.
-    pub fn labels(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.label_es), ("en", &self.label_en)]
+    /// The label in each language [`METRICS`] and [`LABELS`] carry, for `langs::pick`.
+    pub fn labels(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.label_es), ("en", &self.label_en)];
+        es_en
+            .into_iter()
+            .map(|(l, t)| (l, t.as_str()))
+            .chain(self.more.iter().copied())
+            .collect()
     }
 }
 
-/// The registry languages the metric labels and the left-out line lack: [`METRICS`] carries es and
-/// en, so a registry language beyond them is named here (`tests/langs.rs`).
+/// The registry languages a metric label or the left-out line lacks: [`METRICS`] carries es and en,
+/// [`LABELS`] the rest, so a registry language without its label is named here (`tests/langs.rs`).
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {
-    let mut out: Vec<String> =
-        ownhealth_core::langs::missing(&ownhealth_core::langs::codes(&metric("steps").labels()), langs)
-            .into_iter()
-            .map(|l| format!("wearable metric labels have no `{l}` text"))
-            .collect();
+    let mut out: Vec<String> = METRICS
+        .iter()
+        .flat_map(|m| {
+            ownhealth_core::langs::missing(&ownhealth_core::langs::codes(&metric(m.0).labels()), langs)
+                .into_iter()
+                .map(move |l| format!("wearable metric {} has no `{l}` label", m.0))
+        })
+        .collect();
     out.extend(
         ownhealth_core::langs::missing(&ownhealth_core::langs::codes(LEFT_OUT), langs)
             .into_iter()
@@ -135,6 +145,26 @@ pub const METRICS: [Spec; 16] = [
     ("glucose_cgm", "mg/dL", "mean", false, "Glucose (CGM)", "Glucosa (MCG)"),
 ];
 
+/// The label of each metric of [`METRICS`] in the registry languages beyond es and en.
+const LABELS: &[(&str, &[(&str, &str)])] = &[
+    ("steps", &[]),
+    ("hr", &[]),
+    ("hr_resting", &[]),
+    ("hrv_sdnn", &[]),
+    ("hrv_rmssd", &[]),
+    ("vo2max", &[]),
+    ("spo2", &[]),
+    ("resp_rate", &[]),
+    ("weight", &[]),
+    ("bp_systolic", &[]),
+    ("bp_diastolic", &[]),
+    ("active_energy", &[]),
+    ("distance", &[]),
+    ("sleep_asleep", &[]),
+    ("sleep_in_bed", &[]),
+    ("glucose_cgm", &[]),
+];
+
 pub const SLEEP_METRICS: [&str; 2] = ["sleep_asleep", "sleep_in_bed"];
 
 pub fn daily_metrics() -> Vec<String> {
@@ -151,6 +181,7 @@ pub fn metric(key: &str) -> Metric {
             daily,
             label_en: en.into(),
             label_es: es.into(),
+            more: LABELS.iter().find(|(k, _)| *k == key).map_or(&[], |(_, l)| *l),
         },
         None => Metric {
             key: key.into(),
@@ -159,6 +190,7 @@ pub fn metric(key: &str) -> Metric {
             daily: false,
             label_en: key.into(),
             label_es: key.into(),
+            more: &[],
         },
     }
 }
