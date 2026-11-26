@@ -88,8 +88,13 @@ test('the gap letter offers every registry language by its code', async ({ page 
 
 // Longer words must not push text out of its card: the glance card header, the biomarker list, the
 // buttons of a due item and the header picker, in every language, on a desktop and on a phone. On the
-// phone the picker also keeps the beta tag visible, since a touch screen shows no tooltip.
+// phone the picker also keeps the beta tag visible, since a touch screen shows no tooltip. A tablet
+// keeps a search field wide enough to type in.
 const DESKTOP = { width: 1440, height: 900 };
+const TABLETS = [
+	{ width: 768, height: 1024 },
+	{ width: 1024, height: 768 }
+];
 const PHONE = { width: 390, height: 844 };
 
 for (const l of LANGS) {
@@ -113,6 +118,12 @@ for (const l of LANGS) {
 		await expect(list).toBeVisible();
 		const { scroll, client } = await list.evaluate((e) => ({ scroll: e.scrollWidth, client: e.clientWidth }));
 		if (scroll > client + 1) out.push(`biomarkers: the list is ${scroll} px wide in a ${client} px card`);
+		// the picker once left the search 4 px wide on an iPad held upright
+		for (const vp of TABLETS) {
+			await page.setViewportSize(vp);
+			const w = await page.locator('header.top .search input').evaluate((e) => Math.round(e.getBoundingClientRect().width));
+			if (w < 120) out.push(`tablet ${vp.width}: the search is ${w} px wide`);
+		}
 
 		await page.setViewportSize(PHONE);
 		await page.goto(`/due?lang=${l.code}`);
@@ -162,3 +173,19 @@ for (const l of LANGS) {
 		expect(out).toEqual([]);
 	});
 }
+
+// The picker clips whatever spills past its rounded border, so a button's focus ring is drawn inside
+// the button, where the clip cannot cut its top and bottom off.
+test('the focus ring of a picker button is drawn whole', async ({ page }) => {
+	await page.goto('/?lang=en');
+	await expect(page.locator('.sc').first()).toBeVisible();
+	const picker = page.locator('header .seg[role=group]');
+	for (let i = 0; i < 100 && !(await picker.evaluate((g) => g.contains(document.activeElement))); i++) await page.keyboard.press('Tab');
+	const ring = await picker.evaluate((g) => {
+		const b = document.activeElement as HTMLElement;
+		const st = getComputedStyle(b);
+		return { inPicker: g.contains(b), focusVisible: b.matches(':focus-visible'), style: st.outlineStyle, reach: parseFloat(st.outlineOffset) + parseFloat(st.outlineWidth) };
+	});
+	expect(ring).toMatchObject({ inPicker: true, focusVisible: true, style: 'solid' });
+	expect(ring.reach).toBeLessThanOrEqual(0);
+});
