@@ -434,7 +434,7 @@ If your old Compose file mounted `./keyring` directly, stop the old project befo
 
 **The secrets key (from 1.0).** OwnHealth now encrypts each profile's documents and genome files, so every command except `migrate` and `healthcheck` refuses to start without `OWNHEALTH_SECRETS_KEY` and prints one line that says how to make one. Keep the key you have: it already encrypts your inbox secrets, and a new one would lock them.
 
-- Homelab: the new `compose.homelab.yaml` gives `secrets/secrets_key` to `admin` and `ocr` as well as the app (backups and restores open the encrypted files). The file exists since 0.3.0, so take the new compose file and nothing else changes.
+- Homelab: the new `compose.homelab.yaml` gives `secrets/secrets_key` to `admin` and `ocr` as well as the app (backups and restores open the encrypted files). The file exists since 0.3.0, so on an upgrade from 0.3.0 or later take the new compose file and nothing else changes. On a direct upgrade from 0.2.0 or earlier, run the steps below first, next to `compose.homelab.yaml`: they keep a key file you already have, move the key from `.env` when there is no file, and make a new key only when neither has one.
 - Quickstart (`compose.yaml`): the key now comes from the file `secrets/secrets_key`, never from `.env`. These steps keep a key file you already have, move the value from `.env` when there is no file, and make a new key only when neither has one. Then delete the `OWNHEALTH_SECRETS_KEY=` line from `.env`:
 
 ```sh
