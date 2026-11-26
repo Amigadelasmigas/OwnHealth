@@ -628,7 +628,11 @@ async fn test_the_dashboard_counts_only_the_review_items_the_reader_sees() -> R 
     let (s, listed) = a.get("alex", "/review?profile=alex").await?;
     assert_eq!(s, StatusCode::OK, "{listed}");
     assert_eq!(listed["open"], json!(5));
-    assert_eq!(dashboard("alex").await?, listed["open"], "the dashboard and the list disagree");
+    assert_eq!(
+        dashboard("alex").await?,
+        listed["open"],
+        "the dashboard and the list disagree"
+    );
     // positive control: a lab row Alex may read on Carmen counts
     item(&a, "carmen", "candidate_row", None, json!({})).await?;
     assert_eq!(dashboard("carmen").await?, json!(2));

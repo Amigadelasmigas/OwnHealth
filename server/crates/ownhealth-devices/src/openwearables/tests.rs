@@ -2463,7 +2463,11 @@ async fn new_rows_that_do_not_read_start_the_clock_after_good_days() -> anyhow::
     let bad = {
         let mut fake = env.fake();
         fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
-        let i = fake.rows.iter().position(|r| r["source"]["provider"] == "whoop").expect("whoop");
+        let i = fake
+            .rows
+            .iter()
+            .position(|r| r["source"]["provider"] == "whoop")
+            .expect("whoop");
         let mut good = fake.rows.remove(i);
         let mut bad = good.clone();
         good["timestamp"] = json!(now - Duration::days(3));
@@ -2499,7 +2503,11 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     {
         let mut fake = env.fake();
         fake.connections = json!([["whoop", "active", now]]);
-        let i = fake.rows.iter().position(|r| r["source"]["provider"] == "whoop").expect("whoop");
+        let i = fake
+            .rows
+            .iter()
+            .position(|r| r["source"]["provider"] == "whoop")
+            .expect("whoop");
         let base = fake.rows.remove(i);
         for d in [6i64, 5, 4, 3, 2, 1] {
             let mut bad = base.clone();
@@ -2518,7 +2526,10 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     let _ = poll(&env.ctx, &env.base, id).await;
     assert!(env.mark(id, "whoop").await? > first, "whoop moved over more days");
     let kept = failing_since(&env, id, "whoop").await?;
-    assert!(same(kept), "a move over rows that do not read reset the clock: {kept:?}");
+    assert!(
+        same(kept),
+        "a move over rows that do not read reset the clock: {kept:?}"
+    );
     env.fake().fail_from = None;
     env.fake().connections = json!([["whoop", "active", Utc::now()]]);
     let _ = poll(&env.ctx, &env.base, id).await;
