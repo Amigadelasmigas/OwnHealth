@@ -1066,7 +1066,8 @@ async fn a_backup_cannot_carry_a_keyring_reached_through_a_parent_directory() ->
     fs::create_dir(l.dir.path().join("other"))?;
     let mut settings = l.settings.clone();
     settings.keyring_dir = Some(l.dir.path().join("other/../retry/keys"));
-    assert!(ownhealth_ops::backup(&settings, &dest).await.is_err());
+    let err = err_text(ownhealth_ops::backup(&settings, &dest).await);
+    assert!(err.contains("is inside the backup folder"), "{err}");
     assert!(fs::read_dir(dest)?.next().is_none());
     Ok(())
 }
@@ -1186,6 +1187,85 @@ async fn round_seven_restore_refuses_a_reused_blob_store_before_loading() -> R {
     Ok(())
 }
 
+/// One of Alex's sealed documents (not the plain legacy report) and its bytes.
+async fn alex_sealed_document(l: &Live) -> anyhow::Result<(String, Vec<u8>)> {
+    let legacy_sha = hex::encode(sha2::Sha256::digest(&l.legacy));
+    let sha: String = sqlx::query_scalar(
+        "select encode(blob_sha256, 'hex') from document \
+         where profile_id = $1 and encode(blob_sha256, 'hex') <> $2 order by id limit 1",
+    )
+    .bind(l.alex)
+    .bind(legacy_sha)
+    .fetch_one(&l.db.pool)
+    .await?;
+    let bytes = BlobStore::for_settings(&l.settings)?.get_bytes(BlobOwner::Profile(l.alex), &sha)?;
+    Ok((sha, bytes))
+}
+
+/// A copy of a file a restore accepted as lost that no longer opens (damaged on disk): the backup
+/// keeps the loss, leaves the damaged copy out, and never lists the file as required. Before, it
+/// required the damaged copy, and verify-restore passed it on the hash of its bytes.
+#[tokio::test]
+async fn a_damaged_copy_of_an_accepted_loss_stays_an_omission() -> R {
+    use ownhealth_core::keyfile;
+
+    let l = live().await?;
+    let owner = BlobOwner::Profile(l.alex);
+    let (sha, bytes) = alex_sealed_document(&l).await?;
+    let mut ring = keyfile::read(&keyfile::path(&l.settings))?.expect("backup wrote the keyring");
+    assert!(ring.profiles.remove(&l.alex).is_some());
+    keyfile::write(&l.settings.keyring_path(), &ring)?;
+    let (_db, settings) = fresh(&l).await?;
+    ownhealth_ops::restore_with(&settings, &l.archive, true).await?;
+    assert!(read_restore_losses(&settings)?[&l.alex].contains(&sha));
+
+    let store = BlobStore::for_settings(&settings)?;
+    assert_eq!(store.put_bytes(owner, &bytes)?, sha);
+    let key = store.key_of(owner, &sha)?;
+    assert!(key.contains('/'), "the copy is sealed: {key}");
+    flip_last_byte(&tree_files(&settings.blobs_path())?[&key])?;
+
+    let dest = l.dir.path().join("damaged-copy");
+    ownhealth_ops::backup(&settings, &dest).await?;
+    let m = manifest(&dest)?;
+    assert!(!strs(&m["blobs"]["referenced"]).contains(&key), "{m:#}");
+    assert!(!sealed_keys(&m).contains(&key), "{m:#}");
+    assert!(!tree(&dest)?.contains_key(&key));
+    assert!(
+        strs(&m["blobs"]["accepted_omissions"][l.alex.to_string()]).contains(&sha),
+        "{m:#}"
+    );
+    assert!(read_restore_losses(&settings)?[&l.alex].contains(&sha));
+    let report = verify_restore(&settings, &dest).await?;
+    assert_eq!(report["ok"], true, "{report:#}");
+    Ok(())
+}
+
+/// A sealed file damaged on the live disk before the backup: the manifest hashed its bytes as they
+/// were, so the hash matches, but the file no longer opens. verify-restore and restore open every
+/// sealed file they have the key for, and report it as corrupt.
+#[tokio::test]
+async fn a_sealed_file_damaged_before_the_backup_fails_the_check() -> R {
+    let l = live().await?;
+    let owner = BlobOwner::Profile(l.alex);
+    let (sha, _) = alex_sealed_document(&l).await?;
+    let key = BlobStore::for_settings(&l.settings)?.key_of(owner, &sha)?;
+    assert!(key.contains('/'), "the file is sealed: {key}");
+    flip_last_byte(&tree_files(&l.settings.blobs_path())?[&key])?;
+
+    let dest = l.dir.path().join("damaged");
+    ownhealth_ops::backup(&l.settings, &dest).await?;
+    let report = verify_restore(&l.settings, &dest).await?;
+    assert_eq!(report["ok"], false, "{report:#}");
+    assert_eq!(strs(&report["blobs"]["corrupt"]), [key.as_str()], "{report:#}");
+
+    let (_db, fresh) = fresh(&l).await?;
+    let restored = ownhealth_ops::restore(&fresh, &dest).await?;
+    assert_eq!(restored["ok"], false, "{restored:#}");
+    assert_eq!(strs(&restored["blobs"]["corrupt"]), [key.as_str()], "{restored:#}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_backup_requires_a_repaired_file_if_it_goes_missing_again() -> R {
     use ownhealth_core::keyfile;
@@ -1278,6 +1358,60 @@ async fn a_partial_restore_can_retry_after_the_loss_record_write_fails() -> R {
         .fetch_one(&db.pool)
         .await?;
     assert!(!pending);
+    Ok(())
+}
+
+/// A backup holds the audit anchor lock from before it reads the accepted losses until after its
+/// snapshot. A restore records its losses only once it holds that lock too, so no loss lands between
+/// the backup's read and its snapshot, where the manifest would ask for a file whose key the restore
+/// lacked.
+#[tokio::test]
+async fn a_restore_records_its_losses_only_once_no_backup_holds_the_anchor_lock() -> R {
+    use ownhealth_core::keyfile;
+    use sqlx::Connection;
+    use std::time::Duration;
+
+    let l = live().await?;
+    let mut ring = keyfile::read_for_install(&l.settings)?.expect("backup wrote the keyring");
+    assert!(ring.profiles.remove(&l.alex).is_some());
+    keyfile::write(&l.settings.keyring_path(), &ring)?;
+    let (db, settings) = fresh(&l).await?;
+    // a backup of the restore's database, between its loss read and its snapshot
+    let mut backup = sqlx::PgConnection::connect(&settings.sqlx_url()).await?;
+    sqlx::query("select pg_catalog.pg_advisory_lock(pg_catalog.hashtext('ownhealth.audit_anchor'))")
+        .execute(&mut backup)
+        .await?;
+    let mut restore = Box::pin(ownhealth_ops::restore_with(&settings, &l.archive, true));
+    let waiting = async {
+        loop {
+            let waits: i64 = sqlx::query_scalar(
+                "select count(*) from pg_locks l join pg_database d on d.oid = l.database \
+                 where l.locktype = 'advisory' and not l.granted and d.datname = current_database()",
+            )
+            .fetch_one(&db.pool)
+            .await?;
+            if waits > 0 {
+                return anyhow::Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore did not wait for the anchor lock: {done:?}"),
+        waited = tokio::time::timeout(Duration::from_secs(120), waiting) => waited??,
+    }
+    assert!(
+        read_restore_losses(&settings)?.is_empty(),
+        "the restore recorded its losses while a backup held the anchor lock"
+    );
+    backup.close().await?;
+    let report = tokio::time::timeout(Duration::from_secs(120), restore).await??;
+    assert_eq!(report["ok"], true, "{report:#}");
+    assert!(
+        read_restore_losses(&settings)?
+            .get(&l.alex)
+            .is_some_and(|lost| !lost.is_empty())
+    );
     Ok(())
 }
 
@@ -1448,29 +1582,37 @@ async fn a_damaged_present_key_is_rejected_before_restore_even_with_allow_missin
 
 #[tokio::test]
 async fn restore_waits_for_the_shared_keyring_before_selecting_keys() -> R {
-    use ownhealth_core::keyfile;
+    use ownhealth_core::{keyfile, testing::keyring_waits};
     use std::time::Duration;
 
     let l = live().await?;
     let (db, fresh) = fresh(&l).await?;
+    let lock_path = l.settings.keyring_path().join(".keyring.lock");
     let lock = fs::File::options()
         .write(true)
         .create(true)
         .truncate(false)
-        .open(l.settings.keyring_path().join(".keyring.lock"))?;
+        .open(&lock_path)?;
     lock.try_lock()?;
+    let waits = keyring_waits(&lock_path);
     let mut restore = Box::pin(ownhealth_ops::restore(&fresh, &l.archive));
-    let while_locked = tokio::time::timeout(Duration::from_secs(2), &mut restore).await;
+    // The keyring changes only once the restore is blocked on its lock, however slow the machine.
+    let blocked = async {
+        while keyring_waits(&lock_path) == waits {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore did not wait for the keyring lock: {done:?}"),
+        waited = tokio::time::timeout(Duration::from_secs(60), blocked) => waited?,
+    }
 
     let mut ring = keyfile::read(&keyfile::path(&l.settings))?.unwrap_or_default();
     assert!(ring.profiles.remove(&l.alex).is_some());
     ring.shredded.insert(l.alex);
     keyfile::write(&l.settings.keyring_path(), &ring)?;
     drop(lock);
-    let report = match while_locked {
-        Ok(done) => done?,
-        Err(_) => tokio::time::timeout(Duration::from_secs(30), restore).await??,
-    };
+    let report = tokio::time::timeout(Duration::from_secs(60), restore).await??;
     assert_eq!(report["keys"]["shredded"], serde_json::json!([l.alex]), "{report:#}");
     let row: bool = sqlx::query_scalar("select wrapped_dek is null from profile_key where profile_id = $1")
         .bind(l.alex)

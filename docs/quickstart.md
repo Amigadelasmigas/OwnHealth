@@ -24,7 +24,7 @@ mkdir -p -m 700 keyring/ownhealth && sudo chown 10001:10001 keyring/ownhealth   
 docker compose up -d
 ```
 
-`keyring/ownhealth/keyring.json` holds every profile's key, and backups do not hold them. Keep exactly one copy of it off the machine, never versioned, and overwrite it after each backup and each profile delete. Without it, you can restore the records, and files encrypted with missing profile keys stay unreadable. [deploy/README.md](https://github.com/GeiserX/OwnHealth/blob/main/deploy/README.md) explains why under "The keyring".
+`keyring/ownhealth/keyring.json` holds every profile's key, and backups do not hold them. Keep exactly one copy of it off the machine, never versioned, and overwrite it after each backup that succeeds. After a profile delete, overwrite the copy only after the next backup succeeds, so the copy never holds the deleted key. Without it, you can restore the records, and files encrypted with missing profile keys stay unreadable. [deploy/README.md](https://github.com/GeiserX/OwnHealth/blob/main/deploy/README.md) explains why under "The keyring".
 
 The app moves each file it imports from `inbox/` to `inbox/.done/`. If it cannot write there, the folder inbox shows as failing.
 
