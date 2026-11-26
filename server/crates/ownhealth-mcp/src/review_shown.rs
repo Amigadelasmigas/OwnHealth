@@ -76,12 +76,15 @@ pub fn visible(item: &ReviewItem, perm: &Permission) -> bool {
     {
         return false;
     }
-    let record = p.get("record").and_then(Value::as_object);
-    if let Some(record) = record
-        && (!perm.has("read:records")
-            || (is_truthy(record.get("sensitivity")) && !perm.may_read_sensitive("read:records")))
-    {
-        return false;
+    // a FHIR import's held record, or a held relative (`member`), which the family list shows only
+    // with read:records, and a relative with a sensitivity tag only with read:sensitive too
+    for held in ["record", "member"] {
+        if let Some(held) = p.get(held).and_then(Value::as_object)
+            && (!perm.has("read:records")
+                || (is_truthy(held.get("sensitivity")) && !perm.may_read_sensitive("read:records")))
+        {
+            return false;
+        }
     }
     observations.iter().all(|o| {
         let category = o.get("category").and_then(Value::as_str).filter(|c| !c.is_empty());

@@ -1423,3 +1423,38 @@ async fn test_a_structured_import_that_failed_before_its_document_needs_read_rec
     );
     Ok(())
 }
+
+/// U7-FAMILYMEMBER: a held relative (a FamilyMemberHistory under `payload.member`) shows on the family
+/// list's terms: read:records, and read:sensitive too for a relative with a sensitivity tag.
+#[tokio::test]
+async fn test_a_held_relative_shows_only_with_read_records_and_read_sensitive() -> R {
+    let a = app().await?;
+    let carmen = a.family.profile("carmen");
+    let held = |sensitivity: &[&str]| {
+        json!({"projection": "family_member", "resource_type": "FamilyMemberHistory",
+               "json_pointer": "/entry/0/resource", "src": {"import_ref": "familia#1"},
+               "member": {"profile_id": carmen, "relationship": "mother", "display_name": "Madre de Carmen",
+                          "deceased": false, "conditions": [], "sensitivity": sensitivity}})
+    };
+    let plain = item(&a, "carmen", "fhir_unmapped", Some(held(&[])), json!({})).await?;
+    let tagged = item(&a, "carmen", "fhir_unmapped", Some(held(&["mental_health"])), json!({})).await?;
+    let ids = [plain, tagged];
+    assert_eq!(
+        alex_opens(&a, &["read:summary", "read:labs"], &ids).await?.0,
+        Vec::<Uuid>::new(),
+        "labs only"
+    );
+    assert_eq!(
+        alex_opens(&a, &["read:summary", "read:records"], &ids).await?.0,
+        [plain],
+        "records"
+    );
+    assert_eq!(
+        alex_opens(&a, &["read:summary", "read:records", "read:sensitive"], &ids)
+            .await?
+            .0,
+        ids,
+        "records and read:sensitive"
+    );
+    Ok(())
+}
