@@ -43,9 +43,13 @@ pub fn visible(item: &ReviewItem, perm: &Permission) -> bool {
     if item.kind == ownhealth_imaging::import::REVIEW_KIND && !perm.has("read:records") {
         return false;
     }
-    // a failed DICOM import's error can name the upload and its studies, as its job details do
+    // a failed import's error can name the upload, as its job details do: a DICOM import's (and its
+    // studies), and a structured import's that failed before its document existed, whose upload
+    // `GET /api/jobs` names only with read:records on the profile
     if item.kind == "job_failed"
-        && item.payload.get("kind").and_then(Value::as_str) == Some(ownhealth_imaging::import::JOB)
+        && let Some(job) = item.payload.get("kind").and_then(Value::as_str)
+        && (job == ownhealth_imaging::import::JOB
+            || (item.document_id.is_none() && ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS.contains(&job)))
         && !perm.has("read:records")
     {
         return false;

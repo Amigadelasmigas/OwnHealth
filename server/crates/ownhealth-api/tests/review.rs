@@ -1376,3 +1376,50 @@ async fn test_a_review_scan_reaches_every_open_row_when_one_closes_between_batch
     assert!(scan.next(&mut conn).await?.is_empty());
     Ok(())
 }
+
+/// Which of `ids` Alex may open on Carmen's profile with `grant`, by `GET /review/{id}`, and the
+/// review list's `open` total for Carmen.
+async fn alex_opens(a: &App, grant: &[&str], ids: &[Uuid]) -> anyhow::Result<(Vec<Uuid>, Value)> {
+    alex_on_carmen(a, grant).await?;
+    let mut opened = Vec::new();
+    for id in ids {
+        if a.get("alex", &format!("/review/{id}")).await?.0 == StatusCode::OK {
+            opened.push(*id);
+        }
+    }
+    let (s, listed) = a.get("alex", "/review?profile=carmen").await?;
+    assert_eq!(s, StatusCode::OK, "{listed}");
+    let in_list: Vec<Uuid> = listed["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["id"].as_str().and_then(|id| Uuid::parse_str(id).ok()))
+        .filter(|id| ids.contains(id))
+        .collect();
+    assert_eq!(in_list, opened, "the list shows what the item route opens");
+    Ok((opened, listed["open"].clone()))
+}
+
+/// U7-IMPORTFAIL: a structured import that failed before its document existed keeps the upload's name
+/// in its error. `GET /api/jobs` shows that error only with read:records on the job's profile, so the
+/// review item shows on the same terms, in the list, its `open` total and the item route.
+#[tokio::test]
+async fn test_a_structured_import_that_failed_before_its_document_needs_read_records() -> R {
+    let a = app().await?;
+    let mut ids = Vec::new();
+    for kind in ["import.fhir_bundle", "import.apple_health", "import.ccda"] {
+        let payload = json!({"job_id": 1, "kind": kind, "attempts": 3, "payload_document_id": null,
+                             "error": "historia_carmen.json: the uploaded file is not in the blob store"});
+        ids.push(item(&a, "carmen", "job_failed", Some(payload), json!({})).await?);
+    }
+    let (opened, labs_open) = alex_opens(&a, &["read:summary", "read:labs"], &ids).await?;
+    assert_eq!(opened, Vec::<Uuid>::new(), "labs only");
+    let (opened, records_open) = alex_opens(&a, &["read:summary", "read:labs", "read:records"], &ids).await?;
+    assert_eq!(opened, ids, "with read:records");
+    assert_eq!(
+        records_open.as_i64(),
+        labs_open.as_i64().map(|n| n + 3),
+        "the open total follows"
+    );
+    Ok(())
+}

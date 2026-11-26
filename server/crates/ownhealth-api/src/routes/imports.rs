@@ -32,6 +32,7 @@ use ownhealth_core::blobs::BlobOwner;
 use ownhealth_core::documents::{StoredFile, dispatch_upload_in_zone};
 use ownhealth_core::pyjson::row_to_json;
 use ownhealth_core::{Error, Runtime, ids};
+use ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -239,14 +240,6 @@ pub const WEARABLE_JOBS: [&str; 6] = [
     ownhealth_devices::garmin_zip::JOB,
     ownhealth_devices::strava_zip::JOB,
     ownhealth_devices::takeout_fitbit::JOB,
-];
-
-/// The import jobs whose result is the import summary their document keeps as `flags.import` (a
-/// C-CDA import's also names its sections) and whose filename names that document.
-const DOCUMENT_IMPORT_JOBS: [&str; 3] = [
-    ownhealth_ingest_structured::ccda::JOB,
-    "import.fhir_bundle",
-    "import.apple_health",
 ];
 
 /// The PDF and image import job; its payload names its document.
