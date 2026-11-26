@@ -1333,6 +1333,8 @@ export const pt: Table = {
 	i2_garmin_omitted_one: "1 elemento por importar",
 	i2_garmin_gps: "As rotas GPS ficaram de fora.",
 	i2_garmin_more: "Mostrar mais ficheiros",
+	i2_garmin_unlisted: "Mais {n} ficheiros, não listados",
+	i2_garmin_unlisted_one: "Mais 1 ficheiro, não listado",
 	i2_garmin_readings: "{n} medições adicionadas",
 	i2_garmin_readings_one: "1 medição adicionada",
 	i2_garmin_nothing_new: "Nada de novo: as {n} medições já existiam",

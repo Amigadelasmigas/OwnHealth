@@ -1333,6 +1333,8 @@ export const ca: Table = {
 	i2_garmin_omitted_one: "1 element sense importar",
 	i2_garmin_gps: "Les rutes GPS s'han deixat fora.",
 	i2_garmin_more: "Mostrar més fitxers",
+	i2_garmin_unlisted: "{n} fitxers més, no llistats",
+	i2_garmin_unlisted_one: "1 fitxer més, no llistat",
 	i2_garmin_readings: "{n} mesures afegides",
 	i2_garmin_readings_one: "1 mesura afegida",
 	i2_garmin_nothing_new: "Res de nou: les {n} mesures ja hi eren",
