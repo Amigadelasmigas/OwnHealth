@@ -1361,6 +1361,60 @@ async fn a_partial_restore_can_retry_after_the_loss_record_write_fails() -> R {
     Ok(())
 }
 
+/// A backup holds the audit anchor lock from before it reads the accepted losses until after its
+/// snapshot. A restore records its losses only once it holds that lock too, so no loss lands between
+/// the backup's read and its snapshot, where the manifest would ask for a file whose key the restore
+/// lacked.
+#[tokio::test]
+async fn a_restore_records_its_losses_only_once_no_backup_holds_the_anchor_lock() -> R {
+    use ownhealth_core::keyfile;
+    use sqlx::Connection;
+    use std::time::Duration;
+
+    let l = live().await?;
+    let mut ring = keyfile::read_for_install(&l.settings)?.expect("backup wrote the keyring");
+    assert!(ring.profiles.remove(&l.alex).is_some());
+    keyfile::write(&l.settings.keyring_path(), &ring)?;
+    let (db, settings) = fresh(&l).await?;
+    // a backup of the restore's database, between its loss read and its snapshot
+    let mut backup = sqlx::PgConnection::connect(&settings.sqlx_url()).await?;
+    sqlx::query("select pg_catalog.pg_advisory_lock(pg_catalog.hashtext('ownhealth.audit_anchor'))")
+        .execute(&mut backup)
+        .await?;
+    let mut restore = Box::pin(ownhealth_ops::restore_with(&settings, &l.archive, true));
+    let waiting = async {
+        loop {
+            let waits: i64 = sqlx::query_scalar(
+                "select count(*) from pg_locks l join pg_database d on d.oid = l.database \
+                 where l.locktype = 'advisory' and not l.granted and d.datname = current_database()",
+            )
+            .fetch_one(&db.pool)
+            .await?;
+            if waits > 0 {
+                return anyhow::Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore did not wait for the anchor lock: {done:?}"),
+        waited = tokio::time::timeout(Duration::from_secs(120), waiting) => waited??,
+    }
+    assert!(
+        read_restore_losses(&settings)?.is_empty(),
+        "the restore recorded its losses while a backup held the anchor lock"
+    );
+    backup.close().await?;
+    let report = tokio::time::timeout(Duration::from_secs(120), restore).await??;
+    assert_eq!(report["ok"], true, "{report:#}");
+    assert!(
+        read_restore_losses(&settings)?
+            .get(&l.alex)
+            .is_some_and(|lost| !lost.is_empty())
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn round_eight_a_partial_restore_can_retry_after_blob_placement_is_interrupted() -> R {
     use ownhealth_core::keyfile;

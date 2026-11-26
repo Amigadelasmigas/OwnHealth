@@ -421,7 +421,9 @@ fn write_anchor(dir: &Path, a: &Anchor) -> Result<()> {
 /// One backup or restore at a time reads and replaces the anchor: a session advisory lock on the
 /// database, held from the anchor read to the anchor write. Without it a backup that started
 /// earlier, with an older head, could finish last and put its lower head over a newer one. Closing
-/// the connection releases it, so a backup that fails on the way leaves nothing locked.
+/// the connection releases it, so a backup that fails on the way leaves nothing locked. A backup
+/// reads the accepted restore losses under it and a restore records them under it, so no loss lands
+/// between a backup's read and its snapshot. Both take it before the keyring lock.
 async fn anchor_lock(url: &str) -> Result<PgConnection> {
     let mut conn = PgConnection::connect(url).await?;
     sqlx::query("select pg_catalog.pg_advisory_lock(pg_catalog.hashtext('ownhealth.audit_anchor'))")
@@ -625,8 +627,8 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     blobs::hold_for_copy(&mut lock).await?;
     // The accepted losses, read before the snapshot: a profile deleted after it is still in the dump,
     // and the keyring rewrites below (its delete's and this backup's) drop its losses from the record.
-    // Only a restore adds losses, and it never runs beside a backup of the same install, so this read
-    // holds every loss of the snapshot's profiles.
+    // Only a restore adds losses, and it records them under the anchor lock this backup holds, so this
+    // read holds every loss of the snapshot's profiles.
     let lost = blobs::read_restore_losses(settings)?;
     let anchored = read_anchor(&anchor_path)?;
     let mut conn = PgConnection::connect(&url).await?;
@@ -1544,6 +1546,11 @@ pub async fn restore(settings: &Settings, archive: &Path) -> Result<Value> {
 pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_keys: bool) -> Result<Value> {
     let (manifest, archived_losses) = read_manifest(archive)?;
     let kek = backup_key(settings, &manifest)?;
+    let url = settings.sqlx_url();
+    // Held to the end, and taken before the keyring lock as a backup takes it: a backup of this
+    // database holds it from its read of the accepted losses until after its snapshot, so the losses
+    // this restore records never land between the two.
+    let lock = anchor_lock(&url).await?;
     let ring_lock = if manifest["keys"].get("keyring").is_some() {
         Some(keyfile::lock(settings).await.map_err(|e| ops_error(e.0))?)
     } else {
@@ -1571,7 +1578,6 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
         .filter(|_| !losses.is_empty())
         .map(|ring| loss_resume_id(archive, &manifest, ring))
         .transpose()?;
-    let url = settings.sqlx_url();
     let mut conn = PgConnection::connect(&url).await?;
     let tables: i64 = sqlx::query_scalar("select count(*) from pg_tables where schemaname = 'public'")
         .fetch_one(&mut conn)
@@ -1650,7 +1656,6 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
         conn.close().await?;
     }
     drop(resume_lock);
-    let lock = anchor_lock(&url).await?;
     let mut report = compare(&url, &manifest, &store.files()?, kek.as_ref(), ring.as_ref()).await?;
     let head = &manifest["audit_chain"];
     let hash = head["hash"]
