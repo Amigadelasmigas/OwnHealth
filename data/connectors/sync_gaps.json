@@ -7,14 +7,17 @@
   },
   "openwearables": {
     "en": "Sync has stopped for {providers}. The server operator can check Open Wearables and reconnect the affected accounts there.",
-    "es": "Se ha interrumpido la sincronización de {providers}. Quien administra el servidor puede revisar Open Wearables y volver a conectar allí las cuentas afectadas."
+    "es": "Se ha interrumpido la sincronización de {providers}. Quien administra el servidor puede revisar Open Wearables y volver a conectar allí las cuentas afectadas.",
+    "de": "Die Synchronisierung von {providers} ist unterbrochen. Wer den Server betreibt, kann Open Wearables prüfen und die betroffenen Konten dort neu verbinden."
   },
   "openwearables_down": {
     "en": "OwnHealth cannot sync with Open Wearables. The server operator can check that the Open Wearables service is running.",
-    "es": "OwnHealth no puede sincronizar con Open Wearables. Quien administra el servidor puede comprobar que el servicio de Open Wearables está en marcha."
+    "es": "OwnHealth no puede sincronizar con Open Wearables. Quien administra el servidor puede comprobar que el servicio de Open Wearables está en marcha.",
+    "de": "OwnHealth kann nicht mit Open Wearables synchronisieren. Wer den Server betreibt, kann prüfen, ob der Open-Wearables-Dienst läuft."
   },
   "dexcom": {
     "en": "Sync has stopped for Dexcom. You can reconnect your Dexcom account from Connections.",
-    "es": "Se ha interrumpido la sincronización de Dexcom. Puedes volver a conectar tu cuenta de Dexcom desde Conexiones."
+    "es": "Se ha interrumpido la sincronización de Dexcom. Puedes volver a conectar tu cuenta de Dexcom desde Conexiones.",
+    "de": "Die Synchronisierung von Dexcom ist unterbrochen. Du kannst dein Dexcom-Konto unter Verbindungen neu verbinden."
   }
 }

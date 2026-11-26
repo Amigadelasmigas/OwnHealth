@@ -1,160 +1,160 @@
 # The analyte names in the registry languages beyond es and en (groups.tsv holds name_en and name_es),
 # one row per alias_group of groups.tsv. Display text only: it stays outside terminology/ so a
 # translation leaves tables_hash as it is. A new language adds its column; tests/langs.rs names a gap.
-alias_group
-wbc
-rbc
-hemoglobin
-hematocrit
-mcv
-mch
-mchc
-rdw
-platelets
-mpv
-neutrophils_pct
-neutrophils_abs
-lymphocytes_pct
-lymphocytes_abs
-monocytes_pct
-monocytes_abs
-eosinophils_pct
-eosinophils_abs
-basophils_pct
-basophils_abs
-reticulocytes_pct
-reticulocytes_abs
-esr
-pt
-inr
-aptt
-fibrinogen
-d_dimer
-glucose
-glucose_blood
-hba1c
-creatinine
-cystatin_c
-bun
-urea
-uric_acid
-sodium
-potassium
-chloride
-bicarbonate
-co2_total
-anion_gap
-calcium
-calcium_ionized
-phosphate
-magnesium
-total_protein
-albumin
-egfr
-creatinine_clearance
-osmolality
-ldh
-lactate
-crp
-crp_hs
-ck
-amylase
-lipase
-ferritin
-iron
-tibc
-transferrin_saturation
-transferrin
-folate
-vitamin_b12
-vitamin_d_25oh
-tsh
-ft4
-ft3
-t4_total
-t3_total
-tpo_ab
-tg_ab
-thyroglobulin
-total_cholesterol
-hdl_c
-ldl_c
-triglycerides
-non_hdl_c
-chol_hdl_ratio
-vldl_c
-bp_systolic
-smoking_status
-lpa
-apob
-apoa1
-alt
-ast
-ggt
-alp
-bilirubin_total
-bilirubin_direct
-bilirubin_indirect
-urine_acr
-urine_creatinine
-urine_albumin
-urine_protein
-urine_protein_24h
-urine_sg
-urine_ph
-urine_protein_strip
-urine_glucose_strip
-urine_ketones_strip
-urine_blood_strip
-urine_leukocyte_esterase
-urine_nitrite
-urine_bilirubin_strip
-urine_urobilinogen
-urine_wbc_hpf
-urine_rbc_hpf
-urine_sodium
-urine_volume_24h
-testosterone
-testosterone_free
-estradiol
-progesterone
-fsh
-lh
-prolactin
-cortisol
-dhea_s
-shbg
-insulin
-igf1
-pth
-hydroxyprogesterone_17
-hcg_beta
-amh
-psa
-psa_free
-homocysteine
-procalcitonin
-rheumatoid_factor
-ige_total
-igg
-iga
-igm
-nt_probnp
-bnp
-troponin_i_hs
-troponin_t_hs
-cea
-ca125
-ca19_9
-ca15_3
-afp
-hbsag
-hcv_ab
-ph_arterial
-pco2_arterial
-po2_arterial
-ammonia
-zinc
-copper
-sodium_blood
-potassium_blood
+alias_group	de
+wbc	Leukozyten
+rbc	Erythrozyten
+hemoglobin	Hämoglobin
+hematocrit	Hämatokrit
+mcv	MCV
+mch	MCH
+mchc	MCHC
+rdw	RDW
+platelets	Thrombozyten
+mpv	Mittleres Thrombozytenvolumen
+neutrophils_pct	Neutrophile %
+neutrophils_abs	Neutrophile
+lymphocytes_pct	Lymphozyten %
+lymphocytes_abs	Lymphozyten
+monocytes_pct	Monozyten %
+monocytes_abs	Monozyten
+eosinophils_pct	Eosinophile %
+eosinophils_abs	Eosinophile
+basophils_pct	Basophile %
+basophils_abs	Basophile
+reticulocytes_pct	Retikulozyten %
+reticulocytes_abs	Retikulozyten
+esr	Blutsenkungsgeschwindigkeit
+pt	Prothrombinzeit
+inr	INR
+aptt	aPTT
+fibrinogen	Fibrinogen
+d_dimer	D-Dimere
+glucose	Glukose
+glucose_blood	Glukose (Vollblut)
+hba1c	HbA1c
+creatinine	Kreatinin
+cystatin_c	Cystatin C
+bun	Harnstoff-Stickstoff (BUN)
+urea	Harnstoff
+uric_acid	Harnsäure
+sodium	Natrium
+potassium	Kalium
+chloride	Chlorid
+bicarbonate	Bikarbonat
+co2_total	Gesamt-CO2
+anion_gap	Anionenlücke
+calcium	Calcium
+calcium_ionized	Ionisiertes Calcium
+phosphate	Phosphat
+magnesium	Magnesium
+total_protein	Gesamteiweiß
+albumin	Albumin
+egfr	Geschätzte glomeruläre Filtrationsrate (eGFR)
+creatinine_clearance	Kreatinin-Clearance
+osmolality	Osmolalität
+ldh	LDH
+lactate	Laktat
+crp	C-reaktives Protein
+crp_hs	Hochsensitives CRP
+ck	Kreatinkinase (CK)
+amylase	Amylase
+lipase	Lipase
+ferritin	Ferritin
+iron	Eisen
+tibc	Totale Eisenbindungskapazität
+transferrin_saturation	Transferrinsättigung
+transferrin	Transferrin
+folate	Folsäure
+vitamin_b12	Vitamin B12
+vitamin_d_25oh	25-OH-Vitamin D
+tsh	TSH
+ft4	Freies T4
+ft3	Freies T3
+t4_total	Gesamt-T4
+t3_total	Gesamt-T3
+tpo_ab	TPO-Antikörper
+tg_ab	Thyreoglobulin-Antikörper
+thyroglobulin	Thyreoglobulin
+total_cholesterol	Gesamtcholesterin
+hdl_c	HDL-Cholesterin
+ldl_c	LDL-Cholesterin
+triglycerides	Triglyceride
+non_hdl_c	Non-HDL-Cholesterin
+chol_hdl_ratio	Quotient Gesamt-/HDL-Cholesterin
+vldl_c	VLDL-Cholesterin
+bp_systolic	Systolischer Blutdruck
+smoking_status	Rauchstatus
+lpa	Lipoprotein(a)
+apob	Apolipoprotein B
+apoa1	Apolipoprotein A-I
+alt	ALT (GPT)
+ast	AST (GOT)
+ggt	Gamma-GT
+alp	Alkalische Phosphatase
+bilirubin_total	Gesamtbilirubin
+bilirubin_direct	Direktes Bilirubin
+bilirubin_indirect	Indirektes Bilirubin
+urine_acr	Albumin-Kreatinin-Quotient im Urin
+urine_creatinine	Kreatinin im Urin
+urine_albumin	Albumin im Urin
+urine_protein	Eiweiß im Urin
+urine_protein_24h	Eiweiß im 24-h-Urin
+urine_sg	Spezifisches Gewicht des Urins
+urine_ph	Urin-pH
+urine_protein_strip	Eiweiß im Urin (Teststreifen)
+urine_glucose_strip	Glukose im Urin (Teststreifen)
+urine_ketones_strip	Ketonkörper im Urin (Teststreifen)
+urine_blood_strip	Blut im Urin (Teststreifen)
+urine_leukocyte_esterase	Leukozytenesterase (Teststreifen)
+urine_nitrite	Nitrit im Urin
+urine_bilirubin_strip	Bilirubin im Urin
+urine_urobilinogen	Urobilinogen
+urine_wbc_hpf	Leukozyten pro Gesichtsfeld
+urine_rbc_hpf	Erythrozyten pro Gesichtsfeld
+urine_sodium	Natrium im Urin
+urine_volume_24h	24-h-Urinvolumen
+testosterone	Testosteron
+testosterone_free	Freies Testosteron
+estradiol	Östradiol
+progesterone	Progesteron
+fsh	FSH
+lh	LH
+prolactin	Prolaktin
+cortisol	Cortisol
+dhea_s	DHEA-Sulfat
+shbg	SHBG
+insulin	Insulin
+igf1	IGF-1
+pth	Parathormon (PTH)
+hydroxyprogesterone_17	17-OH-Progesteron
+hcg_beta	Beta-hCG
+amh	Anti-Müller-Hormon
+psa	PSA
+psa_free	Freies PSA
+homocysteine	Homocystein
+procalcitonin	Procalcitonin
+rheumatoid_factor	Rheumafaktor
+ige_total	Gesamt-IgE
+igg	IgG
+iga	IgA
+igm	IgM
+nt_probnp	NT-proBNP
+bnp	BNP
+troponin_i_hs	Hochsensitives Troponin I
+troponin_t_hs	Hochsensitives Troponin T
+cea	CEA
+ca125	CA 125
+ca19_9	CA 19-9
+ca15_3	CA 15-3
+afp	Alpha-Fetoprotein
+hbsag	Hepatitis-B-Oberflächenantigen (HBsAg)
+hcv_ab	Hepatitis-C-Antikörper
+ph_arterial	Arterieller pH
+pco2_arterial	Arterieller pCO2
+po2_arterial	Arterieller pO2
+ammonia	Ammoniak
+zinc	Zink
+copper	Kupfer
+sodium_blood	Natrium (Vollblut)
+potassium_blood	Kalium (Vollblut)

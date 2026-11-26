@@ -147,22 +147,22 @@ pub const METRICS: [Spec; 16] = [
 
 /// The label of each metric of [`METRICS`] in the registry languages beyond es and en.
 const LABELS: &[(&str, &[(&str, &str)])] = &[
-    ("steps", &[]),
-    ("hr", &[]),
-    ("hr_resting", &[]),
-    ("hrv_sdnn", &[]),
-    ("hrv_rmssd", &[]),
-    ("vo2max", &[]),
-    ("spo2", &[]),
-    ("resp_rate", &[]),
-    ("weight", &[]),
-    ("bp_systolic", &[]),
-    ("bp_diastolic", &[]),
-    ("active_energy", &[]),
-    ("distance", &[]),
-    ("sleep_asleep", &[]),
-    ("sleep_in_bed", &[]),
-    ("glucose_cgm", &[]),
+    ("steps", &[("de", "Schritte")]),
+    ("hr", &[("de", "Herzfrequenz")]),
+    ("hr_resting", &[("de", "Ruheherzfrequenz")]),
+    ("hrv_sdnn", &[("de", "HRV (SDNN)")]),
+    ("hrv_rmssd", &[("de", "HRV (RMSSD)")]),
+    ("vo2max", &[("de", "VO₂max-Schätzung")]),
+    ("spo2", &[("de", "Blutsauerstoff")]),
+    ("resp_rate", &[("de", "Atemfrequenz")]),
+    ("weight", &[("de", "Gewicht")]),
+    ("bp_systolic", &[("de", "Blutdruck, systolisch")]),
+    ("bp_diastolic", &[("de", "Blutdruck, diastolisch")]),
+    ("active_energy", &[("de", "Aktivitätsenergie")]),
+    ("distance", &[("de", "Distanz beim Gehen und Laufen")]),
+    ("sleep_asleep", &[("de", "Schlafdauer")]),
+    ("sleep_in_bed", &[("de", "Zeit im Bett")]),
+    ("glucose_cgm", &[("de", "Glukose (CGM)")]),
 ];
 
 pub const SLEEP_METRICS: [&str; 2] = ["sleep_asleep", "sleep_in_bed"];
@@ -713,6 +713,10 @@ const LEFT_OUT: &[(&str, &str)] = &[
     (
         "en",
         "HRV from one source only: {shown}. Not mixed with HRV from other sources in this window{rest}.",
+    ),
+    (
+        "de",
+        "HRV aus nur einer Quelle: {shown}. Nicht mit HRV aus anderen Quellen in diesem Zeitraum gemischt{rest}.",
     ),
 ];
 

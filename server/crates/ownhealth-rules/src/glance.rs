@@ -21,13 +21,27 @@ use crate::rendering::window_months;
 
 /// A country's name per language: (code, its name in each registry language).
 const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
-    ("ES", &[("es", "España"), ("en", "Spain")]),
-    ("PT", &[("es", "Portugal"), ("en", "Portugal")]),
-    ("FR", &[("es", "Francia"), ("en", "France")]),
-    ("DE", &[("es", "Alemania"), ("en", "Germany")]),
-    ("IT", &[("es", "Italia"), ("en", "Italy")]),
-    ("GB", &[("es", "Reino Unido"), ("en", "United Kingdom")]),
-    ("US", &[("es", "Estados Unidos"), ("en", "United States")]),
+    ("ES", &[("es", "España"), ("en", "Spain"), ("de", "Spanien")]),
+    ("PT", &[("es", "Portugal"), ("en", "Portugal"), ("de", "Portugal")]),
+    ("FR", &[("es", "Francia"), ("en", "France"), ("de", "Frankreich")]),
+    ("DE", &[("es", "Alemania"), ("en", "Germany"), ("de", "Deutschland")]),
+    ("IT", &[("es", "Italia"), ("en", "Italy"), ("de", "Italien")]),
+    (
+        "GB",
+        &[
+            ("es", "Reino Unido"),
+            ("en", "United Kingdom"),
+            ("de", "Vereinigtes Königreich"),
+        ],
+    ),
+    (
+        "US",
+        &[
+            ("es", "Estados Unidos"),
+            ("en", "United States"),
+            ("de", "Vereinigte Staaten"),
+        ],
+    ),
 ];
 
 /// The registry languages a country name lacks.

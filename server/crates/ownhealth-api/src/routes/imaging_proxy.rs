@@ -1140,6 +1140,10 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
                 "en",
                 "This viewer link is not valid any more. A link works for one hour, and only while you stay signed in to OwnHealth; opening the study there again gives a new one.",
             ),
+            (
+                "de",
+                "Dieser Viewer-Link gilt nicht mehr. Ein Link gilt eine Stunde lang und nur, solange du bei OwnHealth angemeldet bleibst; wenn du die Untersuchung dort erneut öffnest, entsteht ein neuer.",
+            ),
         ],
     ),
     (
@@ -1147,6 +1151,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("es", "El visor se abre desde un estudio en OwnHealth."),
             ("en", "The viewer opens from a study in OwnHealth."),
+            ("de", "Der Viewer öffnet sich aus einer Untersuchung in OwnHealth."),
         ],
     ),
     (
@@ -1154,6 +1159,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("es", "Esto no es un archivo del visor."),
             ("en", "This is not a file of the viewer."),
+            ("de", "Das ist keine Datei des Viewers."),
         ],
     ),
     (
@@ -1161,28 +1167,39 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("es", "Este estudio no está disponible para ti."),
             ("en", "This study is not available to you."),
+            ("de", "Diese Untersuchung ist für dich nicht verfügbar."),
         ],
     ),
     (
         "study_retracted",
-        &[("es", "Este estudio se retiró."), ("en", "This study was retracted.")],
+        &[
+            ("es", "Este estudio se retiró."),
+            ("en", "This study was retracted."),
+            ("de", "Diese Untersuchung wurde zurückgezogen."),
+        ],
     ),
     (
         "imaging_off",
         &[
             ("es", "Las imágenes médicas están desactivadas en este servidor."),
             ("en", "Imaging is off on this server."),
+            ("de", "Medizinische Bildgebung ist auf diesem Server ausgeschaltet."),
         ],
     ),
     (
         "method_not_allowed",
-        &[("es", "El visor solo lee."), ("en", "The viewer only reads.")],
+        &[
+            ("es", "El visor solo lee."),
+            ("en", "The viewer only reads."),
+            ("de", "Der Viewer liest nur."),
+        ],
     ),
     (
         "",
         &[
             ("es", "El visor no puede abrir este estudio ahora."),
             ("en", "The viewer cannot open this study now."),
+            ("de", "Der Viewer kann diese Untersuchung gerade nicht öffnen."),
         ],
     ),
 ];
@@ -1219,7 +1236,11 @@ pub fn phrases() -> Value {
 }
 
 /// The link back to the app, in every registry language.
-const BACK: &[(&str, &str)] = &[("es", "Volver a OwnHealth"), ("en", "Back to OwnHealth")];
+const BACK: &[(&str, &str)] = &[
+    ("es", "Volver a OwnHealth"),
+    ("en", "Back to OwnHealth"),
+    ("de", "Zurück zu OwnHealth"),
+];
 
 fn html_escape(s: &str) -> String {
     s.chars()

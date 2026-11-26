@@ -21,7 +21,7 @@ pub struct Patterns {
 
 /// The per-language table. A language joins `ownhealth_core::langs::LANGS` only with its own entry
 /// here (`missing_patterns`, tested in `tests/langs.rs`).
-pub const PATTERNS: [Patterns; 2] = [
+pub const PATTERNS: [Patterns; 3] = [
     Patterns {
         lang: "en",
         anywhere: &[
@@ -128,6 +128,56 @@ pub const PATTERNS: [Patterns; 2] = [
             "aumentar",
         ],
     },
+    Patterns {
+        lang: "de",
+        anywhere: &[
+            r"\b(?:sollte|sollten|solltest|sollst)\b",
+            r"\b(?:muss|musst|müssen|müsst)\b",
+            r"\bnicht (?:einnehmen|nehmen|absetzen|anwenden)\b",
+        ],
+        start_verbs: &[
+            "nimm",
+            "nehmen sie",
+            "setz",
+            "setze",
+            "setzen sie",
+            "vermeide",
+            "vermeiden sie",
+            "beginne",
+            "beginnen sie",
+            "erhöhe",
+            "erhöhen sie",
+            "senke",
+            "senken sie",
+            "reduziere",
+            "reduzieren sie",
+            "frag",
+            "fragen sie",
+            "sprich",
+            "sprechen sie",
+            "ruf",
+            "rufen sie",
+            "geh",
+            "gehen sie",
+            "iss",
+            "essen sie",
+            "trink",
+            "trinken sie",
+            "messen sie",
+            "wiederhole",
+            "wiederholen sie",
+            "lass",
+            "lassen sie",
+            "vereinbare",
+            "vereinbaren sie",
+            "kontaktiere",
+            "kontaktieren sie",
+            "verwende",
+            "verwenden sie",
+            "achte",
+            "achten sie",
+        ],
+    },
 ];
 
 /// The languages of `langs` with no patterns of their own.
@@ -220,6 +270,25 @@ mod tests {
             .iter()
             .map(|p| (p.lang, p.anywhere.len(), p.start_verbs.len()))
             .collect();
-        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45)]);
+        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45), ("de", 3, 40)]);
+    }
+
+    /// German advice is caught, German description is not.
+    #[test]
+    fn german_imperatives_are_caught() {
+        for advice in [
+            "Nehmen Sie täglich 20 mg.",
+            "Du solltest den Wert prüfen lassen.",
+            "Die Dosis muss halbiert werden.",
+            "Trink mehr Wasser.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "Der LDL-Wert liegt über dem Bereich des Labors.",
+            "Diese Angabe stammt aus dem Befund vom März.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
     }
 }
