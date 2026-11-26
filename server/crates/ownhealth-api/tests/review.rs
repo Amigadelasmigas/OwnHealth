@@ -1263,7 +1263,13 @@ async fn test_a_failed_job_on_a_profile_names_its_document_only_to_a_reader_of_t
 async fn test_a_document_filter_on_an_unreadable_document_finds_nothing() -> R {
     let a = app().await?;
     let doc = carmen_document(&a, "informe_carmen.pdf", json!({})).await?;
-    let id = household_item_on(&a, "job_failed", doc, json!({"kind": "import.pdf", "error": "unreadable"})).await?;
+    let id = household_item_on(
+        &a,
+        "job_failed",
+        doc,
+        json!({"kind": "import.pdf", "error": "unreadable"}),
+    )
+    .await?;
     let filtered = |who: &'static str, doc: Uuid| {
         let a = &a;
         async move {
@@ -1279,8 +1285,16 @@ async fn test_a_document_filter_on_an_unreadable_document_finds_nothing() -> R {
             )
         }
     };
-    assert_eq!(filtered("sam", doc).await?, Vec::<Value>::new(), "sam cannot read the document");
-    assert_eq!(filtered("sam", Uuid::new_v4()).await?, Vec::<Value>::new(), "no such document");
+    assert_eq!(
+        filtered("sam", doc).await?,
+        Vec::<Value>::new(),
+        "sam cannot read the document"
+    );
+    assert_eq!(
+        filtered("sam", Uuid::new_v4()).await?,
+        Vec::<Value>::new(),
+        "no such document"
+    );
     assert_eq!(filtered("alex", doc).await?, [json!(id)], "a reader of the document");
     // without the filter Sam still sees the household's item, its document left out
     let (_, listed) = a.get("sam", "/review").await?;

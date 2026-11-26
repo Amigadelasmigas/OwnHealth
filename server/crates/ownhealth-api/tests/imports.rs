@@ -2221,11 +2221,25 @@ async fn a_document_import_job_follows_the_profile_its_document_is_on_now() -> R
         [(false, false, false); 4],
         "a reader of Alex only"
     );
-    // nor the document it names, as GET /api/review hides a failed job's document
+    assert_eq!(
+        job_fields(&a, "alex", &ids).await?,
+        [(false, true, true); 4],
+        "Carmen's caregiver"
+    );
+    let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
+    assert_eq!(
+        job_reads(&a, a.family.user("alex")).await?,
+        [(Some(a.family.profile("carmen")), newest_first)]
+    );
+    // the reader of Alex only does not get the document either, as GET /api/review hides a failed
+    // job's document (polled last: each poll by Alex writes another read row)
     let named = |who: &'static str| {
         let (a, ids) = (&a, &ids);
         async move {
-            let uri = format!("/jobs?ids={}", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(","));
+            let uri = format!(
+                "/jobs?ids={}",
+                ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+            );
             let (s, v) = a.get(who, &uri).await?;
             assert_eq!(s, StatusCode::OK, "{v}");
             anyhow::Ok(
@@ -2241,15 +2255,5 @@ async fn a_document_import_job_follows_the_profile_its_document_is_on_now() -> R
     assert_eq!(named("sam").await?, 0, "a reader of Alex only");
     // the PDF job names its document in its payload; a structured job only in its result
     assert_eq!(named("alex").await?, 1, "Carmen's caregiver");
-    assert_eq!(
-        job_fields(&a, "alex", &ids).await?,
-        [(false, true, true); 4],
-        "Carmen's caregiver"
-    );
-    let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
-    assert_eq!(
-        job_reads(&a, a.family.user("alex")).await?,
-        [(Some(a.family.profile("carmen")), newest_first)]
-    );
     Ok(())
 }

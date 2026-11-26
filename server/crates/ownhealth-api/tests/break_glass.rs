@@ -2202,7 +2202,9 @@ async fn one_source_health_row_records_emergency_use_only_for_that_source() -> R
     let dexcom = source("dexcom", "Dexcom G7 de Alex").await?;
     b.grant_sam("viewer", &["read:summary", "read:labs"]).await?;
     let mut sam = b.sam().await?;
-    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"])).await?;
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"]))
+        .await?;
     let before = record_uses(&b, id).await?;
     let r = sam.get(&format!("/api/inboxes/{mailbox}/health")).await?;
     assert_eq!(r.status, 200, "{:?}", r.json);
@@ -2275,8 +2277,11 @@ async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows()
         assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
         assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
     }
-    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables", "read:genome"])
-        .await?;
+    b.grant_sam(
+        "guardian",
+        &["read:summary", "read:records", "read:wearables", "read:genome"],
+    )
+    .await?;
     let (path, key) = &reads[2];
     let before = record_uses(&b, id).await?;
     let r = sam.get(path).await?;

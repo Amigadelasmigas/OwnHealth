@@ -759,13 +759,7 @@ async fn health_one(
         if let Some(c) = person
             && known_format(&q)
         {
-            audit_health(
-                &mut tx,
-                &c,
-                "GET /api/inboxes/{id}/health",
-                std::slice::from_ref(&row),
-            )
-            .await?;
+            audit_health(&mut tx, &c, "GET /api/inboxes/{id}/health", std::slice::from_ref(&row)).await?;
         }
         tx.commit().await?;
         Ok::<_, ApiError>(row)
