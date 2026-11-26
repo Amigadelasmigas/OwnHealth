@@ -169,6 +169,24 @@ pub(super) async fn count_shown(
     household: Uuid,
     perms: &[&Permission],
 ) -> Result<i64, ApiError> {
+    count_matching(conn, household, perms, true).await
+}
+
+/// `review_open` on the dashboard: the open items of this one profile the list shows the caller, without
+/// the household's own items. A reader who cannot review there is shown none.
+pub(super) async fn count_shown_on_profile(conn: &mut PgConnection, perm: &Permission) -> Result<i64, ApiError> {
+    if !perm.can("review") {
+        return Ok(0);
+    }
+    count_matching(conn, perm.profile.household_id, &[perm], false).await
+}
+
+async fn count_matching(
+    conn: &mut PgConnection,
+    household: Uuid,
+    perms: &[&Permission],
+    household_items: bool,
+) -> Result<i64, ApiError> {
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, *p)).collect();
     // the list's own query: a held study or a sync alert counts only where the list shows it
     let imaging_profiles = imaging_review_profiles(perms.iter().copied());
@@ -191,7 +209,7 @@ pub(super) async fn count_shown(
     let mut shown = 0;
     for i in &items {
         let show = match i.profile_id.map(|pid| by_profile.get(&pid)) {
-            None => true,
+            None => household_items,
             Some(Some(p)) => {
                 let show = visible(i, p) && opens_document(&mut *conn, i, p).await?;
                 if show && i.kind == ownhealth_imaging::import::REVIEW_KIND {

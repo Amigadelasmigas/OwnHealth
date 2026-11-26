@@ -205,6 +205,8 @@ async fn wearable_sources(conn: &mut PgConnection, profile_id: Uuid) -> Result<H
     Ok(rows.into_iter().filter_map(|(id, s)| s.map(|s| (id, s))).collect())
 }
 
+/// The page data without `review_open`: which review items count depends on the reader's grant, not on
+/// read scopes, so the API adds that count.
 pub async fn build_dashboard(
     conn: &mut PgConnection,
     ev: &Evaluation,
@@ -501,12 +503,6 @@ pub async fn build_dashboard(
         genome = json!({"summary": summary, "chips": chips, "hidden": hidden, "source": source});
     }
 
-    let review_open: i64 =
-        sqlx::query_scalar("select count(*) from review_item where profile_id = $1 and status = 'open'")
-            .bind(ev.profile_id)
-            .fetch_one(&mut *conn)
-            .await?;
-
     let prof = &ev.profile;
     let mut parts: Vec<String> = Vec::new();
     if let Some(sex) = prof.sex_at_birth.as_deref().filter(|s| ["female", "male"].contains(s)) {
@@ -554,7 +550,6 @@ pub async fn build_dashboard(
         "prevention_due": prevention_due,
         "prevention_withheld": prevention_withheld,
         "genome": genome,
-        "review_open": review_open,
         "state_hash": body.get("state_hash"),
         "rules_version": body.get("rules"),
         "generated_at": generated,

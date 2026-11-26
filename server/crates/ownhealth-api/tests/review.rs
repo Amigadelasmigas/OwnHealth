@@ -578,3 +578,48 @@ async fn test_a_sync_gap_alert_shows_only_to_who_manages_the_connection() -> R {
     assert_eq!(s, StatusCode::OK, "{v}");
     Ok(())
 }
+
+/// The dashboard's `review_open` counts only what the review list shows the reader. Alex is Carmen's
+/// caregiver without read:records: a sync-gap alert (only who manages the profile sees it), a held
+/// imaging study and a proposed relative (both read:records) are not counted, a lab row is. Alex's
+/// own profile still counts all three, since Alex manages it with every scope; Sam, who only views
+/// it, is shown none.
+#[tokio::test]
+async fn test_the_dashboard_counts_only_the_review_items_the_reader_sees() -> R {
+    let a = app().await?;
+    alex_on_carmen(&a, &["read:summary", "read:labs"]).await?;
+    let read = |reader: &'static str, who: &'static str| {
+        let a = &a;
+        async move {
+            let (s, v) = a
+                .get(reader, &format!("/profiles/{who}/dashboard?as_of=2026-11-07&lang=en"))
+                .await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            anyhow::Ok(v["review_open"].clone())
+        }
+    };
+    let dashboard = |who: &'static str| read("alex", who);
+    let message = json!({"message": {"en": "Sync has stopped for Dexcom.", "es": "Se ha interrumpido la sincronización de Dexcom."}});
+    let study = json!({"patient_name": "ORTEGA^CARMEN", "study_description": "CT HEAD"});
+    let relative = json!({"name": "Rosa Ortega", "relationship": "mother"});
+    for (kind, payload) in [
+        ("source_gap", message),
+        (ownhealth_imaging::import::REVIEW_KIND, study),
+        (ownhealth_core::gedcom::KIND, relative),
+    ] {
+        item(&a, "carmen", kind, Some(payload.clone()), json!({})).await?;
+        assert_eq!(
+            dashboard("carmen").await?,
+            json!(0),
+            "{kind} counted for a reader who cannot see it"
+        );
+        item(&a, "alex", kind, Some(payload), json!({})).await?;
+    }
+    assert_eq!(dashboard("alex").await?, json!(3), "the owner sees every kind");
+    // sam only views Alex's profile and reviews nothing there
+    assert_eq!(read("sam", "alex").await?, json!(0));
+    // positive control: a lab row Alex may read on Carmen counts
+    item(&a, "carmen", "candidate_row", None, json!({})).await?;
+    assert_eq!(dashboard("carmen").await?, json!(1));
+    Ok(())
+}

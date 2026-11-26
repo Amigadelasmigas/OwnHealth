@@ -263,7 +263,8 @@ pub async fn status_word(
     Ok(ev.marker(alias_group).map_or("nodata", |m| m.status))
 }
 
-/// The "Health at a glance" page data (ui `Dashboard` type).
+/// The "Health at a glance" page data (ui `Dashboard` type), without `review_open`: the API adds the
+/// count of the review items the reader sees, which depends on the reader's grant.
 pub async fn dashboard(
     conn: &mut PgConnection,
     profile_id: Uuid,

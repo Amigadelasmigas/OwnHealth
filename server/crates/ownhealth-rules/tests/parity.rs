@@ -121,7 +121,14 @@ async fn dashboards_match_python() -> R {
                 .and_then(Value::as_str)
                 .is_some_and(|g| g.ends_with('Z') && g.len() == 20)
         );
-        same(&key, &got, &EXPECTED["dashboards"][&key]);
+        // the API adds the reader's review count (ownhealth-api tests/review.rs pins it)
+        let mut want = EXPECTED["dashboards"][&key].clone();
+        assert!(
+            want.as_object_mut()
+                .and_then(|m| m.shift_remove("review_open"))
+                .is_some()
+        );
+        same(&key, &got, &want);
     };
     for slug in SLUGS {
         for lang in ["en", "es"] {
