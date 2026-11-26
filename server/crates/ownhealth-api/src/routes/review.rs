@@ -12,7 +12,8 @@
 //!
 //! An item on a profile the caller cannot review, whose held values the caller's scopes would not
 //! show, or whose document the caller could not open (a pull's grouped item), answers 404 like an
-//! unknown id. So does a sync-gap alert on a profile the caller does not manage.
+//! unknown id. So does a sync-gap alert on a profile the caller does not manage. A `document_id`
+//! filter on a document the caller cannot read lists nothing, as one on an unknown document does.
 
 use std::collections::HashMap;
 
@@ -261,12 +262,18 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     let gap_profiles = gap_review_profiles(&perms);
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
     let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
+    // a filter on a document the caller cannot read finds what one on a missing document finds:
+    // nothing, so the answer does not tell whether an item names it
+    let filter_readable = match document_id {
+        Some(d) => document_reader(&mut tx, &perms, d).await?.is_some(),
+        None => true,
+    };
     // A page holds only items the caller sees: the query is read in batches, `offset` skips visible
     // items only, and reading stops once the page is full or the query has no more rows.
     let mut shown: Vec<ReviewItem> = Vec::new();
     let mut skipped = 0;
     let mut read = 0;
-    while (shown.len() as i64) < limit {
+    while filter_readable && (shown.len() as i64) < limit {
         let batch = review::list_items_with_kind_profiles(
             &mut tx,
             &ItemQuery {

@@ -1248,3 +1248,36 @@ async fn test_a_failed_job_on_a_profile_names_its_document_only_to_a_reader_of_t
     }
     Ok(())
 }
+
+/// F-DOCFILTER: a `document_id` filter on a document the reader cannot read answers as one on a
+/// document that does not exist: no items. Sam reviews on her own profile, so the household's failed
+/// job shows to her, but filtering on Carmen's document it names must not tell her that it does.
+/// Alex, who reads Carmen's documents, gets the item through the same filter.
+#[tokio::test]
+async fn test_a_document_filter_on_an_unreadable_document_finds_nothing() -> R {
+    let a = app().await?;
+    let doc = carmen_document(&a, "informe_carmen.pdf", json!({})).await?;
+    let id = household_item_on(&a, "job_failed", doc, json!({"kind": "import.pdf", "error": "unreadable"})).await?;
+    let filtered = |who: &'static str, doc: Uuid| {
+        let a = &a;
+        async move {
+            let (s, v) = a.get(who, &format!("/review?document_id={doc}")).await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            anyhow::Ok(
+                v["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|i| i["id"].clone())
+                    .collect::<Vec<_>>(),
+            )
+        }
+    };
+    assert_eq!(filtered("sam", doc).await?, Vec::<Value>::new(), "sam cannot read the document");
+    assert_eq!(filtered("sam", Uuid::new_v4()).await?, Vec::<Value>::new(), "no such document");
+    assert_eq!(filtered("alex", doc).await?, [json!(id)], "a reader of the document");
+    // without the filter Sam still sees the household's item, its document left out
+    let (_, listed) = a.get("sam", "/review").await?;
+    assert!(listed.to_string().contains(&id.to_string()), "{listed}");
+    Ok(())
+}
