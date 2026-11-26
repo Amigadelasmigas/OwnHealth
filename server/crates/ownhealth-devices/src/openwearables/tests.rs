@@ -2966,3 +2966,76 @@ async fn an_unreadable_first_day_starts_its_clock_even_when_a_later_store_fails(
     );
     Ok(())
 }
+
+/// A first poll whose Polar rows include one that does not read, and whose WHOOP day then fails to store
+/// (a trigger refuses it). `usable_at` adds a usable Polar row at that time; `polar_synced` is the sync
+/// time the vendor's report gives Polar. Returns Polar's health clocks as the failed poll left them:
+/// `(unreadable_since, seen_since)`.
+async fn first_poll_with_a_failed_whoop_store(
+    usable_at: Option<DateTime<Utc>>,
+    polar_synced: Value,
+) -> anyhow::Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", polar_synced], ["whoop", "active", Utc::now()]]);
+        fake.rows.retain(|r| r["source"]["provider"] != "polar");
+        fake.scores.clear();
+        if let Some(at) = usable_at {
+            fake.rows.push(sample("raw", "polar", "heart_rate", 61., "bpm", at));
+        }
+        let mut bad = sample("raw", "polar", "heart_rate", 0., "bpm", Utc::now());
+        bad["value"] = json!("n/a");
+        fake.rows.push(bad);
+    }
+    sqlx::raw_sql(
+        "create function stop_whoop_mark() returns trigger language plpgsql as $$ begin \
+         if new.cursor #> '{providers,whoop}' is distinct from old.cursor #> '{providers,whoop}' \
+         then raise exception 'store refused'; end if; return new; end $$; \
+         create trigger stop_whoop_mark before update on source for each row execute function stop_whoop_mark();",
+    )
+    .execute(&env.ctx.pool)
+    .await?;
+    assert!(poll(&env.ctx, &env.base, id).await.is_err(), "the WHOOP day was stored");
+    Ok((
+        unreadable_since(&env, id, "polar").await?,
+        clock(&env, id, "polar", "seen_since").await?,
+    ))
+}
+
+/// A Polar day that stores a usable row and one that does not read: the day brought a new usable row,
+/// so the commit that stores it starts no clock, even when the WHOOP store after it fails.
+#[tokio::test]
+async fn a_day_with_a_usable_row_starts_no_clock_when_a_later_store_fails() -> anyhow::Result<()> {
+    let (started, _) =
+        first_poll_with_a_failed_whoop_store(Some(Utc::now() - Duration::minutes(5)), json!(Utc::now())).await?;
+    assert_eq!(started, None, "a clock started though the day stored a usable row");
+    Ok(())
+}
+
+/// A usable Polar row on an earlier day of the poll, and a row that does not read on its last day: the
+/// poll already brought a new usable row of Polar, so the last day starts no clock either.
+#[tokio::test]
+async fn an_earlier_usable_day_keeps_a_later_unreadable_day_from_starting_the_clock() -> anyhow::Result<()> {
+    let (started, _) =
+        first_poll_with_a_failed_whoop_store(Some(Utc::now() - Duration::days(2)), json!(Utc::now())).await?;
+    assert_eq!(started, None, "a clock started though the poll stored a usable row");
+    Ok(())
+}
+
+/// The health the stored day writes for a vendor the cursor knew nothing of: a report with no sync time
+/// starts the vendor's staleness clock at this poll, as the end of the poll would, so a poll that then
+/// fails still leaves it.
+#[tokio::test]
+async fn an_unreadable_first_day_of_a_vendor_with_no_sync_time_starts_its_staleness_clock() -> anyhow::Result<()> {
+    let before = Utc::now();
+    let (started, seen) = first_poll_with_a_failed_whoop_store(None, Value::Null).await?;
+    assert!(started.is_some(), "control: the clock for rows that do not read starts");
+    assert!(
+        seen.is_some_and(|at| at >= before),
+        "no staleness clock for a vendor that never synced: {seen:?}"
+    );
+    Ok(())
+}
