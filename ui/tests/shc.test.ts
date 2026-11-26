@@ -21,7 +21,8 @@ import {
 	countsFromFirstImport,
 	refusalKey,
 	refusalVars,
-	shcCards
+	shcCards,
+	shcWaiting
 } from '../src/lib/logic/shc.ts';
 import { dict } from '../src/lib/i18n/dict.ts';
 
@@ -91,6 +92,14 @@ test('a card document lists its cards from the document flags, and any other doc
 	assert.equal(cards?.[0].entries[0].text, '207');
 	assert.equal(shcCards({ import: {} }), null);
 	assert.equal(shcCards({ shc: 'not a list' }), null);
+});
+
+test('a card document says rows wait from what this reader reviews, not from the import summary', () => {
+	// a caregiver without read:sensitive is sent no import summary, and one row waits for them
+	assert.equal(shcWaiting({ open_review: 1, flags: { shc: [] } }), 1);
+	// the summary counts rows this reader may not review: open_review is what waits for them
+	assert.equal(shcWaiting({ open_review: 0, flags: { shc: [], import: { queued: 2 } } }), 0);
+	assert.equal(shcWaiting(null), 0);
 });
 
 test('the receiver says who signed a card, never that the signer is trusted or verified', () => {

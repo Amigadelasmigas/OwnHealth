@@ -36,7 +36,7 @@
 	import UploadPanel from '#lib/components/pages2/UploadPanel.svelte';
 	import ShcPanel from '#lib/components/pages2/ShcPanel.svelte';
 	import ShcDocument from '#lib/components/pages2/ShcDocument.svelte';
-	import { shcCards } from '#lib/logic/shc';
+	import { shcCards, shcWaiting } from '#lib/logic/shc';
 	import { cgmDoc, type CgmLine } from '#lib/logic/cgm_import';
 	import { fitDocLines } from '#lib/logic/fit_import';
 	import { proposalTitle, type FamilyProposal } from '#lib/logic/gedcom';
@@ -494,7 +494,7 @@
 					{#if cgm.lines}<ul aria-label={t('i2_dt_cgm')}>{#each cgm.lines as l}<li>{cgmText(l)}</li>{/each}</ul>{/if}
 				</div>
 			{:else if doc.data && docId && doc.data.id === docId && shcDoc}
-				<ShcDocument cards={shcDoc} queued={Number((doc.data.flags?.import as { queued?: number } | undefined)?.queued ?? 0)} photo={doc.data.mime.startsWith('image/') ? documentFileUrl(docId) : null} />
+				<ShcDocument cards={shcDoc} queued={shcWaiting(doc.data)} photo={doc.data.mime.startsWith('image/') ? documentFileUrl(docId) : null} />
 			{:else if doc.data && pinfo && docId && doc.data.id === docId}
 				<PageView documentId={docId} page={pageNo} width={pinfo.width_pt} height={pinfo.height_pt} {boxes} {selected} {zoom} onpick={pick} />
 			{:else if doc.data && docId && doc.data.mime.startsWith('image/')}

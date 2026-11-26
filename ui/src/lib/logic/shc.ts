@@ -79,6 +79,13 @@ export type ShcEntry = { type: string | null; date: string | null; text: string 
 export type ShcDocCard = { iss: string; host: string; kid: string; issued: string; expires: string | null; entries: ShcEntry[] };
 
 /** The cards a document holds (its `flags.shc`), or null for a document that is not a card. */
+/** How many rows of a card document wait in review for this reader: the note under the cards shows when any do. */
+export function shcWaiting(doc: { open_review?: number; flags?: Record<string, unknown> } | null | undefined): number {
+	// open_review counts what the review list shows this reader; flags.import is not sent to a reader
+	// without read:sensitive, and its count takes in rows they may not see
+	return doc?.open_review ?? 0;
+}
+
 export function shcCards(flags: unknown): ShcDocCard[] | null {
 	const list = (flags as { shc?: unknown } | null)?.shc;
 	if (!Array.isArray(list)) return null;
