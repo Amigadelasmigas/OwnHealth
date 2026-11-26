@@ -1053,9 +1053,11 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
     Ok(())
 }
 
-/// CR-REVIEWPAGE: a page holds only items the reader may see. With 100 older held activity values a
+/// CR-REVIEWPAGE: a page holds only items the reader may see. With 250 older held activity values a
 /// labs-only reviewer may not see and one newer lab value they may, the first page shows the lab value
-/// and `open` counts it. `offset` skips visible items only, and `limit` counts visible items.
+/// and `open` counts it. 250 is more than one read batch (LIST_BATCH, 200), so the lab value is found
+/// only if the list reads on past a batch that held nothing visible. `offset` skips visible items only,
+/// and `limit` counts visible items.
 #[tokio::test]
 async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_ones() -> R {
     let a = app().await?;
@@ -1064,7 +1066,7 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
     sqlx::query(
         "insert into review_item (household_id, profile_id, kind, payload, reasons, created_at) \
          select household_id, profile_id, kind, payload, reasons, created_at - make_interval(secs => g) \
-         from review_item, generate_series(1, 99) g where id = $1",
+         from review_item, generate_series(1, 249) g where id = $1",
     )
     .bind(hidden)
     .execute(&a.rt.pool)
@@ -1087,7 +1089,7 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
     assert_eq!(page("").await?, (vec![json!(lab)], json!(1)));
     assert_eq!(page("&limit=1").await?, (vec![json!(lab)], json!(1)));
     assert_eq!(page("&offset=1").await?, (vec![], json!(1)));
-    // positive control: with read:wearables he sees all 101, oldest first, a page at a time
+    // positive control: with read:wearables he sees all 251, oldest first, a page at a time
     sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
         .bind(a.family.user("alex"))
         .bind(a.family.profile("carmen"))
@@ -1099,9 +1101,11 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
         .execute(&a.rt.pool)
         .await?;
     let (ids, open) = page("&limit=100").await?;
-    assert_eq!((ids.len(), open), (100, json!(101)));
+    assert_eq!((ids.len(), open), (100, json!(251)));
     assert_ne!(ids[0], json!(lab));
-    assert_eq!(page("&offset=100").await?, (vec![json!(lab)], json!(101)));
+    let (ids, open) = page("&offset=200").await?;
+    assert_eq!((ids.len(), ids.last(), open), (51, Some(&json!(lab)), json!(251)));
+    assert_eq!(page("&offset=250").await?, (vec![json!(lab)], json!(251)));
     Ok(())
 }
 
