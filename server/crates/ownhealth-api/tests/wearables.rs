@@ -357,7 +357,7 @@ async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_defau
         "/profiles/lucia/wearables/summary?as_of=2026-11-07",
         "/profiles/lucia/wearables/steps?window=P30D&as_of=2026-11-07",
     ] {
-        let (s, b) = get(&a, "sam", &format!("{uri}&lang=fr")).await?;
+        let (s, b) = get(&a, "sam", &format!("{uri}&lang=xx")).await?;
         assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{uri}: {b}");
         assert_eq!(b["detail"][0]["type"], "literal_error", "{b}");
         let (s, b) = get(&a, "sam", &format!("{uri}&lang=")).await?;

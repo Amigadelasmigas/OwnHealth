@@ -2,7 +2,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 // The registry languages (src/lib/i18n/langs.ts), as langs.spec.ts lists them.
 const LANGS = [
 	{ code: 'es', name: 'Español' },
-	{ code: 'en', name: 'English' }
+	{ code: 'en', name: 'English' },
+	{ code: 'de', name: 'Deutsch' },
+	{ code: 'fr', name: 'Français' },
+	{ code: 'ca', name: 'Català' },
+	{ code: 'it', name: 'Italiano' },
+	{ code: 'pt', name: 'Português' }
 ];
 
 test('the owner can download an emergency card and end its online access', async ({ page }) => {

@@ -11,18 +11,23 @@
  },
  "pack": {
   "version": "ownhealth-rules 0.2.0",
-  "sha256": "592ff425fbbf70ace0fe5412d73b56d6cdb422e47187b13e9530adffb640a594"
+  "sha256": "49986dbdab728a0699d873eb51fcb843f0adf686dec2fbc076bc720575b1d3cf"
  },
  "rules": {
   "version": "ownhealth-rules 0.2.0",
-  "sha256": "592ff425fbbf70ace0fe5412d73b56d6cdb422e47187b13e9530adffb640a594",
+  "sha256": "49986dbdab728a0699d873eb51fcb843f0adf686dec2fbc076bc720575b1d3cf",
   "systems": [
    {
     "key": "cardiometabolic",
     "file": "cardiometabolic.yaml",
     "name": {
      "en": "Cardiometabolic",
-     "es": "Cardiometabólico"
+     "es": "Cardiometabólico",
+     "de": "Kardiometabolisch",
+     "fr": "Cardiométabolique",
+     "ca": "Cardiometabòlic",
+     "it": "Cardiometabolico",
+     "pt": "Cardiometabólico"
     },
     "source": "labs"
    },
@@ -31,7 +36,12 @@
     "file": "liver.yaml",
     "name": {
      "en": "Liver",
-     "es": "Hígado"
+     "es": "Hígado",
+     "de": "Leber",
+     "fr": "Foie",
+     "ca": "Fetge",
+     "it": "Fegato",
+     "pt": "Fígado"
     },
     "source": "labs"
    },
@@ -40,7 +50,12 @@
     "file": "kidney.yaml",
     "name": {
      "en": "Kidney",
-     "es": "Riñón"
+     "es": "Riñón",
+     "de": "Niere",
+     "fr": "Rein",
+     "ca": "Ronyó",
+     "it": "Rene",
+     "pt": "Rim"
     },
     "source": "labs"
    },
@@ -49,7 +64,12 @@
     "file": "thyroid.yaml",
     "name": {
      "en": "Thyroid",
-     "es": "Tiroides"
+     "es": "Tiroides",
+     "de": "Schilddrüse",
+     "fr": "Thyroïde",
+     "ca": "Tiroide",
+     "it": "Tiroide",
+     "pt": "Tiroide"
     },
     "source": "labs"
    },
@@ -58,7 +78,12 @@
     "file": "blood_count.yaml",
     "name": {
      "en": "Blood count",
-     "es": "Hemograma"
+     "es": "Hemograma",
+     "de": "Blutbild",
+     "fr": "Hémogramme",
+     "ca": "Hemograma",
+     "it": "Emocromo",
+     "pt": "Hemograma"
     },
     "source": "labs"
    },
@@ -67,7 +92,12 @@
     "file": "inflammation.yaml",
     "name": {
      "en": "Inflammation",
-     "es": "Inflamación"
+     "es": "Inflamación",
+     "de": "Entzündung",
+     "fr": "Inflammation",
+     "ca": "Inflamació",
+     "it": "Infiammazione",
+     "pt": "Inflamação"
     },
     "source": "labs"
    },
@@ -76,7 +106,12 @@
     "file": "vitamins.yaml",
     "name": {
      "en": "Vitamins & minerals",
-     "es": "Vitaminas y minerales"
+     "es": "Vitaminas y minerales",
+     "de": "Vitamine und Mineralstoffe",
+     "fr": "Vitamines et minéraux",
+     "ca": "Vitamines i minerals",
+     "it": "Vitamine e minerali",
+     "pt": "Vitaminas e minerais"
     },
     "source": "labs"
    },
@@ -85,7 +120,12 @@
     "file": "sleep.yaml",
     "name": {
      "en": "Sleep",
-     "es": "Sueño"
+     "es": "Sueño",
+     "de": "Schlaf",
+     "fr": "Sommeil",
+     "ca": "Son",
+     "it": "Sonno",
+     "pt": "Sono"
     },
     "source": "wearables"
    },
@@ -94,7 +134,12 @@
     "file": "fitness.yaml",
     "name": {
      "en": "Fitness",
-     "es": "Forma física"
+     "es": "Forma física",
+     "de": "Fitness",
+     "fr": "Condition physique",
+     "ca": "Forma física",
+     "it": "Forma fisica",
+     "pt": "Forma física"
     },
     "source": "wearables"
    }

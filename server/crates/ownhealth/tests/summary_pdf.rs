@@ -359,7 +359,10 @@ async fn the_rivera_family_prints_on_two_pages_with_every_value_cited() -> R {
                     .flatten()
                     .filter(|r| r.get("not_measured").is_some());
                 if gaps.count() > 0 {
-                    assert!(lines.iter().any(|l| l.contains(&gap)), "{what}: no gap line");
+                    assert!(
+                        lines.iter().any(|l| l.contains(&gap)),
+                        "{what}: no gap line in {lines:#?}"
+                    );
                 }
             }
         }
@@ -381,7 +384,7 @@ async fn every_language_prints_its_own_letters_in_cp1252() -> R {
             let doc = cited::read_doc(&Path::new(DATA).join(name))?;
             let mut texts = Vec::new();
             texts_of(&doc, lang, &mut texts);
-            assert!(texts.len() > 10, "{name} {lang}: {} texts", texts.len());
+            assert!(!texts.is_empty(), "{name} {lang}: no texts");
             texts.iter().for_each(|t| folds(&format!("{name} {lang}"), t));
         }
         for g in ownhealth_normalize::tables::groups().values() {

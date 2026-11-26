@@ -408,7 +408,8 @@ rows:
   - id: example.one
     cite: https://www.ncbi.nlm.nih.gov/books/NBK000000/
 templates:
-  example.one: {en: "Last measured {when}.", es: "Última medida {when}."}
+  example.one: {en: "Last measured {when}.", es: "Última medida {when}.", de: "Zuletzt gemessen {when}.",
+    fr: "Dernière mesure {when}.", ca: "Última mesura {when}.", it: "Ultima misura {when}.", pt: "Última medição {when}."}
 "#;
 
 #[test]

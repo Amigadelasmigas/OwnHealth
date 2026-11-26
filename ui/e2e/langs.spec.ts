@@ -3,9 +3,16 @@
 import { expect, test } from '@playwright/test';
 
 const LANGS = [
-	{ code: 'es', label: 'ES', name: 'Español', group: 'Idioma', household: 'Hogar' },
-	{ code: 'en', label: 'EN', name: 'English', group: 'Language', household: 'Household' }
+	{ code: 'es', label: 'ES', name: 'Español', group: 'Idioma', household: 'Hogar', beta: false },
+	{ code: 'en', label: 'EN', name: 'English', group: 'Language', household: 'Household', beta: false },
+	{ code: 'de', label: 'DE', name: 'Deutsch', group: 'Sprache', household: 'Haushalt', beta: true },
+	{ code: 'fr', label: 'FR', name: 'Français', group: 'Langue', household: 'Foyer', beta: true },
+	{ code: 'ca', label: 'CA', name: 'Català', group: 'Idioma', household: 'Llar', beta: true },
+	{ code: 'it', label: 'IT', name: 'Italiano', group: 'Lingua', household: 'Nucleo familiare', beta: true },
+	{ code: 'pt', label: 'PT', name: 'Português', group: 'Idioma', household: 'Agregado familiar', beta: true }
 ];
+// A beta language says so in its button ("DE beta") and its tooltip ("Deutsch (beta)").
+const button = (l: (typeof LANGS)[number]) => (l.beta ? `${l.label} beta` : l.label);
 
 test('the picker lists every registry language and switches the page to each', async ({ page }) => {
 	const errors: string[] = [];
@@ -13,15 +20,15 @@ test('the picker lists every registry language and switches the page to each', a
 	await page.goto(`/?lang=${LANGS[0].code}`);
 	for (const l of [...LANGS.slice(1), LANGS[0]]) {
 		const picker = page.locator('header .seg[role=group]');
-		await expect(picker.getByRole('button')).toHaveText(LANGS.map((x) => x.label));
-		await picker.getByRole('button', { name: l.label, exact: true }).click();
+		await expect(picker.getByRole('button')).toHaveText(LANGS.map(button));
+		await picker.getByRole('button', { name: button(l), exact: true }).click();
 		await expect(page.locator('html')).toHaveAttribute('lang', l.code);
 		await expect(page.getByRole('group', { name: l.group })).toBeVisible();
 		await expect(page.locator('.side .plabel').first()).toHaveText(l.household);
 		for (const x of LANGS) {
-			const b = picker.getByRole('button', { name: x.label, exact: true });
+			const b = picker.getByRole('button', { name: button(x), exact: true });
 			await expect(b).toHaveAttribute('aria-pressed', String(x.code === l.code));
-			await expect(b).toHaveAttribute('title', x.name);
+			await expect(b).toHaveAttribute('title', x.beta ? `${x.name} (beta)` : x.name);
 		}
 		// The choice is saved: a reload without ?lang keeps it.
 		await page.goto('/');

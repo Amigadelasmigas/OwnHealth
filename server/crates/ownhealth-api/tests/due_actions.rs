@@ -398,13 +398,13 @@ async fn an_answer_moves_a_row_from_not_assessed_to_due_and_clearing_it_reverts(
     assert_eq!(v["items"][0]["value"], Value::Null);
     // a lang the registry does not hold is refused, before anything is written
     for (method, uri, body) in [
-        ("GET", "/profiles/dana/prevention-answers?lang=fr", None),
+        ("GET", "/profiles/dana/prevention-answers?lang=xx", None),
         (
             "PUT",
-            "/profiles/dana/prevention-answers?lang=fr",
+            "/profiles/dana/prevention-answers?lang=xx",
             Some(json!({"smoking_history": "no"})),
         ),
-        ("GET", "/profiles/dana/due?lang=fr", None),
+        ("GET", "/profiles/dana/due?lang=xx", None),
     ] {
         let (s, b) = send(&a, "alex", method, uri, body).await?;
         assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{method} {uri}: {b}");

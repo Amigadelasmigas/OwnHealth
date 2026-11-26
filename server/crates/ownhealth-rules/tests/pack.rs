@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use ownhealth_core::langs::LANGS;
 use ownhealth_rules::pack::{P, RULE_KINDS, SHIPPED, build_pack, cpic_snapshot, load, load_pack, shipped_files, text};
 use ownhealth_rules::rules_version;
 use serde_json::{Value, json};
@@ -122,7 +123,12 @@ fn every_drug_in_rules_resolves_to_the_cpic_table() -> R {
                 .as_object()
                 .map(|r| r.keys().collect())
                 .unwrap_or_default();
-            assert_eq!(langs.into_iter().cloned().collect::<Vec<_>>(), ["en", "es"], "{drug}");
+            let want: BTreeSet<&str> = LANGS.into_iter().collect();
+            assert_eq!(
+                langs.into_iter().map(String::as_str).collect::<BTreeSet<_>>(),
+                want,
+                "{drug}"
+            );
         }
     }
     Ok(())

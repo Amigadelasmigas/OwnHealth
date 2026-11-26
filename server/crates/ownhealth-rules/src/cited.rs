@@ -245,12 +245,8 @@ mod tests {
     #[test]
     fn load_refuses_a_suffixed_key_without_every_registry_language() {
         let head = "version: \"t 0.1.0\"\n";
-        assert!(
-            load_yaml(&format!(
-                "{head}templates:\n  a: {{short_en: Text., short_es: Texto.}}\n"
-            ))
-            .is_ok()
-        );
+        let all: Vec<String> = LANGS.iter().map(|l| format!("short_{l}: Text.")).collect();
+        assert!(load_yaml(&format!("{head}templates:\n  a: {{{}}}\n", all.join(", "))).is_ok());
         for (body, want) in [
             (
                 "templates:\n  a: {short_en: Text.}\n",
