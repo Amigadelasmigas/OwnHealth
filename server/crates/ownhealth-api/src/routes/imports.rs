@@ -250,7 +250,9 @@ const DOCUMENT_IMPORT_JOBS: [&str; 3] = [
 /// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones. A
 /// [`DOCUMENT_IMPORT_JOBS`] job's filename and error need the scope its document needs (read:records
 /// before the document exists), and its result also read:sensitive, as the document's import flags
-/// do: the summary's counts take in items the review list hides.
+/// do: the summary's counts take in items the review list hides. A response that shows a job's
+/// filename, error or result writes one read audit row per profile naming those jobs, for every job
+/// kind; one that shows none of them writes none, and an empty one writes a row with no profile.
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));
@@ -281,7 +283,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .iter()
         .map(|r| row_to_json(r).map(Value::Object))
         .collect::<Result<Vec<_>, _>>()?;
-    // Audit the DICOM details and finished structured-import and wearable results by profile.
+    // Audit, by profile, every job whose filename, error or result goes out.
     let mut read_jobs = BTreeMap::<_, Vec<_>>::new();
     for j in &mut jobs {
         pydantic_datetimes(j, &["created_at", "finished_at"]);
@@ -338,9 +340,13 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                 j["last_error"] = Value::Null;
             }
         }
-        // A result can expose health data. An unfinished poll or withheld result does not.
-        if (wearable || structured)
-            && !j["result"].is_null()
+        // A filename names a document, an error can quote it, and a result can expose health data. A
+        // job that shows none of them (an unfinished poll, a withheld job) is no read.
+        let shown = ["filename", "last_error", "result"]
+            .iter()
+            .any(|field| !j[*field].is_null());
+        if !dicom
+            && shown
             && let Some(perm) = permission
         {
             read_jobs

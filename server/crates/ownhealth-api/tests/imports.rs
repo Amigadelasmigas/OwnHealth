@@ -378,8 +378,8 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
 /// U-F2: a structured import's job result is the summary its document keeps as `flags.import` (and a
 /// C-CDA import's also names the sections), and its filename names the document. So the filename and
 /// any error need the scope the document needs, and the result needs read:sensitive too, as the
-/// document's flags do: its counts take in items the review list hides. A result that goes out writes
-/// a read audit row, for every kind. Sam is a viewer on Alex.
+/// document's flags do: its counts take in items the review list hides. A response that shows a job's
+/// filename, error or result writes a read audit row, for every kind. Sam is a viewer on Alex.
 #[tokio::test]
 async fn a_structured_import_result_follows_what_its_document_shows() -> R {
     let a = app().await?;
@@ -438,6 +438,7 @@ async fn a_structured_import_result_follows_what_its_document_shows() -> R {
     let null = serde_json::Value::Null;
     let (name, error) = (json!("informe_psiquiatria_alex.xml"), json!("prior retry error"));
     let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
+    let mut reads = Vec::new();
     for (grant, expected) in [
         (&["read:summary"][..], (null.clone(), null.clone(), null.clone())),
         (
@@ -455,14 +456,13 @@ async fn a_structured_import_result_follows_what_its_document_shows() -> R {
         let got = seen(&v);
         assert_eq!(got.len(), 3, "{v}");
         assert!(got.iter().all(|j| *j == expected), "{grant:?}: {v}");
-        // a result that goes out writes one read row naming every job; a withheld one writes none (the
-        // grants widen, so the rows only add up)
-        let rows = job_reads(&a, a.family.user("sam")).await?;
-        if expected.0.is_null() {
-            assert_eq!(rows, [], "{grant:?}");
-        } else {
-            assert_eq!(rows, [(Some(alex), newest_first.clone())], "{grant:?}");
+        // a response that shows a filename, an error or a result writes one read row naming every job,
+        // even with the result withheld; one that shows none of them writes none (the grants widen, so
+        // the rows only add up)
+        if !expected.1.is_null() {
+            reads.push((Some(alex), newest_first.clone()));
         }
+        assert_eq!(job_reads(&a, a.family.user("sam")).await?, reads, "{grant:?}");
     }
     let (_, owner) = a.get("alex", &uri).await?;
     assert!(
@@ -1569,7 +1569,7 @@ async fn a_finished_wearable_job_read_is_audited_for_fitbit_takeout() -> R {
 
 /// CR2 (round 3): a jobs read that returns a finished C-CDA import's result (what it brought into the
 /// record) writes one read audit row in the same transaction, as a DICOM import's does. A read while
-/// the job has no result yet writes none.
+/// the job has no result yet writes one too, because it shows the job's filename.
 #[tokio::test]
 async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     let a = app().await?;
@@ -1586,7 +1586,8 @@ async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     let (s, body) = a.get("alex", &format!("/jobs?ids={job}")).await?;
     assert_eq!(s, StatusCode::OK, "{body}");
     assert_eq!(body["jobs"][0]["result"], serde_json::Value::Null, "{body}");
-    assert_eq!(a.count(audits).await?, 0);
+    assert_eq!(body["jobs"][0]["filename"], "ccd.xml", "{body}");
+    assert_eq!(a.count(audits).await?, 1, "a poll that shows the filename");
     ownhealth_core::jobs::drain(&a.rt.job_context(), "core", 5, Some(&kinds)).await?;
     let (s, body) = a.get("alex", &format!("/jobs?ids={job}")).await?;
     assert_eq!(s, StatusCode::OK, "{body}");
@@ -1596,12 +1597,75 @@ async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     )
     .fetch_all(&a.rt.pool)
     .await?;
+    let row = (
+        a.family.user("alex"),
+        Some(a.family.profile("alex")),
+        vec![job.to_string()],
+    );
+    assert_eq!(rows, [row.clone(), row]);
+    Ok(())
+}
+
+/// CR-JOBAUDIT: a jobs poll that shows only a job's filename or error, with no result yet, still
+/// writes the request's read audit row, for a PDF job (whose filename has no gate) as for a wearables
+/// one. One row per profile names every such job; a job that shows none of them is not named.
+#[tokio::test]
+async fn a_jobs_poll_that_shows_only_a_filename_or_an_error_writes_one_read_row() -> R {
+    let a = app().await?;
+    let alex = a.family.profile("alex");
+    let mut ids = Vec::new();
+    for (kind, payload, error) in [
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string(), "filename": "analitica_alex.pdf"}),
+            None,
+        ),
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string()}),
+            Some("pdfium failed"),
+        ),
+        (
+            "import.fit",
+            json!({"profile_id": alex.to_string(), "filename": "run.fit"}),
+            None,
+        ),
+        ("import.pdf", json!({"profile_id": alex.to_string()}), None),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "insert into job (kind, state, payload, last_error) values ($1, 'queued', $2, $3) returning id",
+        )
+        .bind(kind)
+        .bind(payload)
+        .bind(error)
+        .fetch_one(&a.rt.pool)
+        .await?;
+        ids.push(id);
+    }
+    let poll = |ids: &[i64]| {
+        format!(
+            "/jobs?ids={}",
+            ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+        )
+    };
+    // the last job shows no filename, error or result: polling it alone writes no row
+    let (s, v) = a.get("alex", &poll(&ids[3..])).await?;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["jobs"].as_array().map(Vec::len), Some(1), "{v}");
+    assert_eq!(job_reads(&a, a.family.user("alex")).await?, []);
+    let (s, v) = a.get("alex", &poll(&ids)).await?;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
+    assert_eq!(jobs.len(), 4, "{v}");
+    assert!(jobs.iter().all(|j| j["result"].is_null()), "{v}");
+    assert_eq!(jobs[1]["filename"], "run.fit", "{v}");
+    assert_eq!(jobs[2]["last_error"], "pdfium failed", "{v}");
+    assert_eq!(jobs[3]["filename"], "analitica_alex.pdf", "{v}");
     assert_eq!(
-        rows,
+        job_reads(&a, a.family.user("alex")).await?,
         [(
-            a.family.user("alex"),
-            Some(a.family.profile("alex")),
-            vec![job.to_string()]
+            Some(alex),
+            vec![ids[2].to_string(), ids[1].to_string(), ids[0].to_string()]
         )]
     );
     Ok(())
