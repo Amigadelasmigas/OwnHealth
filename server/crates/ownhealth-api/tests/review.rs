@@ -991,6 +991,8 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
         json!({"resourceType": "Immunization", "status": "not-done", "vaccineCode": {"text": "Influenza"}}),
         json!({"resourceType": "Observation", "status": "cancelled",
                "category": [{"coding": [{"code": "laboratory"}]}], "code": {"text": "Glucosa"}}),
+        json!({"resourceType": "Observation", "status": "cancelled",
+               "category": [{"coding": [{"code": "vital-signs"}]}], "code": {"text": "Tension arterial"}}),
     ] {
         let id = item(&a, "carmen", "fhir_unmapped", Some(held(resource)), json!({})).await?;
         sqlx::query("update review_item set document_id = $1 where id = $2")
@@ -1000,7 +1002,7 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
             .await?;
         ids.push(id);
     }
-    let (hiv, flu, glucose) = (ids[0], ids[1], ids[2]);
+    let (hiv, flu, glucose, pressure) = (ids[0], ids[1], ids[2], ids[3]);
     let shown = |grant: &'static [&'static str]| {
         let a = &a;
         async move {
@@ -1008,7 +1010,7 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
             let (s, queue) = a.get("alex", "/review?profile=carmen").await?;
             assert_eq!(s, StatusCode::OK, "{queue}");
             let mut listed: Vec<Uuid> = Vec::new();
-            for id in [hiv, flu, glucose] {
+            for id in [hiv, flu, glucose, pressure] {
                 let in_list = queue["items"]
                     .as_array()
                     .into_iter()
@@ -1041,7 +1043,12 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
     assert_eq!(
         shown(&["read:summary", "read:labs", "read:records", "read:sensitive"]).await?,
         [hiv, flu, glucose],
-        "every scope"
+        "every scope but read:vitals"
+    );
+    assert_eq!(
+        shown(&["read:summary", "read:vitals"]).await?,
+        [pressure],
+        "a vital-signs Observation needs read:vitals, not read:labs"
     );
     Ok(())
 }
