@@ -723,6 +723,19 @@ async fn status_counts_open_review_rows_it_may_read() -> R {
         let env = c.call("get_health_status", json!({"profile": "alex"})).await?.ok();
         assert_eq!(env["data"]["review_open"], json!(open), "{granted:?}");
     }
+    // F-MCPCOUNT: the count reads the queue a batch at a time (review_shown::SCAN_BATCH, 200) and
+    // counts past every batch: 450 more failed jobs make 454
+    sqlx::query(
+        "insert into review_item (household_id, profile_id, kind, payload) \
+         select household_id, profile_id, kind, payload from review_item, generate_series(1, 450) g \
+         where profile_id = $1 and kind = 'job_failed'",
+    )
+    .bind(pid)
+    .execute(&w.db.pool)
+    .await?;
+    let c = w.connect(&w.tok().await?).await?;
+    let env = c.call("get_health_status", json!({"profile": "alex"})).await?.ok();
+    assert_eq!(env["data"]["review_open"], json!(454));
     Ok(())
 }
 

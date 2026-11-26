@@ -128,11 +128,32 @@ pub async fn opens_document(conn: &mut PgConnection, item: &ReviewItem, perm: &P
     }
 }
 
+/// [`opens_document`] decided once per document and profile within one count: many grouped items of
+/// one bundle cost one lookup.
+type Opens = HashMap<(Uuid, Uuid), bool>;
+
+async fn opens_document_once(
+    conn: &mut PgConnection,
+    item: &ReviewItem,
+    perm: &Permission,
+    decided: &mut Opens,
+) -> Result<bool> {
+    let Some(doc) = item.document_id.filter(|_| item.kind == "fhir_unmapped_summary") else {
+        return Ok(true);
+    };
+    if let Some(opens) = decided.get(&(perm.profile.id, doc)) {
+        return Ok(*opens);
+    }
+    let opens = opens_document(conn, item, perm).await?;
+    decided.insert((perm.profile.id, doc), opens);
+    Ok(opens)
+}
+
 /// Whether item `i` of the profile of `perm` counts for the caller, as the list shows it. A count that
 /// holds an item only emergency access shows reads through that access, so it records the use as the
 /// list does; an item the caller's own grant shows records none.
-async fn shown_on(conn: &mut PgConnection, i: &ReviewItem, perm: &Permission) -> Result<bool> {
-    let show = visible(i, perm) && opens_document(&mut *conn, i, perm).await?;
+async fn shown_on(conn: &mut PgConnection, i: &ReviewItem, perm: &Permission, decided: &mut Opens) -> Result<bool> {
+    let show = visible(i, perm) && opens_document_once(&mut *conn, i, perm, decided).await?;
     if show {
         if i.kind == ownhealth_imaging::import::REVIEW_KIND {
             perm.record_read(&["read:records"]);
@@ -164,6 +185,7 @@ pub async fn shown_per_document(
     documents: &[Uuid],
 ) -> Result<HashMap<Uuid, i64>> {
     let mut shown = HashMap::new();
+    let mut decided = Opens::new();
     if !perm.can("review") || documents.is_empty() {
         return Ok(shown);
     }
@@ -180,7 +202,7 @@ pub async fn shown_per_document(
         let show = match i.profile_id {
             // the list takes a held study or a sync alert only on a profile it names
             None => i.kind != ownhealth_imaging::import::REVIEW_KIND && i.kind != SOURCE_GAP,
-            Some(_) => shown_on(&mut *conn, i, perm).await?,
+            Some(_) => shown_on(&mut *conn, i, perm, &mut decided).await?,
         };
         if let (true, Some(doc)) = (show, i.document_id) {
             *shown.entry(doc).or_insert(0) += 1;
@@ -236,36 +258,42 @@ pub fn shows_household_items<'a>(perms: impl IntoIterator<Item = &'a Permission>
 }
 
 /// How many open items the list shows the caller, ordinary and emergency alike: the list's `open` and
-/// `review_open` on `/api/me`. `perms` are the caller's permissions on the profiles to count.
+/// `review_open` on `/api/me`. `perms` are the caller's permissions on the profiles to count. It reads
+/// the queue a [`Scan`] batch at a time, so a large backlog never sits in memory whole.
 pub async fn count_shown(conn: &mut PgConnection, household: Uuid, perms: &[&Permission]) -> Result<i64> {
     let household_items = shows_household_items(perms.iter().copied());
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, *p)).collect();
     // the list's own query: a held study or a sync alert counts only where the list shows it
     let imaging_profiles = imaging_review_profiles(perms.iter().copied());
     let gap_profiles = gap_review_profiles(perms.iter().copied());
-    let items = review::list_items_with_kind_profiles(
-        &mut *conn,
-        &ItemQuery {
+    let kinds = [
+        (ownhealth_imaging::import::REVIEW_KIND, imaging_profiles.as_slice()),
+        (SOURCE_GAP, gap_profiles.as_slice()),
+    ];
+    let mut scan = Scan::new(
+        ItemQuery {
             household_id: Some(household),
             profile_ids: Some(by_profile.keys().copied().collect()),
             status: Some("open".into()),
-            limit: i64::MAX,
             ..ItemQuery::default()
         },
-        &[
-            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
-            (SOURCE_GAP, &gap_profiles),
-        ],
-    )
-    .await?;
+        &kinds,
+    );
+    let mut decided = Opens::new();
     let mut shown = 0;
-    for i in &items {
-        let show = match i.profile_id.map(|pid| by_profile.get(&pid)) {
-            None => household_items,
-            Some(Some(p)) => shown_on(&mut *conn, i, p).await?,
-            Some(None) => false,
-        };
-        shown += i64::from(show);
+    loop {
+        let batch = scan.next(&mut *conn).await?;
+        if batch.is_empty() {
+            break;
+        }
+        for i in &batch {
+            let show = match i.profile_id.map(|pid| by_profile.get(&pid)) {
+                None => household_items,
+                Some(Some(p)) => shown_on(&mut *conn, i, p, &mut decided).await?,
+                Some(None) => false,
+            };
+            shown += i64::from(show);
+        }
     }
     Ok(shown)
 }
