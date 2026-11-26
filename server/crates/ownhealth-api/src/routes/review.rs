@@ -171,6 +171,47 @@ pub(super) async fn count_shown_on_profile(conn: &mut PgConnection, perm: &Permi
     count_shown(conn, perm.profile.household_id, &[perm]).await
 }
 
+/// `open_review` of documents on the profile of `perm`, per document: the open items of the document
+/// that the review list shows the caller, the household's own included. A reader who cannot review
+/// there is shown none, so the count never holds an item the list hides (a sensitive held value
+/// without read:sensitive, say).
+pub(super) async fn shown_per_document(
+    conn: &mut PgConnection,
+    perm: &Permission,
+    documents: &[Uuid],
+) -> Result<HashMap<Uuid, i64>, ApiError> {
+    let mut shown = HashMap::new();
+    if !perm.can("review") || documents.is_empty() {
+        return Ok(shown);
+    }
+    let items: Vec<ReviewItem> = sqlx::query_as(
+        "select * from review_item where status = 'open' and document_id = any($1) and household_id = $2 \
+         and (profile_id = $3 or profile_id is null)",
+    )
+    .bind(documents)
+    .bind(perm.profile.household_id)
+    .bind(perm.profile.id)
+    .fetch_all(&mut *conn)
+    .await?;
+    for i in &items {
+        let show = match i.profile_id {
+            // the list takes a held study or a sync alert only on a profile it names
+            None => i.kind != ownhealth_imaging::import::REVIEW_KIND && i.kind != SOURCE_GAP,
+            Some(_) => {
+                let show = visible(i, perm) && opens_document(&mut *conn, i, perm).await?;
+                if show && i.kind == ownhealth_imaging::import::REVIEW_KIND {
+                    perm.record_read(&["read:records"]);
+                }
+                show
+            }
+        };
+        if let (true, Some(doc)) = (show, i.document_id) {
+            *shown.entry(doc).or_insert(0) += 1;
+        }
+    }
+    Ok(shown)
+}
+
 /// The items of the household itself show only to who can review on some profile.
 fn shows_household_items<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> bool {
     perms.into_iter().any(|p| p.can("review"))

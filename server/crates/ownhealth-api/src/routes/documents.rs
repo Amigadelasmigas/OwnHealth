@@ -17,7 +17,9 @@
 //! `cgm_csv`) `read:wearables`, other documents `read:records`; page text and words also
 //! need `read:documents_text`. A document on a profile the caller cannot read answers 404 like an unknown
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
-//! such.
+//! such. Without read:sensitive a document's import flags leave out the C-CDA section titles and the
+//! sensitive and unprojected counts, and `open_review` counts only the open items the review list shows
+//! the reader (none when they cannot review there).
 
 use std::collections::BTreeSet;
 
@@ -57,8 +59,11 @@ pub fn router() -> Router<Runtime> {
 }
 
 const COLS: &str = "d.id, d.profile_id, d.filename, d.doc_type, d.provider_name, d.collected_at, d.pages, d.status, \
-                    d.flags, d.mime, d.size_bytes, d.created_at, \
-                    (select count(*) from review_item r where r.document_id = d.id and r.status = 'open') as open_review";
+                    d.flags, d.mime, d.size_bytes, d.created_at";
+
+/// The import flags that tell what a document holds that the reader may not see: the C-CDA section
+/// titles, and how many sensitive or unprojected resources the import held. They need read:sensitive.
+const SENSITIVE_FLAGS: [&str; 3] = ["ccda", "sensitive", "unprojected"];
 
 const FTS_CFG: &str = "cast(case d.language when 'es' then 'spanish' when 'en' then 'english' when 'de' then 'german' \
                        when 'fr' then 'french' else 'simple' end as regconfig)";
@@ -90,15 +95,21 @@ fn unknown(message: &str) -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "unknown", message)
 }
 
-/// A document as the list and the detail show it. A CGM export's flags (its counts, sensors and import
-/// summary) reach only a caller who may read wearables: [`scope_for`] lets no one else list or open it.
-fn summary(row: &Map<String, Value>, snippet: Option<&str>) -> Map<String, Value> {
+/// A document as the list and the detail show it to the reader `perm`. A CGM export's flags (its
+/// counts, sensors and import summary) reach only a caller who may read wearables: [`scope_for`] lets
+/// no one else list or open it. The [`SENSITIVE_FLAGS`] reach only a reader with read:sensitive, and
+/// `open_review` counts the items the review list shows the reader
+/// (`review::shown_per_document`).
+fn summary(row: &Map<String, Value>, snippet: Option<&str>, perm: &Permission, open_review: i64) -> Map<String, Value> {
+    let cgm = row.get("flags").and_then(|f| f.get("cgm_csv")).is_some();
+    let scope = scope_for(row.get("doc_type").and_then(Value::as_str), cgm);
+    let sensitive = perm.may_read_sensitive(scope);
     let flags: Map<String, Value> = row
         .get("flags")
         .and_then(Value::as_object)
         .map(|f| {
             f.iter()
-                .filter(|(k, _)| *k != "metadata_text")
+                .filter(|(k, _)| *k != "metadata_text" && (sensitive || !SENSITIVE_FLAGS.contains(&k.as_str())))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
         })
@@ -121,10 +132,7 @@ fn summary(row: &Map<String, Value>, snippet: Option<&str>) -> Map<String, Value
         *s = pydantic_datetime(&dt);
     }
     out.insert("flags".into(), Value::Object(flags));
-    out.insert(
-        "open_review".into(),
-        row.get("open_review").cloned().unwrap_or(Value::Null),
-    );
+    out.insert("open_review".into(), json!(open_review));
     out.insert("snippet".into(), untrusted(snippet, "pdf_text_layer"));
     out
 }
@@ -374,9 +382,11 @@ pub async fn list_for(
         .bind(q)
         .fetch_all(&mut *conn)
         .await?;
+    let docs: Vec<Uuid> = rows.iter().map(|row| row.try_get("id")).collect::<Result<_, _>>()?;
+    let open = super::review::shown_per_document(&mut *conn, &perm, &docs).await?;
     let mut items = Vec::new();
     let mut ids = Vec::new();
-    for row in &rows {
+    for (row, doc) in rows.iter().zip(&docs) {
         let j = row_to_json(row)?;
         ids.push(j.get("id").and_then(Value::as_str).unwrap_or("").to_string());
         let snip = if with_text {
@@ -384,7 +394,7 @@ pub async fn list_for(
         } else {
             None
         };
-        let mut item = summary(&j, snip);
+        let mut item = summary(&j, snip, &perm, open.get(doc).copied().unwrap_or(0));
         // the day this document counts as `done` evidence from: its collection day, else its report
         // day, the rule prevention::evidence applies
         item.insert(
@@ -441,6 +451,7 @@ async fn get_document(
     let document_id = uuid_path("document_id", &document_id)?;
     let mut tx = rt.pool.begin().await?;
     let doc = visible_document(&mut tx, &principal, document_id, None, false).await?;
+    let open = super::review::shown_per_document(&mut tx, &doc.perm, &[document_id]).await?;
     let pages: Vec<PgRow> = sqlx::query(
         "select page_no, width_pt, height_pt, text_layer_ok, flags from document_page where document_id = $1 \
          order by page_no",
@@ -463,7 +474,7 @@ async fn get_document(
     )
     .await?;
     tx.commit().await?;
-    let mut out = summary(&doc.row, None);
+    let mut out = summary(&doc.row, None, &doc.perm, open.get(&document_id).copied().unwrap_or(0));
     out.insert("mime".into(), doc.row.get("mime").cloned().unwrap_or(Value::Null));
     out.insert(
         "size_bytes".into(),

@@ -684,3 +684,95 @@ async fn test_a_household_item_shows_only_to_who_reviews_somewhere() -> R {
     assert_eq!(a.get("alex", &format!("/review/{id}")).await?.0, StatusCode::OK);
     Ok(())
 }
+
+/// A C-CDA document of Carmen's whose import held a sensitive value and a plain one, with the flags
+/// the import writes: the section titles, and how many resources were sensitive or not projected.
+async fn carmen_ccda_with_held_values(a: &App) -> anyhow::Result<Uuid> {
+    let doc: Uuid = sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, flags) \
+         values ($1, $2, decode($3, 'hex'), 'resumen.xml', 'application/hl7-cda+xml', 3, $4) returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(a.family.profile("carmen"))
+    .bind(ownhealth_core::ids::token_hex(32))
+    .bind(json!({
+        "ccda": {"title": "Resumen", "sections": [{"title": "Salud sexual", "kind": "social_history", "entries": 1}]},
+        "sensitive": 2,
+        "unprojected": 1,
+    }))
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let hidden = item(
+        a,
+        "carmen",
+        "candidate_row",
+        None,
+        json!({"value_num": "1", "printed_value": "1", "value_canonical": "1", "printed_name": "VIH Ac",
+               "sensitivity": ["sexual_health"]}),
+    )
+    .await?;
+    let plain = item(a, "carmen", "candidate_row", None, json!({})).await?;
+    sqlx::query("update review_item set document_id = $1 where id = any($2)")
+        .bind(doc)
+        .bind(vec![hidden, plain])
+        .execute(&a.rt.pool)
+        .await?;
+    Ok(doc)
+}
+
+/// Alex's view of Carmen's document `doc`: its detail, its row in the document list, and how many of its
+/// items the review list shows him.
+async fn read_carmen_document(a: &App, doc: Uuid) -> anyhow::Result<(Value, Value, usize)> {
+    let (s, one) = a.get("alex", &format!("/documents/{doc}")).await?;
+    assert_eq!(s, StatusCode::OK, "{one}");
+    let (s, list) = a.get("alex", "/profiles/carmen/documents").await?;
+    assert_eq!(s, StatusCode::OK, "{list}");
+    let listed = list["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|i| i["id"] == json!(doc)))
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("the list leaves the document out: {list}"))?;
+    let (s, queue) = a
+        .get("alex", &format!("/review?profile=carmen&document_id={doc}"))
+        .await?;
+    assert_eq!(s, StatusCode::OK, "{queue}");
+    Ok((one, listed, queue["items"].as_array().map_or(0, Vec::len)))
+}
+
+/// U-L4: a document's C-CDA section titles and its sensitive and unprojected counts reach only a reader
+/// with read:sensitive, and its pending-review count holds only the items the review list shows the
+/// reader, in the document detail and in the document list alike. Alex is Carmen's caregiver, first
+/// without read:sensitive, then with it.
+#[tokio::test]
+async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -> R {
+    let a = app().await?;
+    let doc = carmen_ccda_with_held_values(&a).await?;
+    let flags = |v: &Value| -> Vec<String> {
+        let mut keys: Vec<String> = v["flags"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, _)| k.clone())
+            .collect();
+        keys.sort();
+        keys
+    };
+    let (one, listed, shown) = read_carmen_document(&a, doc).await?;
+    assert_eq!(shown, 1, "the review list hides the sensitive item from a caregiver");
+    for v in [&one, &listed] {
+        assert!(flags(v).is_empty(), "flags without read:sensitive: {v}");
+        assert_eq!(
+            v["open_review"],
+            json!(shown),
+            "the count holds an item the list hides: {v}"
+        );
+    }
+    alex_on_carmen(&a, &["read:summary", "read:labs", "read:records", "read:sensitive"]).await?;
+    let (one, listed, shown) = read_carmen_document(&a, doc).await?;
+    assert_eq!(shown, 2);
+    for v in [&one, &listed] {
+        assert_eq!(flags(v), ["ccda", "sensitive", "unprojected"], "{v}");
+        assert_eq!(v["open_review"], json!(2), "{v}");
+    }
+    Ok(())
+}
