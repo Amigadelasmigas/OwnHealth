@@ -148,3 +148,33 @@ test('a sensitive card photo whose rows are withheld says so and never requests 
 	await expect(page.getByText('A SMART Health Card with sensitive facts.')).toHaveCount(0);
 	expect(errors).toEqual([]);
 });
+
+test('moving in the app from a card photo to a withheld card never requests the withheld photo', async ({ page }) => {
+	const errors = collectPageErrors(page);
+	// Alex is Carmen's caregiver, with no read:sensitive on her profile
+	const hidden = seedCarmenPhotoCard(true);
+	const plain = seedCarmenPhotoCard(false);
+	const files: string[] = [];
+	page.on('request', (r) => {
+		const path = new URL(r.url()).pathname;
+		if (path.endsWith('/file')) files.push(path);
+	});
+	await page.goto('/import-review?lang=en');
+	await page.evaluate(() => localStorage.setItem('oh.profile', 'carmen'));
+	await page.goto(`/import-review?lang=en&doc=${plain}`);
+	await expect(page.getByText(ISSUER)).toBeVisible();
+	// a client-side navigation keeps the plain card in memory until the withheld one loads
+	await page.evaluate(() => ((window as unknown as { k6: number }).k6 = 1));
+	await page.evaluate((href) => {
+		const a = document.createElement('a');
+		a.href = href;
+		document.body.appendChild(a);
+		a.click();
+	}, `/import-review?lang=en&doc=${hidden}`);
+	await expect(page.getByText('A SMART Health Card with sensitive facts.')).toBeVisible();
+	// the same window: no full page load happened
+	expect(await page.evaluate(() => (window as unknown as { k6?: number }).k6)).toBe(1);
+	await expect(page.locator('img.scan')).toHaveCount(0);
+	expect(files.filter((f) => f.includes(hidden))).toEqual([]);
+	expect(errors).toEqual([]);
+});

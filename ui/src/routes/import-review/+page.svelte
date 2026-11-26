@@ -508,7 +508,7 @@
 				<div class="empty">{t('shc_doc_withheld')}</div>
 			{:else if doc.data && pinfo && docId && doc.data.id === docId}
 				<PageView documentId={docId} page={pageNo} width={pinfo.width_pt} height={pinfo.height_pt} {boxes} {selected} {zoom} onpick={pick} />
-			{:else if doc.data && docId && doc.data.mime.startsWith('image/')}
+			{:else if doc.data && docId && doc.data.id === docId && doc.data.mime.startsWith('image/')}
 				<img class="scan" src={documentFileUrl(docId)} alt={tf('i2_scan_alt', { doc: plain(doc.data.filename) })} />
 				<div class="note" style="margin-top:6px">{t('i2_no_pages_image')}</div>
 			{:else if doc.data && docId && doc.data.id === docId && fitDoc}
