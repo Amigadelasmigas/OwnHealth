@@ -1,6 +1,6 @@
 system: vitamins
 order: 7
-names: {en: Vitamins & minerals, es: Vitaminas y minerales, de: "Vitamine und Mineralstoffe", fr: "Vitamines et minéraux", ca: "Vitamines i minerals", it: "Vitamine e minerali"}
+names: {en: Vitamins & minerals, es: Vitaminas y minerales, de: "Vitamine und Mineralstoffe", fr: "Vitamines et minéraux", ca: "Vitamines i minerals", it: "Vitamine e minerali", pt: "Vitaminas e minerais"}
 markers: [vitamin_d_25oh, ferritin, vitamin_b12, magnesium]
 rules:
   - id: recency.vitamins

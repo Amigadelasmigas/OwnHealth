@@ -65,6 +65,7 @@ templates:
       fr: "Maladie du cœur ou des artères à un jeune âge chez un parent, un frère ou une sœur"
       ca: "Malaltia del cor o de les artèries a edat primerenca en un pare, una mare o un germà"
       it: "Malattia del cuore o delle arterie in giovane età in un genitore, un fratello o una sorella"
+      pt: "Doença do coração ou das artérias em idade jovem num pai, numa mãe ou num irmão"
     fam.crc:
       en: "Colon cancer in a first-degree relative before 60, or in two of them"
       es: "Cáncer de colon en un familiar de primer grado antes de los 60, o en dos de ellos"
@@ -72,6 +73,7 @@ templates:
       fr: "Cancer du côlon chez un parent au premier degré avant 60 ans, ou chez deux d'entre eux"
       ca: "Càncer de còlon en un familiar de primer grau abans dels 60, o en dos d'ells"
       it: "Tumore del colon in un familiare di primo grado prima dei 60 anni, o in due di loro"
+      pt: "Cancro do cólon num familiar em primeiro grau antes dos 60, ou em dois deles"
     fam.hboc:
       en: "Breast or ovarian cancers in the family"
       es: "Cánceres de mama u ovario en la familia"
@@ -79,6 +81,7 @@ templates:
       fr: "Cancers du sein ou de l'ovaire dans la famille"
       ca: "Càncers de mama o d'ovari a la família"
       it: "Tumori della mammella o dell'ovaio in famiglia"
+      pt: "Cancros da mama ou do ovário na família"
     fam.variant:
       en: "A gene variant known in a blood relative"
       es: "Una variante genética conocida en un familiar de sangre"
@@ -86,6 +89,7 @@ templates:
       fr: "Un variant génétique connu chez un parent par le sang"
       ca: "Una variant genètica coneguda en un familiar de sang"
       it: "Una variante genetica nota in un consanguineo"
+      pt: "Uma variante genética conhecida num familiar de sangue"
     fam.same_side:
       en: "The same condition in two or more relatives on one side"
       es: "La misma enfermedad en dos o más familiares del mismo lado"
@@ -93,6 +97,7 @@ templates:
       fr: "La même maladie chez deux proches ou plus d'un même côté"
       ca: "La mateixa malaltia en dos o més familiars del mateix costat"
       it: "La stessa malattia in due o più familiari dello stesso ramo"
+      pt: "A mesma doença em dois ou mais familiares do mesmo lado"
   why:
     fam.ascvd:
       en: "The guideline lists a parent or sibling with heart or artery disease before 55 (men) or 65 (women) as a risk-enhancing factor."
@@ -101,6 +106,7 @@ templates:
       fr: "La recommandation cite un parent, un frère ou une sœur atteint d'une maladie du cœur ou des artères avant 55 ans (hommes) ou 65 ans (femmes) comme facteur qui augmente le risque."
       ca: "La guia inclou un pare, una mare o un germà amb malaltia del cor o de les artèries abans dels 55 (homes) o dels 65 (dones) com a factor que augmenta el risc."
       it: "La linea guida indica un genitore, un fratello o una sorella con malattia del cuore o delle arterie prima dei 55 anni (uomini) o dei 65 (donne) come fattore che aumenta il rischio."
+      pt: "A norma inclui um pai, uma mãe ou um irmão com doença do coração ou das artérias antes dos 55 (homens) ou dos 65 (mulheres) como fator que aumenta o risco."
     fam.crc:
       en: "The guideline names colon cancer in a first-degree relative before 60, or in two first-degree relatives at any age, as a family history that changes when screening starts."
       es: "La guía cita el cáncer de colon en un familiar de primer grado antes de los 60, o en dos familiares de primer grado a cualquier edad, como un antecedente que cambia cuándo empieza el cribado."
@@ -108,6 +114,7 @@ templates:
       fr: "La recommandation cite le cancer du côlon chez un parent au premier degré avant 60 ans, ou chez deux parents au premier degré à tout âge, comme un antécédent familial qui change l'âge de début du dépistage."
       ca: "La guia esmenta el càncer de còlon en un familiar de primer grau abans dels 60, o en dos familiars de primer grau a qualsevol edat, com un antecedent que canvia quan comença el cribratge."
       it: "La linea guida indica il tumore del colon in un familiare di primo grado prima dei 60 anni, o in due familiari di primo grado a qualsiasi età, come anamnesi familiare che cambia l'età di inizio dello screening."
+      pt: "A norma cita o cancro do cólon num familiar em primeiro grau antes dos 60, ou em dois familiares em primeiro grau em qualquer idade, como um antecedente que muda quando começa o rastreio."
     fam.hboc:
       en: "The guideline lists breast cancer before 50, breast cancer in a man, ovarian cancer, or several of these cancers on one side as family history linked to BRCA1 and BRCA2."
       es: "La guía incluye el cáncer de mama antes de los 50, el cáncer de mama en un hombre, el cáncer de ovario o varios de estos cánceres en un mismo lado como antecedentes ligados a BRCA1 y BRCA2."
@@ -115,6 +122,7 @@ templates:
       fr: "La recommandation cite le cancer du sein avant 50 ans, le cancer du sein chez un homme, le cancer de l'ovaire ou plusieurs de ces cancers d'un même côté comme des antécédents familiaux liés à BRCA1 et BRCA2."
       ca: "La guia inclou el càncer de mama abans dels 50, el càncer de mama en un home, el càncer d'ovari o diversos d'aquests càncers en un mateix costat com a antecedents lligats a BRCA1 i BRCA2."
       it: "La linea guida indica il tumore della mammella prima dei 50 anni, il tumore della mammella in un uomo, il tumore dell'ovaio o più di questi tumori nello stesso ramo come anamnesi familiare legata a BRCA1 e BRCA2."
+      pt: "A norma inclui o cancro da mama antes dos 50, o cancro da mama num homem, o cancro do ovário ou vários destes cancros do mesmo lado como antecedentes ligados ao BRCA1 e ao BRCA2."
     fam.variant:
       en: "Our own reading of family history guidance: a known hereditary gene variant in a blood relative is worth knowing about. The CDC lists a relative with a known BRCA gene mutation as a risk factor."
       es: "Nuestra lectura de las guías de antecedentes familiares: una variante genética hereditaria conocida en un familiar de sangre es un dato que conviene conocer. Los CDC incluyen a un familiar con una mutación conocida en un gen BRCA como factor de riesgo."
@@ -122,6 +130,7 @@ templates:
       fr: "Notre propre lecture des recommandations sur les antécédents familiaux : un variant génétique héréditaire connu chez un parent par le sang est une information utile à connaître. Les CDC citent un proche porteur d'une mutation connue d'un gène BRCA comme facteur de risque."
       ca: "La nostra lectura de les guies d'antecedents familiars: una variant genètica hereditària coneguda en un familiar de sang és una dada que convé conèixer. Els CDC inclouen un familiar amb una mutació coneguda en un gen BRCA com a factor de risc."
       it: "La nostra lettura delle linee guida sull'anamnesi familiare: una variante genetica ereditaria nota in un consanguineo è un dato utile da conoscere. I CDC indicano un familiare con una mutazione nota in un gene BRCA come fattore di rischio."
+      pt: "A nossa leitura das normas sobre antecedentes familiares: uma variante genética hereditária conhecida num familiar de sangue é um dado que convém conhecer. Os CDC incluem um familiar com uma mutação conhecida num gene BRCA como fator de risco."
     fam.same_side:
       en: "Our own reading of family history guidance: the same condition in two or more close relatives on one side is a pattern worth knowing about."
       es: "Nuestra lectura de las guías de antecedentes familiares: la misma enfermedad en dos o más familiares cercanos de un mismo lado es un patrón que conviene conocer."
@@ -129,6 +138,7 @@ templates:
       fr: "Notre propre lecture des recommandations sur les antécédents familiaux : la même maladie chez deux proches parents ou plus d'un même côté est un schéma utile à connaître."
       ca: "La nostra lectura de les guies d'antecedents familiars: la mateixa malaltia en dos o més familiars propers d'un mateix costat és un patró que convé conèixer."
       it: "La nostra lettura delle linee guida sull'anamnesi familiare: la stessa malattia in due o più familiari stretti dello stesso ramo è un quadro utile da conoscere."
+      pt: "A nossa leitura das normas sobre antecedentes familiares: a mesma doença em dois ou mais familiares próximos do mesmo lado é um padrão que convém conhecer."
   reasons:
     no_onset_age:
       en: "A relative has a matching condition with no age at onset, so this pattern cannot be checked."
@@ -137,3 +147,4 @@ templates:
       fr: "Un proche a une maladie correspondante sans âge de début, ce schéma ne peut donc pas être vérifié."
       ca: "Un familiar té una malaltia que encaixa però sense edat d'inici, així que aquest patró no es pot comprovar."
       it: "Un familiare ha una malattia corrispondente senza età d'esordio, quindi questo quadro non si può verificare."
+      pt: "Um familiar tem uma doença compatível mas sem idade de início, por isso este padrão não pode ser verificado."

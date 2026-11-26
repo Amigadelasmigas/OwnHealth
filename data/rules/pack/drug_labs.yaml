@@ -4,47 +4,47 @@
 cite_default: https://github.com/GeiserX/OwnHealth/blob/main/docs/design/genomics.md#8-check_drug-pgx-joined-with-meds-and-labs
 drug_labs:
   atorvastatin: &statin
-    - {lab: alt, reason: {en: liver enzymes in the statin label, es: enzimas hepáticas en la ficha de la estatina, de: "Leberenzyme in der Fachinformation des Statins", fr: "enzymes hépatiques dans le RCP de la statine", ca: "enzims hepàtics a la fitxa de l'estatina", it: "enzimi epatici nella scheda tecnica della statina"}}
-    - {lab: ck, reason: {en: muscle enzyme in the statin label, es: enzima muscular en la ficha de la estatina, de: "Muskelenzym in der Fachinformation des Statins", fr: "enzyme musculaire dans le RCP de la statine", ca: "enzim muscular a la fitxa de l'estatina", it: "enzima muscolare nella scheda tecnica della statina"}}
-    - {lab: ldl_c, reason: {en: treatment target, es: objetivo del tratamiento, de: "Therapieziel", fr: "objectif thérapeutique", ca: "objectiu del tractament", it: "obiettivo terapeutico"}}
+    - {lab: alt, reason: {en: liver enzymes in the statin label, es: enzimas hepáticas en la ficha de la estatina, de: "Leberenzyme in der Fachinformation des Statins", fr: "enzymes hépatiques dans le RCP de la statine", ca: "enzims hepàtics a la fitxa de l'estatina", it: "enzimi epatici nella scheda tecnica della statina", pt: "enzimas hepáticas no RCM da estatina"}}
+    - {lab: ck, reason: {en: muscle enzyme in the statin label, es: enzima muscular en la ficha de la estatina, de: "Muskelenzym in der Fachinformation des Statins", fr: "enzyme musculaire dans le RCP de la statine", ca: "enzim muscular a la fitxa de l'estatina", it: "enzima muscolare nella scheda tecnica della statina", pt: "enzima muscular no RCM da estatina"}}
+    - {lab: ldl_c, reason: {en: treatment target, es: objetivo del tratamiento, de: "Therapieziel", fr: "objectif thérapeutique", ca: "objectiu del tractament", it: "obiettivo terapeutico", pt: "objetivo terapêutico"}}
   simvastatin: *statin
   rosuvastatin: *statin
   pravastatin: *statin
   clopidogrel:
-    - {lab: platelets, reason: {en: antiplatelet therapy, es: tratamiento antiagregante, de: "Thrombozytenaggregationshemmung", fr: "traitement antiplaquettaire", ca: "tractament antiagregant", it: "terapia antiaggregante"}}
-    - {lab: hemoglobin, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico"}}
-    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale"}}
-    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica"}}
+    - {lab: platelets, reason: {en: antiplatelet therapy, es: tratamiento antiagregante, de: "Thrombozytenaggregationshemmung", fr: "traitement antiplaquettaire", ca: "tractament antiagregant", it: "terapia antiaggregante", pt: "terapêutica antiagregante"}}
+    - {lab: hemoglobin, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico", pt: "risco hemorrágico"}}
+    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale", pt: "função renal"}}
+    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica", pt: "função hepática"}}
   warfarin:
-    - {lab: inr, reason: {en: anticoagulation monitoring, es: control de la anticoagulación, de: "Überwachung der Antikoagulation", fr: "surveillance de l'anticoagulation", ca: "control de l'anticoagulació", it: "monitoraggio della terapia anticoagulante"}}
-    - {lab: hemoglobin, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico"}}
-    - {lab: platelets, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico"}}
+    - {lab: inr, reason: {en: anticoagulation monitoring, es: control de la anticoagulación, de: "Überwachung der Antikoagulation", fr: "surveillance de l'anticoagulation", ca: "control de l'anticoagulació", it: "monitoraggio della terapia anticoagulante", pt: "controlo da anticoagulação"}}
+    - {lab: hemoglobin, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico", pt: "risco hemorrágico"}}
+    - {lab: platelets, reason: {en: bleeding risk, es: riesgo de sangrado, de: "Blutungsrisiko", fr: "risque hémorragique", ca: "risc de sagnat", it: "rischio emorragico", pt: "risco hemorrágico"}}
   codeine: &opioid
-    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale"}}
-    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica"}}
+    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale", pt: "função renal"}}
+    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica", pt: "função hepática"}}
   tramadol: *opioid
   azathioprine: &thiopurine
-    - {lab: wbc, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina"}}
-    - {lab: platelets, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina"}}
-    - {lab: hemoglobin, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina"}}
-    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica"}}
+    - {lab: wbc, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina", pt: "hemograma no RCM da tiopurina"}}
+    - {lab: platelets, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina", pt: "hemograma no RCM da tiopurina"}}
+    - {lab: hemoglobin, reason: {en: blood count in the thiopurine label, es: hemograma en la ficha de la tiopurina, de: "Blutbild in der Fachinformation des Thiopurins", fr: "hémogramme dans le RCP de la thiopurine", ca: "hemograma a la fitxa de la tiopurina", it: "emocromo nella scheda tecnica della tiopurina", pt: "hemograma no RCM da tiopurina"}}
+    - {lab: alt, reason: {en: liver function, es: función hepática, de: "Leberfunktion", fr: "fonction hépatique", ca: "funció hepàtica", it: "funzione epatica", pt: "função hepática"}}
   mercaptopurine: *thiopurine
   thioguanine: *thiopurine
   fluorouracil: &fluoropyrimidine
-    - {lab: wbc, reason: {en: blood count, es: hemograma, de: "Blutbild", fr: "hémogramme", ca: "hemograma", it: "emocromo"}}
-    - {lab: platelets, reason: {en: blood count, es: hemograma, de: "Blutbild", fr: "hémogramme", ca: "hemograma", it: "emocromo"}}
-    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale"}}
+    - {lab: wbc, reason: {en: blood count, es: hemograma, de: "Blutbild", fr: "hémogramme", ca: "hemograma", it: "emocromo", pt: "hemograma"}}
+    - {lab: platelets, reason: {en: blood count, es: hemograma, de: "Blutbild", fr: "hémogramme", ca: "hemograma", it: "emocromo", pt: "hemograma"}}
+    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale", pt: "função renal"}}
   capecitabine: *fluoropyrimidine
   tacrolimus:
-    - {lab: creatinine, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale"}}
-    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale"}}
+    - {lab: creatinine, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale", pt: "função renal"}}
+    - {lab: egfr, reason: {en: kidney function, es: función renal, de: "Nierenfunktion", fr: "fonction rénale", ca: "funció renal", it: "funzione renale", pt: "função renal"}}
   omeprazole: &ppi
-    - {lab: vitamin_b12, reason: {en: long-term use in the PPI label, es: uso prolongado en la ficha del IBP, de: "Langzeitanwendung in der Fachinformation des PPI", fr: "usage prolongé dans le RCP de l'IPP", ca: "ús prolongat a la fitxa de l'IBP", it: "uso prolungato nella scheda tecnica dell'IPP"}}
-    - {lab: magnesium, reason: {en: long-term use in the PPI label, es: uso prolongado en la ficha del IBP, de: "Langzeitanwendung in der Fachinformation des PPI", fr: "usage prolongé dans le RCP de l'IPP", ca: "ús prolongat a la fitxa de l'IBP", it: "uso prolungato nella scheda tecnica dell'IPP"}}
+    - {lab: vitamin_b12, reason: {en: long-term use in the PPI label, es: uso prolongado en la ficha del IBP, de: "Langzeitanwendung in der Fachinformation des PPI", fr: "usage prolongé dans le RCP de l'IPP", ca: "ús prolongat a la fitxa de l'IBP", it: "uso prolungato nella scheda tecnica dell'IPP", pt: "uso prolongado no RCM do IBP"}}
+    - {lab: magnesium, reason: {en: long-term use in the PPI label, es: uso prolongado en la ficha del IBP, de: "Langzeitanwendung in der Fachinformation des PPI", fr: "usage prolongé dans le RCP de l'IPP", ca: "ús prolongat a la fitxa de l'IBP", it: "uso prolungato nella scheda tecnica dell'IPP", pt: "uso prolongado no RCM do IBP"}}
   pantoprazole: *ppi
   lansoprazole: *ppi
   citalopram: &ssri
-    - {lab: sodium, reason: {en: hyponatraemia in the SSRI label, es: hiponatremia en la ficha del ISRS, de: "Hyponatriämie in der Fachinformation des SSRI", fr: "hyponatrémie dans le RCP de l'ISRS", ca: "hiponatrèmia a la fitxa de l'ISRS", it: "iponatriemia nella scheda tecnica dell'SSRI"}}
+    - {lab: sodium, reason: {en: hyponatraemia in the SSRI label, es: hiponatremia en la ficha del ISRS, de: "Hyponatriämie in der Fachinformation des SSRI", fr: "hyponatrémie dans le RCP de l'ISRS", ca: "hiponatrèmia a la fitxa de l'ISRS", it: "iponatriemia nella scheda tecnica dell'SSRI", pt: "hiponatremia no RCM do ISRS"}}
   escitalopram: *ssri
   sertraline: *ssri
   paroxetine: *ssri

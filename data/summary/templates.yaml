@@ -4,8 +4,8 @@
 # layer is linted again in the tests.
 version: "summary-templates 0.3.0"
 templates:
-  title: {en: Doctor summary, es: Resumen para el médico, de: "Arztzusammenfassung", fr: "Résumé pour le médecin", ca: "Resum per al metge", it: "Riepilogo per il medico"}
-  subtitle: {en: "Data as of {as_of}", es: "Datos a {as_of}", de: "Daten, Stand {as_of}", fr: "Données au {as_of}", ca: "Dades a {as_of}", it: "Dati al {as_of}"}
+  title: {en: Doctor summary, es: Resumen para el médico, de: "Arztzusammenfassung", fr: "Résumé pour le médecin", ca: "Resum per al metge", it: "Riepilogo per il medico", pt: "Resumo para o médico"}
+  subtitle: {en: "Data as of {as_of}", es: "Datos a {as_of}", de: "Daten, Stand {as_of}", fr: "Données au {as_of}", ca: "Dades a {as_of}", it: "Dati al {as_of}", pt: "Dados à data de {as_of}"}
   notice:
     en: "Information from the person's own records, not a diagnosis. Every value names its source (src_…); the sources are listed at the end."
     es: "Información de los registros de la propia persona, no un diagnóstico. Cada valor cita su fuente (src_…); las fuentes se listan al final."
@@ -13,6 +13,7 @@ templates:
     fr: "Informations issues des dossiers de la personne elle-même, pas un diagnostic. Chaque valeur cite sa source (src_…) ; les sources sont listées à la fin."
     ca: "Informació dels registres de la mateixa persona, no un diagnòstic. Cada valor cita la seva font (src_…); les fonts es llisten al final."
     it: "Informazioni dalle cartelle della persona stessa, non una diagnosi. Ogni valore cita la sua fonte (src_…); le fonti sono elencate alla fine."
+    pt: "Informação dos registos da própria pessoa, não um diagnóstico. Cada valor cita a sua fonte (src_…); as fontes estão listadas no fim."
   unprintable:
     en: "Characters this sheet cannot print show as ?; the record keeps the original text."
     es: "Los caracteres que esta hoja no puede imprimir aparecen como ?; el registro guarda el texto original."
@@ -20,91 +21,92 @@ templates:
     fr: "Les caractères que cette feuille ne peut pas imprimer apparaissent comme ? ; le dossier garde le texte d'origine."
     ca: "Els caràcters que aquest full no pot imprimir apareixen com a ?; el registre guarda el text original."
     it: "I caratteri che questo foglio non può stampare compaiono come ?; la cartella conserva il testo originale."
-  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre", fr: "{n} ans", ca: "{n} anys", it: "{n} anni"}
-  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}", fr: "né(e) le {date}", ca: "naixement {date}", it: "nascita {date}"}
+    pt: "Os caracteres que esta folha não consegue imprimir aparecem como ?; o registo guarda o texto original."
+  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre", fr: "{n} ans", ca: "{n} anys", it: "{n} anni", pt: "{n} anos"}
+  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}", fr: "né(e) le {date}", ca: "naixement {date}", it: "nascita {date}", pt: "nascimento {date}"}
   sec:
-    conditions: {en: Active conditions, es: Problemas de salud activos, de: "Aktive Erkrankungen", fr: "Problèmes de santé actifs", ca: "Problemes de salut actius", it: "Problemi di salute attivi"}
-    allergies: {en: Allergies, es: Alergias, de: "Allergien", fr: "Allergies", ca: "Al·lèrgies", it: "Allergie"}
-    medications: {en: Medicines and supplements, es: Medicamentos y suplementos, de: "Arzneimittel und Nahrungsergänzungsmittel", fr: "Médicaments et compléments", ca: "Medicaments i suplements", it: "Farmaci e integratori"}
-    genome: {en: Pharmacogenomics and genome findings, es: Farmacogenética y hallazgos genómicos, de: "Pharmakogenomik und Genombefunde", fr: "Pharmacogénomique et résultats génomiques", ca: "Farmacogenètica i troballes genòmiques", it: "Farmacogenomica e risultati genomici"}
-    flags: {en: "Flags, by rank", es: "Avisos, por orden de importancia", de: "Hinweise, nach Rang", fr: "Alertes, par rang", ca: "Avisos, per ordre d'importància", it: "Avvisi, per importanza"}
-    markers: {en: Lab values, es: Valores de laboratorio, de: "Laborwerte", fr: "Résultats d'analyses", ca: "Valors de laboratori", it: "Valori di laboratorio"}
-    vaccines: {en: Vaccines, es: Vacunas, de: "Impfungen", fr: "Vaccins", ca: "Vacunes", it: "Vaccini"}
-    procedures: {en: Procedures, es: Procedimientos, de: "Eingriffe", fr: "Actes", ca: "Procediments", it: "Procedure"}
-    calculators: {en: Calculated values, es: Valores calculados, de: "Berechnete Werte", fr: "Valeurs calculées", ca: "Valors calculats", it: "Valori calcolati"}
-    due: {en: "Screenings, vaccines and lab tests due", es: "Cribados, vacunas y análisis pendientes", de: "Fällige Vorsorge, Impfungen und Labortests", fr: "Dépistages, vaccins et analyses à faire", ca: "Cribratges, vacunes i anàlisis pendents", it: "Screening, vaccini ed esami da fare"}
-    family: {en: Patterns in the family history, es: Patrones en los antecedentes familiares, de: "Muster in der Familienanamnese", fr: "Schémas dans les antécédents familiaux", ca: "Patrons en els antecedents familiars", it: "Quadri nell'anamnesi familiare"}
-    sources: {en: Sources, es: Fuentes, de: "Quellen", fr: "Sources", ca: "Fonts", it: "Fonti"}
-    cites: {en: Guidelines and formulas, es: Guías y fórmulas, de: "Leitlinien und Formeln", fr: "Recommandations et formules", ca: "Guies i fórmules", it: "Linee guida e formule"}
+    conditions: {en: Active conditions, es: Problemas de salud activos, de: "Aktive Erkrankungen", fr: "Problèmes de santé actifs", ca: "Problemes de salut actius", it: "Problemi di salute attivi", pt: "Problemas de saúde ativos"}
+    allergies: {en: Allergies, es: Alergias, de: "Allergien", fr: "Allergies", ca: "Al·lèrgies", it: "Allergie", pt: "Alergias"}
+    medications: {en: Medicines and supplements, es: Medicamentos y suplementos, de: "Arzneimittel und Nahrungsergänzungsmittel", fr: "Médicaments et compléments", ca: "Medicaments i suplements", it: "Farmaci e integratori", pt: "Medicamentos e suplementos"}
+    genome: {en: Pharmacogenomics and genome findings, es: Farmacogenética y hallazgos genómicos, de: "Pharmakogenomik und Genombefunde", fr: "Pharmacogénomique et résultats génomiques", ca: "Farmacogenètica i troballes genòmiques", it: "Farmacogenomica e risultati genomici", pt: "Farmacogenómica e achados genómicos"}
+    flags: {en: "Flags, by rank", es: "Avisos, por orden de importancia", de: "Hinweise, nach Rang", fr: "Alertes, par rang", ca: "Avisos, per ordre d'importància", it: "Avvisi, per importanza", pt: "Alertas, por ordem de importância"}
+    markers: {en: Lab values, es: Valores de laboratorio, de: "Laborwerte", fr: "Résultats d'analyses", ca: "Valors de laboratori", it: "Valori di laboratorio", pt: "Valores laboratoriais"}
+    vaccines: {en: Vaccines, es: Vacunas, de: "Impfungen", fr: "Vaccins", ca: "Vacunes", it: "Vaccini", pt: "Vacinas"}
+    procedures: {en: Procedures, es: Procedimientos, de: "Eingriffe", fr: "Actes", ca: "Procediments", it: "Procedure", pt: "Procedimentos"}
+    calculators: {en: Calculated values, es: Valores calculados, de: "Berechnete Werte", fr: "Valeurs calculées", ca: "Valors calculats", it: "Valori calcolati", pt: "Valores calculados"}
+    due: {en: "Screenings, vaccines and lab tests due", es: "Cribados, vacunas y análisis pendientes", de: "Fällige Vorsorge, Impfungen und Labortests", fr: "Dépistages, vaccins et analyses à faire", ca: "Cribratges, vacunes i anàlisis pendents", it: "Screening, vaccini ed esami da fare", pt: "Rastreios, vacinas e análises pendentes"}
+    family: {en: Patterns in the family history, es: Patrones en los antecedentes familiares, de: "Muster in der Familienanamnese", fr: "Schémas dans les antécédents familiaux", ca: "Patrons en els antecedents familiars", it: "Quadri nell'anamnesi familiare", pt: "Padrões nos antecedentes familiares"}
+    sources: {en: Sources, es: Fuentes, de: "Quellen", fr: "Sources", ca: "Fonts", it: "Fonti", pt: "Fontes"}
+    cites: {en: Guidelines and formulas, es: Guías y fórmulas, de: "Leitlinien und Formeln", fr: "Recommandations et formules", ca: "Guies i fórmules", it: "Linee guida e formule", pt: "Normas e fórmulas"}
   col:
-    condition: {en: Condition, es: Problema, de: "Erkrankung", fr: "Problème", ca: "Problema", it: "Problema"}
-    since: {en: Since, es: Desde, de: "Seit", fr: "Depuis", ca: "Des de", it: "Dal"}
-    src: {en: Source, es: Fuente, de: "Quelle", fr: "Source", ca: "Font", it: "Fonte"}
-    substance: {en: Substance, es: Sustancia, de: "Substanz", fr: "Substance", ca: "Substància", it: "Sostanza"}
-    criticality: {en: Criticality, es: Gravedad, de: "Kritikalität", fr: "Gravité", ca: "Gravetat", it: "Gravità"}
-    reaction: {en: Reaction, es: Reacción, de: "Reaktion", fr: "Réaction", ca: "Reacció", it: "Reazione"}
-    medicine: {en: Medicine, es: Medicamento, de: "Arzneimittel", fr: "Médicament", ca: "Medicament", it: "Farmaco"}
-    schedule: {en: When taken, es: Pauta, de: "Einnahme", fr: "Prise", ca: "Pauta", it: "Assunzione"}
-    prescriber: {en: Prescriber, es: Prescriptor, de: "Verordnet von", fr: "Prescripteur", ca: "Prescriptor", it: "Prescrittore"}
-    finding: {en: Finding, es: Hallazgo, de: "Befund", fr: "Résultat", ca: "Troballa", it: "Risultato"}
-    drugs: {en: CPIC drugs, es: Fármacos CPIC, de: "CPIC-Arzneimittel", fr: "Médicaments CPIC", ca: "Fàrmacs CPIC", it: "Farmaci CPIC"}
-    evidence: {en: Evidence, es: Evidencia, de: "Evidenz", fr: "Niveau de preuve", ca: "Evidència", it: "Evidenza"}
-    rank: {en: "#", es: "#", de: "#", fr: "#", ca: "#", it: "#"}
-    flag: {en: Flag, es: Aviso, de: "Hinweis", fr: "Alerte", ca: "Avís", it: "Avviso"}
-    test: {en: Test, es: Prueba, de: "Test", fr: "Analyse", ca: "Prova", it: "Esame"}
-    value: {en: Value, es: Valor, de: "Wert", fr: "Valeur", ca: "Valor", it: "Valore"}
-    range: {en: Lab range, es: Rango lab., de: "Laborbereich", fr: "Plage du labo", ca: "Rang lab.", it: "Intervallo lab."}
-    date: {en: Date, es: Fecha, de: "Datum", fr: "Date", ca: "Data", it: "Data"}
-    status: {en: Status, es: Estado, de: "Status", fr: "État", ca: "Estat", it: "Stato"}
-    previous: {en: Previous value, es: Valor anterior, de: "Vorheriger Wert", fr: "Valeur précédente", ca: "Valor anterior", it: "Valore precedente"}
-    vaccine: {en: Vaccine, es: Vacuna, de: "Impfstoff", fr: "Vaccin", ca: "Vacuna", it: "Vaccino"}
-    dose: {en: Dose, es: Dosis, de: "Dosis", fr: "Dose", ca: "Dosi", it: "Dose"}
-    procedure: {en: Procedure, es: Procedimiento, de: "Eingriff", fr: "Acte", ca: "Procediment", it: "Procedura"}
-    document: {en: "Document, page and date", es: "Documento, página y fecha", de: "Dokument, Seite und Datum", fr: "Document, page et date", ca: "Document, pàgina i data", it: "Documento, pagina e data"}
-    decision: {en: Recorded decision, es: Decisión registrada, de: "Erfasste Entscheidung", fr: "Décision enregistrée", ca: "Decisió registrada", it: "Decisione registrata"}
-    calculation: {en: Calculation, es: Cálculo, de: "Berechnung", fr: "Calcul", ca: "Càlcul", it: "Calcolo"}
-    result: {en: Result, es: Resultado, de: "Ergebnis", fr: "Résultat", ca: "Resultat", it: "Risultato"}
-    item: {en: "Screening, vaccine or test", es: "Cribado, vacuna o análisis", de: "Vorsorge, Impfung oder Test", fr: "Dépistage, vaccin ou analyse", ca: "Cribratge, vacuna o anàlisi", it: "Screening, vaccino o esame"}
-    due: {en: Due date, es: Fecha prevista, de: "Fälligkeitsdatum", fr: "Date prévue", ca: "Data prevista", it: "Data prevista"}
-    last: {en: Last on record, es: Último registro, de: "Zuletzt erfasst", fr: "Dernier enregistrement", ca: "Últim registre", it: "Ultimo registrato"}
-    pattern: {en: Pattern, es: Patrón, de: "Muster", fr: "Schéma", ca: "Patró", it: "Quadro"}
-    relatives: {en: Relatives, es: Familiares, de: "Angehörige", fr: "Proches", ca: "Familiars", it: "Familiari"}
-    guideline: {en: Guideline or formula, es: Guía o fórmula, de: "Leitlinie oder Formel", fr: "Recommandation ou formule", ca: "Guia o fórmula", it: "Linea guida o formula"}
-    cited_as: {en: Cited as, es: Citada como, de: "Zitiert als", fr: "Cité comme", ca: "Citada com a", it: "Citata come"}
-  none: {en: None on record., es: Nada registrado., de: "Nichts erfasst.", fr: "Rien d'enregistré.", ca: "Res registrat.", it: "Niente di registrato."}
-  not_measured: {en: not measured, es: no medido, de: "nicht gemessen", fr: "non mesuré", ca: "no mesurat", it: "non misurato"}
-  more: {en: "And {n} more in the record.", es: "Y {n} más en el registro.", de: "Und {n} weitere in der Akte.", fr: "Et {n} de plus dans le dossier.", ca: "I {n} més al registre.", it: "E altri {n} nella cartella."}
-  supplement: {en: supplement, es: suplemento, de: "Nahrungsergänzungsmittel", fr: "complément", ca: "suplement", it: "integratore"}
-  never: {en: none on record, es: sin registro, de: "nichts erfasst", fr: "aucun enregistrement", ca: "sense registre", it: "nessuna registrazione"}
+    condition: {en: Condition, es: Problema, de: "Erkrankung", fr: "Problème", ca: "Problema", it: "Problema", pt: "Problema"}
+    since: {en: Since, es: Desde, de: "Seit", fr: "Depuis", ca: "Des de", it: "Dal", pt: "Desde"}
+    src: {en: Source, es: Fuente, de: "Quelle", fr: "Source", ca: "Font", it: "Fonte", pt: "Fonte"}
+    substance: {en: Substance, es: Sustancia, de: "Substanz", fr: "Substance", ca: "Substància", it: "Sostanza", pt: "Substância"}
+    criticality: {en: Criticality, es: Gravedad, de: "Kritikalität", fr: "Gravité", ca: "Gravetat", it: "Gravità", pt: "Gravidade"}
+    reaction: {en: Reaction, es: Reacción, de: "Reaktion", fr: "Réaction", ca: "Reacció", it: "Reazione", pt: "Reação"}
+    medicine: {en: Medicine, es: Medicamento, de: "Arzneimittel", fr: "Médicament", ca: "Medicament", it: "Farmaco", pt: "Medicamento"}
+    schedule: {en: When taken, es: Pauta, de: "Einnahme", fr: "Prise", ca: "Pauta", it: "Assunzione", pt: "Posologia"}
+    prescriber: {en: Prescriber, es: Prescriptor, de: "Verordnet von", fr: "Prescripteur", ca: "Prescriptor", it: "Prescrittore", pt: "Prescritor"}
+    finding: {en: Finding, es: Hallazgo, de: "Befund", fr: "Résultat", ca: "Troballa", it: "Risultato", pt: "Achado"}
+    drugs: {en: CPIC drugs, es: Fármacos CPIC, de: "CPIC-Arzneimittel", fr: "Médicaments CPIC", ca: "Fàrmacs CPIC", it: "Farmaci CPIC", pt: "Fármacos CPIC"}
+    evidence: {en: Evidence, es: Evidencia, de: "Evidenz", fr: "Niveau de preuve", ca: "Evidència", it: "Evidenza", pt: "Evidência"}
+    rank: {en: "#", es: "#", de: "#", fr: "#", ca: "#", it: "#", pt: "#"}
+    flag: {en: Flag, es: Aviso, de: "Hinweis", fr: "Alerte", ca: "Avís", it: "Avviso", pt: "Alerta"}
+    test: {en: Test, es: Prueba, de: "Test", fr: "Analyse", ca: "Prova", it: "Esame", pt: "Análise"}
+    value: {en: Value, es: Valor, de: "Wert", fr: "Valeur", ca: "Valor", it: "Valore", pt: "Valor"}
+    range: {en: Lab range, es: Rango lab., de: "Laborbereich", fr: "Plage du labo", ca: "Rang lab.", it: "Intervallo lab.", pt: "Intervalo lab."}
+    date: {en: Date, es: Fecha, de: "Datum", fr: "Date", ca: "Data", it: "Data", pt: "Data"}
+    status: {en: Status, es: Estado, de: "Status", fr: "État", ca: "Estat", it: "Stato", pt: "Estado"}
+    previous: {en: Previous value, es: Valor anterior, de: "Vorheriger Wert", fr: "Valeur précédente", ca: "Valor anterior", it: "Valore precedente", pt: "Valor anterior"}
+    vaccine: {en: Vaccine, es: Vacuna, de: "Impfstoff", fr: "Vaccin", ca: "Vacuna", it: "Vaccino", pt: "Vacina"}
+    dose: {en: Dose, es: Dosis, de: "Dosis", fr: "Dose", ca: "Dosi", it: "Dose", pt: "Dose"}
+    procedure: {en: Procedure, es: Procedimiento, de: "Eingriff", fr: "Acte", ca: "Procediment", it: "Procedura", pt: "Procedimento"}
+    document: {en: "Document, page and date", es: "Documento, página y fecha", de: "Dokument, Seite und Datum", fr: "Document, page et date", ca: "Document, pàgina i data", it: "Documento, pagina e data", pt: "Documento, página e data"}
+    decision: {en: Recorded decision, es: Decisión registrada, de: "Erfasste Entscheidung", fr: "Décision enregistrée", ca: "Decisió registrada", it: "Decisione registrata", pt: "Decisão registada"}
+    calculation: {en: Calculation, es: Cálculo, de: "Berechnung", fr: "Calcul", ca: "Càlcul", it: "Calcolo", pt: "Cálculo"}
+    result: {en: Result, es: Resultado, de: "Ergebnis", fr: "Résultat", ca: "Resultat", it: "Risultato", pt: "Resultado"}
+    item: {en: "Screening, vaccine or test", es: "Cribado, vacuna o análisis", de: "Vorsorge, Impfung oder Test", fr: "Dépistage, vaccin ou analyse", ca: "Cribratge, vacuna o anàlisi", it: "Screening, vaccino o esame", pt: "Rastreio, vacina ou análise"}
+    due: {en: Due date, es: Fecha prevista, de: "Fälligkeitsdatum", fr: "Date prévue", ca: "Data prevista", it: "Data prevista", pt: "Data prevista"}
+    last: {en: Last on record, es: Último registro, de: "Zuletzt erfasst", fr: "Dernier enregistrement", ca: "Últim registre", it: "Ultimo registrato", pt: "Último registo"}
+    pattern: {en: Pattern, es: Patrón, de: "Muster", fr: "Schéma", ca: "Patró", it: "Quadro", pt: "Padrão"}
+    relatives: {en: Relatives, es: Familiares, de: "Angehörige", fr: "Proches", ca: "Familiars", it: "Familiari", pt: "Familiares"}
+    guideline: {en: Guideline or formula, es: Guía o fórmula, de: "Leitlinie oder Formel", fr: "Recommandation ou formule", ca: "Guia o fórmula", it: "Linea guida o formula", pt: "Norma ou fórmula"}
+    cited_as: {en: Cited as, es: Citada como, de: "Zitiert als", fr: "Cité comme", ca: "Citada com a", it: "Citata come", pt: "Citada como"}
+  none: {en: None on record., es: Nada registrado., de: "Nichts erfasst.", fr: "Rien d'enregistré.", ca: "Res registrat.", it: "Niente di registrato.", pt: "Nada registado."}
+  not_measured: {en: not measured, es: no medido, de: "nicht gemessen", fr: "non mesuré", ca: "no mesurat", it: "non misurato", pt: "não medido"}
+  more: {en: "And {n} more in the record.", es: "Y {n} más en el registro.", de: "Und {n} weitere in der Akte.", fr: "Et {n} de plus dans le dossier.", ca: "I {n} més al registre.", it: "E altri {n} nella cartella.", pt: "E mais {n} no registo."}
+  supplement: {en: supplement, es: suplemento, de: "Nahrungsergänzungsmittel", fr: "complément", ca: "suplement", it: "integratore", pt: "suplemento"}
+  never: {en: none on record, es: sin registro, de: "nichts erfasst", fr: "aucun enregistrement", ca: "sense registre", it: "nessuna registrazione", pt: "sem registo"}
   # the person's own recorded choice, said as a fact about them (the lint reads a bare "keep" or
   # "stop" as advice)
   decision:
-    keep: {en: decided to keep taking it, es: decidió seguir tomándolo, de: "hat entschieden, es weiter einzunehmen", fr: "a décidé de continuer à le prendre", ca: "va decidir continuar prenent-lo", it: "ha deciso di continuare a prenderlo"}
-    stop: {en: decided to stop it, es: decidió dejarlo, de: "hat entschieden, es abzusetzen", fr: "a décidé de l'arrêter", ca: "va decidir deixar-lo", it: "ha deciso di sospenderlo"}
-    do_not_repurchase: {en: decided not to buy it again, es: decidió no volver a comprarlo, de: "hat entschieden, es nicht erneut zu kaufen", fr: "a décidé de ne pas le racheter", ca: "va decidir no tornar-lo a comprar", it: "ha deciso di non riacquistarlo"}
-  decision_on: {en: "{decision} on {date}", es: "{decision} el {date}", de: "{decision} am {date}", fr: "{decision} le {date}", ca: "{decision} el {date}", it: "{decision} il {date}"}
+    keep: {en: decided to keep taking it, es: decidió seguir tomándolo, de: "hat entschieden, es weiter einzunehmen", fr: "a décidé de continuer à le prendre", ca: "va decidir continuar prenent-lo", it: "ha deciso di continuare a prenderlo", pt: "decidiu continuar a tomá-lo"}
+    stop: {en: decided to stop it, es: decidió dejarlo, de: "hat entschieden, es abzusetzen", fr: "a décidé de l'arrêter", ca: "va decidir deixar-lo", it: "ha deciso di sospenderlo", pt: "decidiu deixar de o tomar"}
+    do_not_repurchase: {en: decided not to buy it again, es: decidió no volver a comprarlo, de: "hat entschieden, es nicht erneut zu kaufen", fr: "a décidé de ne pas le racheter", ca: "va decidir no tornar-lo a comprar", it: "ha deciso di non riacquistarlo", pt: "decidiu não o voltar a comprar"}
+  decision_on: {en: "{decision} on {date}", es: "{decision} el {date}", de: "{decision} am {date}", fr: "{decision} le {date}", ca: "{decision} el {date}", it: "{decision} il {date}", pt: "{decision} em {date}"}
   due_status:
-    overdue: {en: overdue, es: vencido, de: "überfällig", fr: "en retard", ca: "vençut", it: "scaduto"}
-    due: {en: due, es: pendiente, de: "fällig", fr: "à faire", ca: "pendent", it: "da fare"}
-    upcoming: {en: coming up, es: próximo, de: "demnächst", fr: "bientôt", ca: "proper", it: "in arrivo"}
-  sensitive: {en: "sensitive, printed because it was ticked for this print", es: "sensible, impreso porque se marcó para esta impresión", de: "sensibel, gedruckt, weil es für diesen Ausdruck angekreuzt wurde", fr: "sensible, imprimé car coché pour cette impression", ca: "sensible, imprès perquè es va marcar per a aquesta impressió", it: "sensibile, stampato perché spuntato per questa stampa"}
+    overdue: {en: overdue, es: vencido, de: "überfällig", fr: "en retard", ca: "vençut", it: "scaduto", pt: "vencido"}
+    due: {en: due, es: pendiente, de: "fällig", fr: "à faire", ca: "pendent", it: "da fare", pt: "pendente"}
+    upcoming: {en: coming up, es: próximo, de: "demnächst", fr: "bientôt", ca: "proper", it: "in arrivo", pt: "próximo"}
+  sensitive: {en: "sensitive, printed because it was ticked for this print", es: "sensible, impreso porque se marcó para esta impresión", de: "sensibel, gedruckt, weil es für diesen Ausdruck angekreuzt wurde", fr: "sensible, imprimé car coché pour cette impression", ca: "sensible, imprès perquè es va marcar per a aquesta impressió", it: "sensibile, stampato perché spuntato per questa stampa", pt: "sensível, impresso porque foi assinalado para esta impressão"}
   withheld:
-    labs: {en: "Lab values and calculated values: not shown, this account cannot read them.", es: "Valores de laboratorio y valores calculados: no se muestran, esta cuenta no puede leerlos.", de: "Laborwerte und berechnete Werte: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Résultats d'analyses et valeurs calculées : non affichés, ce compte ne peut pas les lire.", ca: "Valors de laboratori i valors calculats: no es mostren, aquest compte no els pot llegir.", it: "Valori di laboratorio e valori calcolati: non mostrati, questo account non può leggerli."}
-    records: {en: "Conditions, allergies, medicines, vaccines, procedures, screenings due and family history: not shown, this account cannot read them.", es: "Problemas de salud, alergias, medicamentos, vacunas, procedimientos, cribados pendientes y antecedentes familiares: no se muestran, esta cuenta no puede leerlos.", de: "Erkrankungen, Allergien, Arzneimittel, Impfungen, Eingriffe, fällige Vorsorge und Familienanamnese: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Problèmes de santé, allergies, médicaments, vaccins, actes, dépistages à faire et antécédents familiaux : non affichés, ce compte ne peut pas les lire.", ca: "Problemes de salut, al·lèrgies, medicaments, vacunes, procediments, cribratges pendents i antecedents familiars: no es mostren, aquest compte no els pot llegir.", it: "Problemi di salute, allergie, farmaci, vaccini, procedure, screening da fare e anamnesi familiare: non mostrati, questo account non può leggerli."}
-    genome: {en: "Genome findings: not shown, this account cannot read them.", es: "Hallazgos genómicos: no se muestran, esta cuenta no puede leerlos.", de: "Genombefunde: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Résultats génomiques : non affichés, ce compte ne peut pas les lire.", ca: "Troballes genòmiques: no es mostren, aquest compte no les pot llegir.", it: "Risultati genomici: non mostrati, questo account non può leggerli."}
+    labs: {en: "Lab values and calculated values: not shown, this account cannot read them.", es: "Valores de laboratorio y valores calculados: no se muestran, esta cuenta no puede leerlos.", de: "Laborwerte und berechnete Werte: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Résultats d'analyses et valeurs calculées : non affichés, ce compte ne peut pas les lire.", ca: "Valors de laboratori i valors calculats: no es mostren, aquest compte no els pot llegir.", it: "Valori di laboratorio e valori calcolati: non mostrati, questo account non può leggerli.", pt: "Valores laboratoriais e valores calculados: não são mostrados, esta conta não os pode ler."}
+    records: {en: "Conditions, allergies, medicines, vaccines, procedures, screenings due and family history: not shown, this account cannot read them.", es: "Problemas de salud, alergias, medicamentos, vacunas, procedimientos, cribados pendientes y antecedentes familiares: no se muestran, esta cuenta no puede leerlos.", de: "Erkrankungen, Allergien, Arzneimittel, Impfungen, Eingriffe, fällige Vorsorge und Familienanamnese: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Problèmes de santé, allergies, médicaments, vaccins, actes, dépistages à faire et antécédents familiaux : non affichés, ce compte ne peut pas les lire.", ca: "Problemes de salut, al·lèrgies, medicaments, vacunes, procediments, cribratges pendents i antecedents familiars: no es mostren, aquest compte no els pot llegir.", it: "Problemi di salute, allergie, farmaci, vaccini, procedure, screening da fare e anamnesi familiare: non mostrati, questo account non può leggerli.", pt: "Problemas de saúde, alergias, medicamentos, vacinas, procedimentos, rastreios pendentes e antecedentes familiares: não são mostrados, esta conta não os pode ler."}
+    genome: {en: "Genome findings: not shown, this account cannot read them.", es: "Hallazgos genómicos: no se muestran, esta cuenta no puede leerlos.", de: "Genombefunde: nicht gezeigt, dieses Konto kann sie nicht lesen.", fr: "Résultats génomiques : non affichés, ce compte ne peut pas les lire.", ca: "Troballes genòmiques: no es mostren, aquest compte no les pot llegir.", it: "Risultati genomici: non mostrati, questo account non può leggerli.", pt: "Achados genómicos: não são mostrados, esta conta não os pode ler."}
   criticality:
-    high: {en: high, es: alta, de: "hoch", fr: "élevée", ca: "alta", it: "alta"}
-    low: {en: low, es: baja, de: "niedrig", fr: "faible", ca: "baixa", it: "bassa"}
-    unable-to-assess: {en: not assessed, es: sin valorar, de: "nicht beurteilt", fr: "non évaluée", ca: "sense valorar", it: "non valutata"}
+    high: {en: high, es: alta, de: "hoch", fr: "élevée", ca: "alta", it: "alta", pt: "alta"}
+    low: {en: low, es: baja, de: "niedrig", fr: "faible", ca: "baixa", it: "bassa", pt: "baixa"}
+    unable-to-assess: {en: not assessed, es: sin valorar, de: "nicht beurteilt", fr: "non évaluée", ca: "sense valorar", it: "non valutata", pt: "sem avaliação"}
   kind:
-    document_region: {en: document, es: documento, de: "Dokument", fr: "document", ca: "document", it: "documento"}
-    fhir_import: {en: FHIR import, es: importación FHIR, de: "FHIR-Import", fr: "import FHIR", ca: "importació FHIR", it: "importazione FHIR"}
-    apple_health: {en: Apple Health, es: Apple Health, de: "Apple Health", fr: "Apple Health", ca: "Apple Health", it: "Apple Health"}
-    genome_facts: {en: genome facts file, es: fichero de hallazgos genómicos, de: "Datei mit Genombefunden", fr: "fichier de résultats génomiques", ca: "fitxer de troballes genòmiques", it: "file di risultati genomici"}
-    manual: {en: entered by hand, es: introducido a mano, de: "von Hand eingegeben", fr: "saisi à la main", ca: "introduït a mà", it: "inserito a mano"}
-    device: {en: device, es: dispositivo, de: "Gerät", fr: "appareil", ca: "dispositiu", it: "dispositivo"}
-    agent_proposal: {en: agent proposal, es: propuesta de un agente, de: "Vorschlag eines Agenten", fr: "proposition d'un agent", ca: "proposta d'un agent", it: "proposta di un agente"}
-    calculated: {en: calculated, es: calculado, de: "berechnet", fr: "calculé", ca: "calculat", it: "calcolato"}
+    document_region: {en: document, es: documento, de: "Dokument", fr: "document", ca: "document", it: "documento", pt: "documento"}
+    fhir_import: {en: FHIR import, es: importación FHIR, de: "FHIR-Import", fr: "import FHIR", ca: "importació FHIR", it: "importazione FHIR", pt: "importação FHIR"}
+    apple_health: {en: Apple Health, es: Apple Health, de: "Apple Health", fr: "Apple Health", ca: "Apple Health", it: "Apple Health", pt: "Apple Health"}
+    genome_facts: {en: genome facts file, es: fichero de hallazgos genómicos, de: "Datei mit Genombefunden", fr: "fichier de résultats génomiques", ca: "fitxer de troballes genòmiques", it: "file di risultati genomici", pt: "ficheiro de achados genómicos"}
+    manual: {en: entered by hand, es: introducido a mano, de: "von Hand eingegeben", fr: "saisi à la main", ca: "introduït a mà", it: "inserito a mano", pt: "introduzido à mão"}
+    device: {en: device, es: dispositivo, de: "Gerät", fr: "appareil", ca: "dispositiu", it: "dispositivo", pt: "dispositivo"}
+    agent_proposal: {en: agent proposal, es: propuesta de un agente, de: "Vorschlag eines Agenten", fr: "proposition d'un agent", ca: "proposta d'un agent", it: "proposta di un agente", pt: "proposta de um agente"}
+    calculated: {en: calculated, es: calculado, de: "berechnet", fr: "calculé", ca: "calculat", it: "calcolato", pt: "calculado"}
   footer:
     en: "OwnHealth · {rules} · {summary} · state {hash} · page {page}/{pages}"
     es: "OwnHealth · {rules} · {summary} · estado {hash} · página {page}/{pages}"
@@ -112,10 +114,11 @@ templates:
     fr: "OwnHealth · {rules} · {summary} · état {hash} · page {page}/{pages}"
     ca: "OwnHealth · {rules} · {summary} · estat {hash} · pàgina {page}/{pages}"
     it: "OwnHealth · {rules} · {summary} · stato {hash} · pagina {page}/{pages}"
+    pt: "OwnHealth · {rules} · {summary} · estado {hash} · página {page}/{pages}"
   ips:
-    title: {en: International Patient Summary, es: Resumen internacional del paciente, de: "Internationale Patientenkurzakte", fr: "Résumé international du patient", ca: "Resum internacional del pacient", it: "Patient Summary internazionale"}
+    title: {en: International Patient Summary, es: Resumen internacional del paciente, de: "Internationale Patientenkurzakte", fr: "Résumé international du patient", ca: "Resum internacional del pacient", it: "Patient Summary internazionale", pt: "Resumo internacional do doente"}
     # a SMART Health Link: the reader has no account, and these words are the same on every link
-    link_withheld: {en: Not included in this link., es: No se incluye en este enlace., de: "In diesem Link nicht enthalten.", fr: "Non inclus dans ce lien.", ca: "No s'inclou en aquest enllaç.", it: "Non incluso in questo link."}
+    link_withheld: {en: Not included in this link., es: No se incluye en este enlace., de: "In diesem Link nicht enthalten.", fr: "Non inclus dans ce lien.", ca: "No s'inclou en aquest enllaç.", it: "Non incluso in questo link.", pt: "Não incluído nesta ligação."}
     link_notice:
       en: "This summary holds only what the person chose to share, and never a sensitive category."
       es: "Este resumen contiene solo lo que la persona eligió compartir, y nunca una categoría sensible."
@@ -123,3 +126,4 @@ templates:
       fr: "Ce résumé ne contient que ce que la personne a choisi de partager, et jamais une catégorie sensible."
       ca: "Aquest resum conté només el que la persona va triar compartir, i mai una categoria sensible."
       it: "Questo riepilogo contiene solo ciò che la persona ha scelto di condividere, e mai una categoria sensibile."
+      pt: "Este resumo contém só o que a pessoa escolheu partilhar, e nunca uma categoria sensível."

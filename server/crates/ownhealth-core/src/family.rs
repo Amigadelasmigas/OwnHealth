@@ -60,6 +60,7 @@ pub struct Relationship {
     pub fr: String,
     pub ca: String,
     pub it: String,
+    pub pt: String,
     pub generation: i32,
     pub side: String,
     pub degree: i32,
@@ -81,12 +82,14 @@ pub struct ConditionKind {
     pub fr: String,
     pub ca: String,
     pub it: String,
+    pub pt: String,
     pub short_en: String,
     pub short_es: String,
     pub short_de: String,
     pub short_fr: String,
     pub short_ca: String,
     pub short_it: String,
+    pub short_pt: String,
     pub group: String,
     pub code: Option<String>,
     pub cite: String,
@@ -121,7 +124,13 @@ impl Relationship {
         let es_en = [("es", &self.es), ("en", &self.en)];
         rows(
             es_en,
-            &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca), ("it", &self.it)],
+            &[
+                ("de", &self.de),
+                ("fr", &self.fr),
+                ("ca", &self.ca),
+                ("it", &self.it),
+                ("pt", &self.pt),
+            ],
         )
     }
 
@@ -137,7 +146,13 @@ impl ConditionKind {
         let es_en = [("es", &self.es), ("en", &self.en)];
         rows(
             es_en,
-            &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca), ("it", &self.it)],
+            &[
+                ("de", &self.de),
+                ("fr", &self.fr),
+                ("ca", &self.ca),
+                ("it", &self.it),
+                ("pt", &self.pt),
+            ],
         )
     }
 
@@ -151,6 +166,7 @@ impl ConditionKind {
                 ("fr", &self.short_fr),
                 ("ca", &self.short_ca),
                 ("it", &self.short_it),
+                ("pt", &self.short_pt),
             ],
         )
     }

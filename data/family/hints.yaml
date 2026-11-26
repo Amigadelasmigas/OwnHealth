@@ -45,6 +45,7 @@ templates:
       fr: "Un parent au premier degré a un cholestérol LDL de 190 mg/dL (4,9 mmol/L) ou plus"
       ca: "Un familiar de primer grau té un colesterol LDL de 190 mg/dL (4,9 mmol/L) o més"
       it: "Un familiare di primo grado ha un colesterolo LDL di 190 mg/dL (4,9 mmol/L) o più"
+      pt: "Um familiar em primeiro grau tem um colesterol LDL de 190 mg/dL (4,9 mmol/L) ou mais"
     genome.cascade:
       en: "A first-degree relative carries a pathogenic variant in {gene}"
       es: "Un familiar de primer grado porta una variante patógena en {gene}"
@@ -52,6 +53,7 @@ templates:
       fr: "Un parent au premier degré porte un variant pathogène dans {gene}"
       ca: "Un familiar de primer grau porta una variant patogènica a {gene}"
       it: "Un familiare di primo grado è portatore di una variante patogenetica in {gene}"
+      pt: "Um familiar em primeiro grau é portador de uma variante patogénica em {gene}"
     withheld:
       en: "A relative shared a genetic finding"
       es: "Un familiar ha compartido un hallazgo genético"
@@ -59,6 +61,7 @@ templates:
       fr: "Un proche a partagé un résultat génétique"
       ca: "Un familiar ha compartit una troballa genètica"
       it: "Un familiare ha condiviso un risultato genetico"
+      pt: "Um familiar partilhou um resultado genético"
   why:
     lab.ldl_fh:
       en: "The guideline treats LDL cholesterol of 190 mg/dL (4.9 mmol/L) or more as severe hypercholesterolemia, which can be inherited, and describes lipid testing in the family."
@@ -67,6 +70,7 @@ templates:
       fr: "La recommandation considère un cholestérol LDL de 190 mg/dL (4,9 mmol/L) ou plus comme une hypercholestérolémie sévère, qui peut être héréditaire, et décrit le dosage des lipides dans la famille."
       ca: "La guia considera un colesterol LDL de 190 mg/dL (4,9 mmol/L) o més com a hipercolesterolèmia greu, que pot ser hereditària, i descriu l'anàlisi de lípids a la família."
       it: "La linea guida considera un colesterolo LDL di 190 mg/dL (4,9 mmol/L) o più come ipercolesterolemia grave, che può essere ereditaria, e descrive il test dei lipidi in famiglia."
+      pt: "A norma considera um colesterol LDL de 190 mg/dL (4,9 mmol/L) ou mais como hipercolesterolemia grave, que pode ser hereditária, e descreve a análise de lípidos na família."
     genome.cascade:
       en: "When a person carries a pathogenic variant, cascade testing is usually offered to relatives. Our own reading of the review cited."
       es: "Cuando una persona porta una variante patógena, a sus familiares se les suele ofrecer un estudio en cascada. Es nuestra lectura de la revisión citada."
@@ -74,6 +78,7 @@ templates:
       fr: "Quand une personne porte un variant pathogène, un dépistage en cascade est généralement proposé aux apparentés. C'est notre propre lecture de la revue citée."
       ca: "Quan una persona porta una variant patogènica, als seus familiars se'ls sol oferir un estudi en cascada. És la nostra lectura de la revisió citada."
       it: "Quando una persona è portatrice di una variante patogenetica, ai familiari viene di solito offerto un test a cascata. È la nostra lettura della revisione citata."
+      pt: "Quando uma pessoa é portadora de uma variante patogénica, costuma oferecer-se aos familiares um estudo em cascata. É a nossa leitura da revisão citada."
     withheld:
       en: "The gene is named only for people who can see sensitive genome results in this profile. When a person carries a pathogenic variant, cascade testing is usually offered to relatives."
       es: "El gen solo se nombra a quien puede ver los resultados genómicos sensibles de este perfil. Cuando una persona porta una variante patógena, a sus familiares se les suele ofrecer un estudio en cascada."
@@ -81,3 +86,4 @@ templates:
       fr: "Le gène n'est nommé qu'aux personnes qui peuvent voir les résultats génomiques sensibles de ce profil. Quand une personne porte un variant pathogène, un dépistage en cascade est généralement proposé aux apparentés."
       ca: "El gen només es mostra a qui pot veure els resultats genòmics sensibles d'aquest perfil. Quan una persona porta una variant patogènica, als seus familiars se'ls sol oferir un estudi en cascada."
       it: "Il gene viene nominato solo a chi può vedere i risultati genomici sensibili di questo profilo. Quando una persona è portatrice di una variante patogenetica, ai familiari viene di solito offerto un test a cascata."
+      pt: "O gene só é indicado a quem pode ver os resultados genómicos sensíveis deste perfil. Quando uma pessoa é portadora de uma variante patogénica, costuma oferecer-se aos familiares um estudo em cascata."

@@ -25,7 +25,8 @@
       "de": "Beide Partner tragen eine Variante in {gene}, einem rezessiven Gen. Mit beiden bestätigten Trägerschaften hat jede Schwangerschaft eine Wahrscheinlichkeit von 1 zu 4, dass das Kind beide Varianten erbt.",
       "fr": "Les deux partenaires portent un variant dans {gene}, un gène récessif. Les deux porteurs étant confirmés, chaque grossesse a 1 risque sur 4 que l'enfant hérite des deux variants.",
       "ca": "Els dos membres de la parella porten una variant a {gene}, un gen recessiu. Amb els dos portadors confirmats, cada embaràs té 1 probabilitat entre 4 que el fill hereti les dues variants.",
-      "it": "Entrambi i partner portano una variante in {gene}, un gene recessivo. Con entrambi i portatori confermati, ogni gravidanza ha 1 probabilità su 4 che il figlio erediti entrambe le varianti."
+      "it": "Entrambi i partner portano una variante in {gene}, un gene recessivo. Con entrambi i portatori confermati, ogni gravidanza ha 1 probabilità su 4 che il figlio erediti entrambe le varianti.",
+      "pt": "Os dois membros do casal são portadores de uma variante em {gene}, um gene recessivo. Com os dois portadores confirmados, cada gravidez tem 1 probabilidade em 4 de o filho herdar as duas variantes."
     },
     "row.ar_both_unconfirmed": {
       "en": "Both partners show a variant in {gene}, a recessive gene, but at least one result is unconfirmed. No risk figure is given until both results are confirmed, by a clinical carrier test or by sequencing.",
@@ -33,7 +34,8 @@
       "de": "Beide Partner zeigen eine Variante in {gene}, einem rezessiven Gen, aber mindestens ein Ergebnis ist unbestätigt. Eine Risikozahl gibt es erst, wenn beide Ergebnisse bestätigt sind, durch einen klinischen Trägertest oder durch Sequenzierung.",
       "fr": "Les deux partenaires présentent un variant dans {gene}, un gène récessif, mais au moins un résultat n'est pas confirmé. Aucun chiffre de risque n'est donné tant que les deux résultats ne sont pas confirmés, par un test clinique de porteur ou par séquençage.",
       "ca": "Els dos membres de la parella mostren una variant a {gene}, un gen recessiu, però almenys un resultat no està confirmat. No es dona cap xifra de risc fins que els dos resultats estiguin confirmats, per una prova clínica de portador o per seqüenciació.",
-      "it": "Entrambi i partner mostrano una variante in {gene}, un gene recessivo, ma almeno un risultato non è confermato. Nessuna cifra di rischio viene data finché entrambi i risultati non sono confermati, con un test clinico del portatore o con il sequenziamento."
+      "it": "Entrambi i partner mostrano una variante in {gene}, un gene recessivo, ma almeno un risultato non è confermato. Nessuna cifra di rischio viene data finché entrambi i risultati non sono confermati, con un test clinico del portatore o con il sequenziamento.",
+      "pt": "Os dois membros do casal mostram uma variante em {gene}, um gene recessivo, mas pelo menos um resultado não está confirmado. Nenhum valor de risco é dado até os dois resultados estarem confirmados, por um teste clínico de portador ou por sequenciação."
     },
     "row.ar_both_no_figure": {
       "en": "Both partners carry a variant in {gene}, a recessive gene, but at least one result is not a single heterozygous variant. The 1 in 4 figure assumes one altered copy in each partner, so no figure is given here.",
@@ -41,7 +43,8 @@
       "de": "Beide Partner tragen eine Variante in {gene}, einem rezessiven Gen, aber mindestens ein Ergebnis ist keine einzelne heterozygote Variante. Die Zahl 1 zu 4 setzt eine veränderte Kopie bei jedem Partner voraus, daher steht hier keine Zahl.",
       "fr": "Les deux partenaires portent un variant dans {gene}, un gène récessif, mais au moins un résultat n'est pas un seul variant hétérozygote. Le chiffre de 1 sur 4 suppose une copie altérée chez chaque partenaire, aucun chiffre n'est donc donné ici.",
       "ca": "Els dos membres de la parella porten una variant a {gene}, un gen recessiu, però almenys un resultat no és una sola variant heterozigota. La xifra d'1 entre 4 suposa una còpia alterada en cada membre, així que aquí no es dona cap xifra.",
-      "it": "Entrambi i partner portano una variante in {gene}, un gene recessivo, ma almeno un risultato non è una singola variante eterozigote. La cifra di 1 su 4 presuppone una copia alterata in ciascun partner, quindi qui non viene data alcuna cifra."
+      "it": "Entrambi i partner portano una variante in {gene}, un gene recessivo, ma almeno un risultato non è una singola variante eterozigote. La cifra di 1 su 4 presuppone una copia alterata in ciascun partner, quindi qui non viene data alcuna cifra.",
+      "pt": "Os dois membros do casal são portadores de uma variante em {gene}, um gene recessivo, mas pelo menos um resultado não é uma única variante heterozigótica. O valor de 1 em 4 pressupõe uma cópia alterada em cada membro, por isso aqui não é dado nenhum valor."
     },
     "row.ar_one_not_detected": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. It was not detected in {other}, but sequencing does not find every variant: not detected is not the same as not a carrier.",
@@ -49,7 +52,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. Bei {other} wurde sie nicht nachgewiesen, aber die Sequenzierung findet nicht jede Variante: nicht nachgewiesen ist nicht dasselbe wie kein Träger.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. Il n'a pas été détecté chez {other}, mais le séquençage ne trouve pas tous les variants : non détecté n'équivaut pas à non porteur.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. No es va detectar en {other}, però la seqüenciació no troba totes les variants: no detectada no és el mateix que no portador.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non è stata rilevata in {other}, ma il sequenziamento non trova tutte le varianti: non rilevata non equivale a non portatore."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non è stata rilevata in {other}, ma il sequenziamento non trova tutte le varianti: non rilevata non equivale a non portatore.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. Não foi detetada em {other}, mas a sequenciação não encontra todas as variantes: não detetada não é o mesmo que não portador."
     },
     "row.ar_one_not_stated": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. It was not detected in the sequencing data of {other}, but how well those data read {gene} is not stated: not detected is not the same as not a carrier.",
@@ -57,7 +61,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. In den Sequenzierdaten von {other} wurde sie nicht nachgewiesen, aber wie gut diese Daten {gene} lesen, ist nicht angegeben: nicht nachgewiesen ist nicht dasselbe wie kein Träger.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. Il n'a pas été détecté dans les données de séquençage de {other}, mais la qualité de lecture de {gene} par ces données n'est pas indiquée : non détecté n'équivaut pas à non porteur.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. No es va detectar a les dades de seqüenciació de {other}, però no consta quina part de {gene} van llegir aquestes dades: no detectada no és el mateix que no portador.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non è stata rilevata nei dati di sequenziamento di {other}, ma non è indicato quanto bene quei dati leggano {gene}: non rilevata non equivale a non portatore."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non è stata rilevata nei dati di sequenziamento di {other}, ma non è indicato quanto bene quei dati leggano {gene}: non rilevata non equivale a non portatore.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. Não foi detetada nos dados de sequenciação de {other}, mas não consta que parte de {gene} esses dados leram: não detetada não é o mesmo que não portador."
     },
     "row.ar_one_probed": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. The data of {other} come from a chip, which reads only some positions of {gene}: not detected is not the same as not a carrier.",
@@ -65,7 +70,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. Die Daten von {other} stammen von einem Chip, der nur einige Positionen von {gene} liest: nicht nachgewiesen ist nicht dasselbe wie kein Träger.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. Les données de {other} viennent d'une puce, qui ne lit que certaines positions de {gene} : non détecté n'équivaut pas à non porteur.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. Les dades de {other} vénen d'un xip, que només llegeix algunes posicions de {gene}: no detectada no és el mateix que no portador.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. I dati di {other} vengono da un chip, che legge solo alcune posizioni di {gene}: non rilevata non equivale a non portatore."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. I dati di {other} vengono da un chip, che legge solo alcune posizioni di {gene}: non rilevata non equivale a non portatore.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. Os dados de {other} vêm de um chip, que só lê algumas posições de {gene}: não detetada não é o mesmo que não portador."
     },
     "row.ar_one_not_assessed": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. The data of {other} did not assess {gene}, so they say nothing about carrying it: not assessed is not the same as not a carrier.",
@@ -73,7 +79,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. Die Daten von {other} haben {gene} nicht untersucht und sagen daher nichts über eine Trägerschaft: nicht untersucht ist nicht dasselbe wie kein Träger.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. Les données de {other} n'ont pas évalué {gene} et ne disent donc rien sur son statut de porteur : non évalué n'équivaut pas à non porteur.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. Les dades de {other} no van avaluar {gene}, així que no diuen res sobre si hi porta una variant: no avaluat no és el mateix que no portador.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. I dati di {other} non hanno valutato {gene}, quindi non dicono nulla sul fatto di esserne portatore: non valutato non equivale a non portatore."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. I dati di {other} non hanno valutato {gene}, quindi non dicono nulla sul fatto di esserne portatore: non valutato non equivale a non portatore.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. Os dados de {other} não avaliaram {gene}, por isso não dizem nada sobre ser portador: não avaliado não é o mesmo que não portador."
     },
     "row.ar_one_no_genome": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. There are no genome data for {other}: no result is not the same as not a carrier.",
@@ -81,7 +88,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. Für {other} gibt es keine Genomdaten: kein Ergebnis ist nicht dasselbe wie kein Träger.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. Il n'y a pas de données génomiques pour {other} : l'absence de résultat n'équivaut pas à non porteur.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. No hi ha dades genòmiques de {other}: sense resultat no és el mateix que no portador.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non ci sono dati genomici per {other}: nessun risultato non equivale a non portatore."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. Non ci sono dati genomici per {other}: nessun risultato non equivale a non portatore.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. Não há dados genómicos de {other}: sem resultado não é o mesmo que não portador."
     },
     "row.ar_one_other_finding": {
       "en": "{carrier} carries a variant in {gene}, a recessive gene. {other} also has another finding in {gene}, shown on the Genome screen of {other}. This view does not count it as a carrier result, so no risk figure is given.",
@@ -89,7 +97,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem rezessiven Gen. {other} hat auch einen anderen Befund in {gene}, der auf der Genom-Seite von {other} steht. Diese Ansicht zählt ihn nicht als Trägerergebnis, daher gibt es keine Risikozahl.",
       "fr": "{carrier} porte un variant dans {gene}, un gène récessif. {other} a aussi un autre résultat dans {gene}, affiché sur l'écran Génome de {other}. Cette vue ne le compte pas comme un résultat de porteur, aucun chiffre de risque n'est donc donné.",
       "ca": "{carrier} porta una variant a {gene}, un gen recessiu. {other} també té una altra troballa a {gene}, que apareix a la pantalla Genoma de {other}. Aquesta vista no la compta com a resultat de portador, així que no es dona cap xifra de risc.",
-      "it": "{carrier} porta una variante in {gene}, un gene recessivo. {other} ha anche un altro risultato in {gene}, mostrato nella schermata Genoma di {other}. Questa vista non lo conta come risultato di portatore, quindi non viene data alcuna cifra di rischio."
+      "it": "{carrier} porta una variante in {gene}, un gene recessivo. {other} ha anche un altro risultato in {gene}, mostrato nella schermata Genoma di {other}. Questa vista non lo conta come risultato di portatore, quindi non viene data alcuna cifra di rischio.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene recessivo. {other} também tem outro achado em {gene}, que aparece no ecrã Genoma de {other}. Esta vista não o conta como resultado de portador, por isso não é dado nenhum valor de risco."
     },
     "row.xl_one": {
       "en": "{carrier} carries a variant in {gene}, a gene on the X chromosome. The 1 in 4 figure of shared recessive genes does not apply: the chance for a child depends on which partner carries it and on the child's sex.",
@@ -97,7 +106,8 @@
       "de": "{carrier} trägt eine Variante in {gene}, einem Gen auf dem X-Chromosom. Die Zahl 1 zu 4 gemeinsamer rezessiver Gene gilt hier nicht: Die Wahrscheinlichkeit für ein Kind hängt davon ab, welcher Partner sie trägt, und vom Geschlecht des Kindes.",
       "fr": "{carrier} porte un variant dans {gene}, un gène du chromosome X. Le chiffre de 1 sur 4 des gènes récessifs partagés ne s'applique pas : le risque pour un enfant dépend du partenaire qui le porte et du sexe de l'enfant.",
       "ca": "{carrier} porta una variant a {gene}, un gen del cromosoma X. La xifra d'1 entre 4 dels gens recessius compartits no s'aplica: la probabilitat per a un fill depèn de qui la porta i del sexe del fill.",
-      "it": "{carrier} porta una variante in {gene}, un gene sul cromosoma X. La cifra di 1 su 4 dei geni recessivi condivisi non si applica: la probabilità per un figlio dipende da quale partner la porta e dal sesso del figlio."
+      "it": "{carrier} porta una variante in {gene}, un gene sul cromosoma X. La cifra di 1 su 4 dei geni recessivi condivisi non si applica: la probabilità per un figlio dipende da quale partner la porta e dal sesso del figlio.",
+      "pt": "{carrier} é portador de uma variante em {gene}, um gene do cromossoma X. O valor de 1 em 4 dos genes recessivos partilhados não se aplica: a probabilidade para um filho depende de qual dos membros a tem e do sexo do filho."
     },
     "row.xl_both": {
       "en": "Both partners carry a variant in {gene}, a gene on the X chromosome. The 1 in 4 figure of shared recessive genes does not apply: the chance for a child depends on which partner carries it and on the child's sex.",
@@ -105,7 +115,8 @@
       "de": "Beide Partner tragen eine Variante in {gene}, einem Gen auf dem X-Chromosom. Die Zahl 1 zu 4 gemeinsamer rezessiver Gene gilt hier nicht: Die Wahrscheinlichkeit für ein Kind hängt davon ab, welcher Partner sie trägt, und vom Geschlecht des Kindes.",
       "fr": "Les deux partenaires portent un variant dans {gene}, un gène du chromosome X. Le chiffre de 1 sur 4 des gènes récessifs partagés ne s'applique pas : le risque pour un enfant dépend du partenaire qui le porte et du sexe de l'enfant.",
       "ca": "Els dos membres de la parella porten una variant a {gene}, un gen del cromosoma X. La xifra d'1 entre 4 dels gens recessius compartits no s'aplica: la probabilitat per a un fill depèn de qui la porta i del sexe del fill.",
-      "it": "Entrambi i partner portano una variante in {gene}, un gene sul cromosoma X. La cifra di 1 su 4 dei geni recessivi condivisi non si applica: la probabilità per un figlio dipende da quale partner la porta e dal sesso del figlio."
+      "it": "Entrambi i partner portano una variante in {gene}, un gene sul cromosoma X. La cifra di 1 su 4 dei geni recessivi condivisi non si applica: la probabilità per un figlio dipende da quale partner la porta e dal sesso del figlio.",
+      "pt": "Os dois membros do casal são portadores de uma variante em {gene}, um gene do cromossoma X. O valor de 1 em 4 dos genes recessivos partilhados não se aplica: a probabilidade para um filho depende de qual dos membros a tem e do sexo do filho."
     },
     "row.withheld": {
       "en": "A sensitive gene shows by name only when you may see sensitive results on both profiles.",
@@ -113,7 +124,8 @@
       "de": "Ein sensibles Gen erscheint nur dann mit Namen, wenn du sensible Ergebnisse in beiden Profilen sehen darfst.",
       "fr": "Un gène sensible n'apparaît par son nom que si vous pouvez voir les résultats sensibles des deux profils.",
       "ca": "Un gen sensible només es mostra pel seu nom quan pots veure els resultats sensibles dels dos perfils.",
-      "it": "Un gene sensibile compare con il suo nome solo quando puoi vedere i risultati sensibili di entrambi i profili."
+      "it": "Un gene sensibile compare con il suo nome solo quando puoi vedere i risultati sensibili di entrambi i profili.",
+      "pt": "Um gene sensível só aparece pelo nome quando podes ver os resultados sensíveis dos dois perfis."
     },
     "side.carrier": {
       "en": "Carries a variant",
@@ -121,7 +133,8 @@
       "de": "Trägt eine Variante",
       "fr": "Porte un variant",
       "ca": "Porta una variant",
-      "it": "Porta una variante"
+      "it": "Porta una variante",
+      "pt": "Portador de uma variante"
     },
     "side.carrier_unconfirmed": {
       "en": "Carries a variant, unconfirmed: a clinical carrier test comes first",
@@ -129,7 +142,8 @@
       "de": "Trägt eine Variante, unbestätigt: Zuerst kommt ein klinischer Trägertest",
       "fr": "Porte un variant, non confirmé : un test clinique de porteur passe en premier",
       "ca": "Porta una variant, sense confirmar: primer va una prova clínica de portador",
-      "it": "Porta una variante, non confermata: prima viene un test clinico del portatore"
+      "it": "Porta una variante, non confermata: prima viene un test clinico del portatore",
+      "pt": "Portador de uma variante, sem confirmação: primeiro vem um teste clínico de portador"
     },
     "side.not_detected": {
       "en": "Not detected",
@@ -137,7 +151,8 @@
       "de": "Nicht nachgewiesen",
       "fr": "Non détecté",
       "ca": "No detectada",
-      "it": "Non rilevata"
+      "it": "Non rilevata",
+      "pt": "Não detetada"
     },
     "side.not_detected_partial": {
       "en": "Not detected, gene partly assessed",
@@ -145,7 +160,8 @@
       "de": "Nicht nachgewiesen, Gen teilweise untersucht",
       "fr": "Non détecté, gène évalué en partie",
       "ca": "No detectada, gen avaluat en part",
-      "it": "Non rilevata, gene valutato in parte"
+      "it": "Non rilevata, gene valutato in parte",
+      "pt": "Não detetada, gene avaliado em parte"
     },
     "side.not_stated": {
       "en": "Not detected; coverage of this gene not stated",
@@ -153,7 +169,8 @@
       "de": "Nicht nachgewiesen; Abdeckung dieses Gens nicht angegeben",
       "fr": "Non détecté ; couverture de ce gène non indiquée",
       "ca": "No detectada; la cobertura d'aquest gen no consta",
-      "it": "Non rilevata; copertura di questo gene non indicata"
+      "it": "Non rilevata; copertura di questo gene non indicata",
+      "pt": "Não detetada; a cobertura deste gene não consta"
     },
     "side.probed_only": {
       "en": "Not assessed beyond the chip's probed sites",
@@ -161,7 +178,8 @@
       "de": "Über die vom Chip gelesenen Positionen hinaus nicht untersucht",
       "fr": "Non évalué au-delà des positions lues par la puce",
       "ca": "No avaluat més enllà de les posicions que llegeix el xip",
-      "it": "Non valutato oltre le posizioni lette dal chip"
+      "it": "Non valutato oltre le posizioni lette dal chip",
+      "pt": "Não avaliado além das posições que o chip lê"
     },
     "side.not_assessed": {
       "en": "Not assessed",
@@ -169,7 +187,8 @@
       "de": "Nicht untersucht",
       "fr": "Non évalué",
       "ca": "No avaluat",
-      "it": "Non valutato"
+      "it": "Non valutato",
+      "pt": "Não avaliado"
     },
     "side.no_genome": {
       "en": "No genome data",
@@ -177,7 +196,8 @@
       "de": "Keine Genomdaten",
       "fr": "Pas de données génomiques",
       "ca": "Sense dades genòmiques",
-      "it": "Nessun dato genomico"
+      "it": "Nessun dato genomico",
+      "pt": "Sem dados genómicos"
     },
     "side.other_finding": {
       "en": "Another finding in this gene, on the Genome screen",
@@ -185,7 +205,8 @@
       "de": "Ein anderer Befund in diesem Gen, auf der Genom-Seite",
       "fr": "Un autre résultat dans ce gène, sur l'écran Génome",
       "ca": "Una altra troballa en aquest gen, a la pantalla Genoma",
-      "it": "Un altro risultato in questo gene, nella schermata Genoma"
+      "it": "Un altro risultato in questo gene, nella schermata Genoma",
+      "pt": "Outro achado neste gene, no ecrã Genoma"
     },
     "counsel": {
       "en": "A clinical carrier test and genetic counselling come before any reproductive decision.",
@@ -193,7 +214,8 @@
       "de": "Ein klinischer Trägertest und eine genetische Beratung kommen vor jeder Entscheidung zur Familienplanung.",
       "fr": "Un test clinique de porteur et un conseil génétique précèdent toute décision de procréation.",
       "ca": "Una prova clínica de portador i el consell genètic van abans de qualsevol decisió reproductiva.",
-      "it": "Un test clinico del portatore e la consulenza genetica vengono prima di qualsiasi decisione riproduttiva."
+      "it": "Un test clinico del portatore e la consulenza genetica vengono prima di qualsiasi decisione riproduttiva.",
+      "pt": "Um teste clínico de portador e o aconselhamento genético vêm antes de qualquer decisão reprodutiva."
     }
   }
 }

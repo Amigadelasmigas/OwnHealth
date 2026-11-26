@@ -1,6 +1,6 @@
 system: thyroid
 order: 4
-names: {en: Thyroid, es: Tiroides, de: "Schilddrüse", fr: "Thyroïde", ca: "Tiroide", it: "Tiroide"}
+names: {en: Thyroid, es: Tiroides, de: "Schilddrüse", fr: "Thyroïde", ca: "Tiroide", it: "Tiroide", pt: "Tiroide"}
 markers: [tsh, ft4]
 rules:
   - id: recency.thyroid

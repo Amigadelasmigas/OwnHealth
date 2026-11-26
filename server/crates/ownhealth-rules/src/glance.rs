@@ -30,6 +30,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Espagne"),
             ("ca", "Espanya"),
             ("it", "Spagna"),
+            ("pt", "Espanha"),
         ],
     ),
     (
@@ -41,6 +42,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Portugal"),
             ("ca", "Portugal"),
             ("it", "Portogallo"),
+            ("pt", "Portugal"),
         ],
     ),
     (
@@ -52,6 +54,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "France"),
             ("ca", "França"),
             ("it", "Francia"),
+            ("pt", "França"),
         ],
     ),
     (
@@ -63,6 +66,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Allemagne"),
             ("ca", "Alemanya"),
             ("it", "Germania"),
+            ("pt", "Alemanha"),
         ],
     ),
     (
@@ -74,6 +78,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Italie"),
             ("ca", "Itàlia"),
             ("it", "Italia"),
+            ("pt", "Itália"),
         ],
     ),
     (
@@ -85,6 +90,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Royaume-Uni"),
             ("ca", "Regne Unit"),
             ("it", "Regno Unito"),
+            ("pt", "Reino Unido"),
         ],
     ),
     (
@@ -96,6 +102,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("fr", "États-Unis"),
             ("ca", "Estats Units"),
             ("it", "Stati Uniti"),
+            ("pt", "Estados Unidos"),
         ],
     ),
 ];

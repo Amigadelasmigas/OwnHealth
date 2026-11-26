@@ -11,7 +11,8 @@
     "de": "Die Synchronisierung von {providers} ist unterbrochen. Wer den Server betreibt, kann Open Wearables prüfen und die betroffenen Konten dort neu verbinden.",
     "fr": "La synchronisation de {providers} s'est arrêtée. La personne qui gère le serveur peut vérifier Open Wearables et y reconnecter les comptes concernés.",
     "ca": "S'ha interromput la sincronització de {providers}. Qui administra el servidor pot revisar Open Wearables i tornar-hi a connectar els comptes afectats.",
-    "it": "La sincronizzazione di {providers} si è interrotta. Chi gestisce il server può controllare Open Wearables e ricollegare lì gli account interessati."
+    "it": "La sincronizzazione di {providers} si è interrotta. Chi gestisce il server può controllare Open Wearables e ricollegare lì gli account interessati.",
+    "pt": "A sincronização de {providers} foi interrompida. Quem administra o servidor pode rever o Open Wearables e voltar a ligar lá as contas afetadas."
   },
   "openwearables_down": {
     "en": "OwnHealth cannot sync with Open Wearables. The server operator can check that the Open Wearables service is running.",
@@ -19,7 +20,8 @@
     "de": "OwnHealth kann nicht mit Open Wearables synchronisieren. Wer den Server betreibt, kann prüfen, ob der Open-Wearables-Dienst läuft.",
     "fr": "OwnHealth ne parvient pas à se synchroniser avec Open Wearables. La personne qui gère le serveur peut vérifier que le service Open Wearables fonctionne.",
     "ca": "OwnHealth no pot sincronitzar amb Open Wearables. Qui administra el servidor pot comprovar que el servei d'Open Wearables està en marxa.",
-    "it": "OwnHealth non riesce a sincronizzarsi con Open Wearables. Chi gestisce il server può verificare che il servizio Open Wearables sia attivo."
+    "it": "OwnHealth non riesce a sincronizzarsi con Open Wearables. Chi gestisce il server può verificare che il servizio Open Wearables sia attivo.",
+    "pt": "O OwnHealth não consegue sincronizar com o Open Wearables. Quem administra o servidor pode confirmar que o serviço do Open Wearables está a funcionar."
   },
   "dexcom": {
     "en": "Sync has stopped for Dexcom. You can reconnect your Dexcom account from Connections.",
@@ -27,6 +29,7 @@
     "de": "Die Synchronisierung von Dexcom ist unterbrochen. Du kannst dein Dexcom-Konto unter Verbindungen neu verbinden.",
     "fr": "La synchronisation de Dexcom s'est arrêtée. Vous pouvez reconnecter votre compte Dexcom depuis Connexions.",
     "ca": "S'ha interromput la sincronització de Dexcom. Pots tornar a connectar el teu compte de Dexcom des de Connexions.",
-    "it": "La sincronizzazione di Dexcom si è interrotta. Puoi ricollegare il tuo account Dexcom da Collegamenti."
+    "it": "La sincronizzazione di Dexcom si è interrotta. Puoi ricollegare il tuo account Dexcom da Collegamenti.",
+    "pt": "A sincronização do Dexcom foi interrompida. Podes voltar a ligar a tua conta Dexcom a partir de Ligações."
   }
 }

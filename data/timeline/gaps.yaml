@@ -27,6 +27,7 @@ templates:
       fr: "La consultation du {date} ({provider}) n'a pas de compte rendu dans le dossier"
       ca: "La visita del {date} ({provider}) no té informe arxivat"
       it: "La visita del {date} ({provider}) non ha un referto in archivio"
+      pt: "A consulta de {date} ({provider}) não tem relatório arquivado"
     records_hole:
       en: "No records between {from} and {to}"
       es: "Sin registros entre {from} y {to}"
@@ -34,6 +35,7 @@ templates:
       fr: "Aucun enregistrement entre le {from} et le {to}"
       ca: "Sense registres entre {from} i {to}"
       it: "Nessuna registrazione tra il {from} e il {to}"
+      pt: "Sem registos entre {from} e {to}"
   # The Due list shows the gap without the provider's name: its document holds dates and ids only.
   due_title:
     visit_without_report:
@@ -43,6 +45,7 @@ templates:
       fr: "Compte rendu de la consultation du {date}"
       ca: "Informe de la visita del {date}"
       it: "Referto della visita del {date}"
+      pt: "Relatório da consulta de {date}"
     records_hole:
       en: "Records from {from} to {to}"
       es: "Registros del {from} al {to}"
@@ -50,6 +53,7 @@ templates:
       fr: "Dossiers du {from} au {to}"
       ca: "Registres del {from} al {to}"
       it: "Registrazioni dal {from} al {to}"
+      pt: "Registos de {from} a {to}"
   why:
     visit_without_report:
       en: "No document from the visit's provider is on file in the {days} days after it. The provider keeps a copy that can be requested."
@@ -58,6 +62,7 @@ templates:
       fr: "Aucun document de l'établissement de la consultation n'est enregistré dans les {days} jours qui suivent. L'établissement conserve une copie qui peut être demandée."
       ca: "No hi ha cap document del centre de la visita en els {days} dies següents. El centre en guarda una còpia que es pot sol·licitar."
       it: "Nessun documento della struttura della visita è in archivio nei {days} giorni successivi. La struttura conserva una copia che si può richiedere."
+      pt: "Não há nenhum documento do prestador da consulta nos {days} dias seguintes. O prestador guarda uma cópia que pode ser pedida."
     records_hole:
       en: "{days} days with nothing dated in the record. Reports from that time may be held elsewhere."
       es: "{days} días sin nada fechado en el historial. Los informes de esa época pueden estar en otro sitio."
@@ -65,6 +70,7 @@ templates:
       fr: "{days} jours sans rien de daté dans le dossier. Des comptes rendus de cette période sont peut-être ailleurs."
       ca: "{days} dies sense res datat a l'historial. Els informes d'aquella època poden ser en un altre lloc."
       it: "{days} giorni senza nulla di datato nella cartella. I referti di quel periodo potrebbero trovarsi altrove."
+      pt: "{days} dias sem nada datado no processo. Os relatórios dessa época podem estar noutro sítio."
 
 # The access-request letter, by the profile's country. A country in no list gets the gap with no
 # letter, and so does a deceased person's record (the right of access is the living person's own).
@@ -86,6 +92,7 @@ letters:
           fr: "Règlement (UE) 2016/679 (RGPD), article 15"
           ca: "Reglament (UE) 2016/679 (RGPD), article 15"
           it: "Regolamento (UE) 2016/679 (GDPR), articolo 15"
+          pt: "Regulamento (UE) 2016/679 (RGPD), artigo 15.º"
       - id: gdpr_art12
         cite: https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_12
         name:
@@ -95,6 +102,7 @@ letters:
           fr: "Règlement (UE) 2016/679 (RGPD), article 12, paragraphe 3"
           ca: "Reglament (UE) 2016/679 (RGPD), article 12.3"
           it: "Regolamento (UE) 2016/679 (GDPR), articolo 12, paragrafo 3"
+          pt: "Regulamento (UE) 2016/679 (RGPD), artigo 12.º, n.º 3"
       - id: ley41_art18
         cite: https://www.boe.es/buscar/act.php?id=BOE-A-2002-22188#a18
         name:
@@ -104,6 +112,7 @@ letters:
           fr: "Loi 41/2002 du 14 novembre sur l'autonomie du patient (Espagne), article 18"
           ca: "Llei 41/2002, de 14 de novembre, bàsica reguladora de l'autonomia del pacient, article 18"
           it: "Legge 41/2002 del 14 novembre sull'autonomia del paziente (Spagna), articolo 18"
+          pt: "Lei 41/2002, de 14 de novembro, sobre a autonomia do doente (Espanha), artigo 18.º"
     basis:
       en: "Under Article 15 of Regulation (EU) 2016/679 (General Data Protection Regulation) and Article 18 of Spanish Law 41/2002 on patient autonomy, I request a copy of the health data that {provider} holds about my visit on {date}: the report of that visit and the results, images and documents produced in it."
       es: "Al amparo del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos) y del artículo 18 de la Ley 41/2002, básica reguladora de la autonomía del paciente, solicito una copia de los datos de salud que {provider} conserva sobre mi visita del {date}: el informe de esa visita y los resultados, imágenes y documentos generados en ella."
@@ -111,6 +120,7 @@ letters:
       fr: "En vertu de l'article 15 du règlement (UE) 2016/679 (règlement général sur la protection des données) et de l'article 18 de la loi espagnole 41/2002 sur l'autonomie du patient, je demande une copie des données de santé que {provider} détient sur ma consultation du {date} : le compte rendu de cette consultation et les résultats, images et documents produits lors de celle-ci."
       ca: "A l'empara de l'article 15 del Reglament (UE) 2016/679 (Reglament general de protecció de dades) i de l'article 18 de la Llei 41/2002, bàsica reguladora de l'autonomia del pacient, sol·licito una còpia de les dades de salut que {provider} conserva sobre la meva visita del {date}: l'informe d'aquella visita i els resultats, imatges i documents que s'hi van generar."
       it: "Ai sensi dell'articolo 15 del Regolamento (UE) 2016/679 (Regolamento generale sulla protezione dei dati) e dell'articolo 18 della legge spagnola 41/2002 sull'autonomia del paziente, chiedo una copia dei dati sanitari che {provider} conserva sulla mia visita del {date}: il referto di quella visita e i risultati, le immagini e i documenti prodotti in essa."
+      pt: "Ao abrigo do artigo 15.º do Regulamento (UE) 2016/679 (Regulamento Geral sobre a Proteção de Dados) e do artigo 18.º da Lei espanhola 41/2002 sobre a autonomia do doente, solicito uma cópia dos dados de saúde que {provider} conserva sobre a minha consulta de {date}: o relatório dessa consulta e os resultados, imagens e documentos nela produzidos."
     basis_for:
       en: "Under Article 15 of Regulation (EU) 2016/679 (General Data Protection Regulation) and Article 18 of Spanish Law 41/2002 on patient autonomy, as the legal representative of {name}, I request a copy of the health data that {provider} holds about the visit of {name} on {date}: the report of that visit and the results, images and documents produced in it."
       es: "Al amparo del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos) y del artículo 18 de la Ley 41/2002, básica reguladora de la autonomía del paciente, como representante legal de {name}, solicito una copia de los datos de salud que {provider} conserva sobre la visita de {name} del {date}: el informe de esa visita y los resultados, imágenes y documentos generados en ella."
@@ -118,6 +128,7 @@ letters:
       fr: "En vertu de l'article 15 du règlement (UE) 2016/679 (règlement général sur la protection des données) et de l'article 18 de la loi espagnole 41/2002 sur l'autonomie du patient, en tant que représentant légal de {name}, je demande une copie des données de santé que {provider} détient sur la consultation de {name} du {date} : le compte rendu de cette consultation et les résultats, images et documents produits lors de celle-ci."
       ca: "A l'empara de l'article 15 del Reglament (UE) 2016/679 (Reglament general de protecció de dades) i de l'article 18 de la Llei 41/2002, bàsica reguladora de l'autonomia del pacient, com a representant legal de {name}, sol·licito una còpia de les dades de salut que {provider} conserva sobre la visita de {name} del {date}: l'informe d'aquella visita i els resultats, imatges i documents que s'hi van generar."
       it: "Ai sensi dell'articolo 15 del Regolamento (UE) 2016/679 (Regolamento generale sulla protezione dei dati) e dell'articolo 18 della legge spagnola 41/2002 sull'autonomia del paziente, in qualità di rappresentante legale di {name}, chiedo una copia dei dati sanitari che {provider} conserva sulla visita di {name} del {date}: il referto di quella visita e i risultati, le immagini e i documenti prodotti in essa."
+      pt: "Ao abrigo do artigo 15.º do Regulamento (UE) 2016/679 (Regulamento Geral sobre a Proteção de Dados) e do artigo 18.º da Lei espanhola 41/2002 sobre a autonomia do doente, na qualidade de representante legal de {name}, solicito uma cópia dos dados de saúde que {provider} conserva sobre a consulta de {name} de {date}: o relatório dessa consulta e os resultados, imagens e documentos nela produzidos."
   eu:
     countries: [AT, BE, BG, CY, CZ, DE, DK, EE, FI, FR, GR, HR, HU, IE, IT, LT, LU, LV, MT, NL, PL, PT, RO, SE, SI, SK, IS, LI, NO]
     laws:
@@ -130,6 +141,7 @@ letters:
           fr: "Règlement (UE) 2016/679 (RGPD), article 15"
           ca: "Reglament (UE) 2016/679 (RGPD), article 15"
           it: "Regolamento (UE) 2016/679 (GDPR), articolo 15"
+          pt: "Regulamento (UE) 2016/679 (RGPD), artigo 15.º"
       - id: gdpr_art12
         cite: https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_12
         name:
@@ -139,6 +151,7 @@ letters:
           fr: "Règlement (UE) 2016/679 (RGPD), article 12, paragraphe 3"
           ca: "Reglament (UE) 2016/679 (RGPD), article 12.3"
           it: "Regolamento (UE) 2016/679 (GDPR), articolo 12, paragrafo 3"
+          pt: "Regulamento (UE) 2016/679 (RGPD), artigo 12.º, n.º 3"
     basis:
       en: "Under Article 15 of Regulation (EU) 2016/679 (General Data Protection Regulation), I request a copy of the health data that {provider} holds about my visit on {date}: the report of that visit and the results, images and documents produced in it."
       es: "Al amparo del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos), solicito una copia de los datos de salud que {provider} conserva sobre mi visita del {date}: el informe de esa visita y los resultados, imágenes y documentos generados en ella."
@@ -146,6 +159,7 @@ letters:
       fr: "En vertu de l'article 15 du règlement (UE) 2016/679 (règlement général sur la protection des données), je demande une copie des données de santé que {provider} détient sur ma consultation du {date} : le compte rendu de cette consultation et les résultats, images et documents produits lors de celle-ci."
       ca: "A l'empara de l'article 15 del Reglament (UE) 2016/679 (Reglament general de protecció de dades), sol·licito una còpia de les dades de salut que {provider} conserva sobre la meva visita del {date}: l'informe d'aquella visita i els resultats, imatges i documents que s'hi van generar."
       it: "Ai sensi dell'articolo 15 del Regolamento (UE) 2016/679 (Regolamento generale sulla protezione dei dati), chiedo una copia dei dati sanitari che {provider} conserva sulla mia visita del {date}: il referto di quella visita e i risultati, le immagini e i documenti prodotti in essa."
+      pt: "Ao abrigo do artigo 15.º do Regulamento (UE) 2016/679 (Regulamento Geral sobre a Proteção de Dados), solicito uma cópia dos dados de saúde que {provider} conserva sobre a minha consulta de {date}: o relatório dessa consulta e os resultados, imagens e documentos nela produzidos."
     basis_for:
       en: "Under Article 15 of Regulation (EU) 2016/679 (General Data Protection Regulation), as the legal representative of {name}, I request a copy of the health data that {provider} holds about the visit of {name} on {date}: the report of that visit and the results, images and documents produced in it."
       es: "Al amparo del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos), como representante legal de {name}, solicito una copia de los datos de salud que {provider} conserva sobre la visita de {name} del {date}: el informe de esa visita y los resultados, imágenes y documentos generados en ella."
@@ -153,6 +167,7 @@ letters:
       fr: "En vertu de l'article 15 du règlement (UE) 2016/679 (règlement général sur la protection des données), en tant que représentant légal de {name}, je demande une copie des données de santé que {provider} détient sur la consultation de {name} du {date} : le compte rendu de cette consultation et les résultats, images et documents produits lors de celle-ci."
       ca: "A l'empara de l'article 15 del Reglament (UE) 2016/679 (Reglament general de protecció de dades), com a representant legal de {name}, sol·licito una còpia de les dades de salut que {provider} conserva sobre la visita de {name} del {date}: l'informe d'aquella visita i els resultats, imatges i documents que s'hi van generar."
       it: "Ai sensi dell'articolo 15 del Regolamento (UE) 2016/679 (Regolamento generale sulla protezione dei dati), in qualità di rappresentante legale di {name}, chiedo una copia dei dati sanitari che {provider} conserva sulla visita di {name} del {date}: il referto di quella visita e i risultati, le immagini e i documenti prodotti in essa."
+      pt: "Ao abrigo do artigo 15.º do Regulamento (UE) 2016/679 (Regulamento Geral sobre a Proteção de Dados), na qualidade de representante legal de {name}, solicito uma cópia dos dados de saúde que {provider} conserva sobre a consulta de {name} de {date}: o relatório dessa consulta e os resultados, imagens e documentos nela produzidos."
   # The words every letter shares.
   text:
     title:
@@ -162,6 +177,7 @@ letters:
       fr: "Demande de copie de mon dossier médical"
       ca: "Sol·licitud de còpia de la meva història clínica"
       it: "Richiesta di copia della mia cartella clinica"
+      pt: "Pedido de cópia do meu processo clínico"
     title_for:
       en: "Request for a copy of health records"
       es: "Solicitud de copia de la historia clínica"
@@ -169,6 +185,7 @@ letters:
       fr: "Demande de copie du dossier médical"
       ca: "Sol·licitud de còpia de la història clínica"
       it: "Richiesta di copia della cartella clinica"
+      pt: "Pedido de cópia do processo clínico"
     to:
       en: "To: {provider}"
       es: "A la atención de: {provider}"
@@ -176,6 +193,7 @@ letters:
       fr: "À l'attention de : {provider}"
       ca: "A l'atenció de: {provider}"
       it: "Alla cortese attenzione di: {provider}"
+      pt: "À atenção de: {provider}"
     from:
       en: "From: {name}"
       es: "Solicitante: {name}"
@@ -183,6 +201,7 @@ letters:
       fr: "Demandeur : {name}"
       ca: "Sol·licitant: {name}"
       it: "Richiedente: {name}"
+      pt: "Requerente: {name}"
     requester:
       en: "From (legal representative):"
       es: "Solicitante (representante legal):"
@@ -190,6 +209,7 @@ letters:
       fr: "Demandeur (représentant légal) :"
       ca: "Sol·licitant (representant legal):"
       it: "Richiedente (rappresentante legale):"
+      pt: "Requerente (representante legal):"
     on_behalf:
       en: "On behalf of: {name}"
       es: "En nombre de: {name}"
@@ -197,6 +217,7 @@ letters:
       fr: "Au nom de : {name}"
       ca: "En nom de: {name}"
       it: "Per conto di: {name}"
+      pt: "Em nome de: {name}"
     id_number:
       en: "Identity document number:"
       es: "Número del documento de identidad:"
@@ -204,6 +225,7 @@ letters:
       fr: "Numéro de la pièce d'identité :"
       ca: "Número del document d'identitat:"
       it: "Numero del documento d'identità:"
+      pt: "Número do documento de identificação:"
     address:
       en: "Postal address:"
       es: "Domicilio:"
@@ -211,6 +233,7 @@ letters:
       fr: "Adresse postale :"
       ca: "Domicili:"
       it: "Indirizzo postale:"
+      pt: "Morada:"
     deadline:
       en: "Article 12(3) of the same Regulation sets a deadline of one month from receipt of this request."
       es: "El artículo 12.3 del mismo Reglamento fija un plazo de un mes desde la recepción de esta solicitud."
@@ -218,6 +241,7 @@ letters:
       fr: "L'article 12, paragraphe 3, du même règlement fixe un délai d'un mois à compter de la réception de cette demande."
       ca: "L'article 12.3 del mateix Reglament fixa un termini d'un mes des de la recepció d'aquesta sol·licitud."
       it: "L'articolo 12, paragrafo 3, dello stesso Regolamento fissa un termine di un mese dal ricevimento di questa richiesta."
+      pt: "O artigo 12.º, n.º 3, do mesmo Regulamento fixa um prazo de um mês a contar da receção deste pedido."
     format:
       en: "I would like to receive the copy in electronic form, if possible."
       es: "Me gustaría recibir la copia en formato electrónico, si es posible."
@@ -225,6 +249,7 @@ letters:
       fr: "Je souhaite recevoir la copie sous forme électronique, si possible."
       ca: "M'agradaria rebre la còpia en format electrònic, si és possible."
       it: "Vorrei ricevere la copia in formato elettronico, se possibile."
+      pt: "Gostaria de receber a cópia em formato eletrónico, se possível."
     sign:
       en: "Date and signature:"
       es: "Fecha y firma:"
@@ -232,6 +257,7 @@ letters:
       fr: "Date et signature :"
       ca: "Data i signatura:"
       it: "Data e firma:"
+      pt: "Data e assinatura:"
     laws:
       en: "Legal basis"
       es: "Base legal"
@@ -239,6 +265,7 @@ letters:
       fr: "Base juridique"
       ca: "Base legal"
       it: "Base giuridica"
+      pt: "Base legal"
     footer:
       en: "Prepared with OwnHealth from the record of {name}. The identity number and the address are written by hand."
       es: "Preparada con OwnHealth a partir del historial de {name}. El número de identidad y el domicilio se escriben a mano."
@@ -246,3 +273,4 @@ letters:
       fr: "Préparé avec OwnHealth à partir du dossier de {name}. Le numéro d'identité et l'adresse s'écrivent à la main."
       ca: "Preparada amb OwnHealth a partir de l'historial de {name}. El número d'identitat i el domicili s'escriuen a mà."
       it: "Preparata con OwnHealth dalla cartella di {name}. Il numero d'identità e l'indirizzo si scrivono a mano."
+      pt: "Preparado com o OwnHealth a partir do processo de {name}. O número de identificação e a morada escrevem-se à mão."

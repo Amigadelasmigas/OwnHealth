@@ -149,7 +149,13 @@ pub const METRICS: [Spec; 16] = [
 const LABELS: &[(&str, &[(&str, &str)])] = &[
     (
         "steps",
-        &[("de", "Schritte"), ("fr", "Pas"), ("ca", "Passos"), ("it", "Passi")],
+        &[
+            ("de", "Schritte"),
+            ("fr", "Pas"),
+            ("ca", "Passos"),
+            ("it", "Passi"),
+            ("pt", "Passos"),
+        ],
     ),
     (
         "hr",
@@ -158,6 +164,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Fréquence cardiaque"),
             ("ca", "Freqüència cardíaca"),
             ("it", "Frequenza cardiaca"),
+            ("pt", "Frequência cardíaca"),
         ],
     ),
     (
@@ -167,6 +174,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Fréquence cardiaque au repos"),
             ("ca", "Freqüència cardíaca en repòs"),
             ("it", "Frequenza cardiaca a riposo"),
+            ("pt", "Frequência cardíaca em repouso"),
         ],
     ),
     (
@@ -176,6 +184,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "VFC (SDNN)"),
             ("ca", "VFC (SDNN)"),
             ("it", "HRV (SDNN)"),
+            ("pt", "VFC (SDNN)"),
         ],
     ),
     (
@@ -185,6 +194,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "VFC (RMSSD)"),
             ("ca", "VFC (RMSSD)"),
             ("it", "HRV (RMSSD)"),
+            ("pt", "VFC (RMSSD)"),
         ],
     ),
     (
@@ -194,6 +204,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "VO₂max estimée"),
             ("ca", "VO₂màx estimat"),
             ("it", "VO₂max stimato"),
+            ("pt", "VO₂máx estimado"),
         ],
     ),
     (
@@ -203,6 +214,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Oxygène sanguin"),
             ("ca", "Oxigen en sang"),
             ("it", "Ossigeno nel sangue"),
+            ("pt", "Oxigénio no sangue"),
         ],
     ),
     (
@@ -212,11 +224,18 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Fréquence respiratoire"),
             ("ca", "Freqüència respiratòria"),
             ("it", "Frequenza respiratoria"),
+            ("pt", "Frequência respiratória"),
         ],
     ),
     (
         "weight",
-        &[("de", "Gewicht"), ("fr", "Poids"), ("ca", "Pes"), ("it", "Peso")],
+        &[
+            ("de", "Gewicht"),
+            ("fr", "Poids"),
+            ("ca", "Pes"),
+            ("it", "Peso"),
+            ("pt", "Peso"),
+        ],
     ),
     (
         "bp_systolic",
@@ -225,6 +244,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Pression artérielle systolique"),
             ("ca", "Pressió arterial sistòlica"),
             ("it", "Pressione arteriosa sistolica"),
+            ("pt", "Pressão arterial sistólica"),
         ],
     ),
     (
@@ -234,6 +254,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Pression artérielle diastolique"),
             ("ca", "Pressió arterial diastòlica"),
             ("it", "Pressione arteriosa diastolica"),
+            ("pt", "Pressão arterial diastólica"),
         ],
     ),
     (
@@ -243,6 +264,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Énergie active"),
             ("ca", "Energia activa"),
             ("it", "Energia attiva"),
+            ("pt", "Energia ativa"),
         ],
     ),
     (
@@ -252,6 +274,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Distance de marche et de course"),
             ("ca", "Distància caminant i corrent"),
             ("it", "Distanza camminata e corsa"),
+            ("pt", "Distância a caminhar e a correr"),
         ],
     ),
     (
@@ -261,6 +284,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Durée du sommeil"),
             ("ca", "Durada del son"),
             ("it", "Durata del sonno"),
+            ("pt", "Duração do sono"),
         ],
     ),
     (
@@ -270,6 +294,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Temps au lit"),
             ("ca", "Temps al llit"),
             ("it", "Tempo a letto"),
+            ("pt", "Tempo na cama"),
         ],
     ),
     (
@@ -279,6 +304,7 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
             ("fr", "Glucose (MCG)"),
             ("ca", "Glucosa (MCG)"),
             ("it", "Glucosio (CGM)"),
+            ("pt", "Glicose (MCG)"),
         ],
     ),
 ];
@@ -847,6 +873,10 @@ const LEFT_OUT: &[(&str, &str)] = &[
     (
         "it",
         "HRV da una sola fonte: {shown}. Non mescolata con l'HRV di altre fonti in questo periodo{rest}.",
+    ),
+    (
+        "pt",
+        "VFC de uma só fonte: {shown}. Não é misturada com a VFC de outras fontes neste período{rest}.",
     ),
 ];
 

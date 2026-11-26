@@ -9,7 +9,7 @@ reviewer: "OwnHealth maintainers (not clinicians)"
 reviewed: 2026-11-16
 rows:
   - id: fasting
-    name: {en: "Fasting", es: "Ayuno", de: "Nüchtern", fr: "Jeûne", ca: "Dejú", it: "Digiuno"}
+    name: {en: "Fasting", es: "Ayuno", de: "Nüchtern", fr: "Jeûne", ca: "Dejú", it: "Digiuno", pt: "Jejum"}
     text:
       en: "The cited standard defines a fasting glucose as one with no caloric intake for at least 8 hours before it."
       es: "La norma citada define la glucosa en ayunas como la medida sin ingesta calórica en las 8 horas anteriores como mínimo."
@@ -17,11 +17,12 @@ rows:
       fr: "La norme citée définit une glycémie à jeun comme une glycémie sans apport calorique pendant au moins 8 heures avant le prélèvement."
       ca: "La norma citada defineix la glucosa en dejú com la mesurada sense ingesta calòrica en les 8 hores anteriors com a mínim."
       it: "Lo standard citato definisce la glicemia a digiuno come quella senza apporto calorico per almeno 8 ore prima."
+      pt: "A norma citada define a glicose em jejum como a medida sem ingestão calórica nas 8 horas anteriores, no mínimo."
     groups: [glucose]
-    source: {en: "ADA Standards of Care 2026, section 2", es: "Estándares de atención de la ADA 2026, sección 2", de: "ADA Standards of Care 2026, Abschnitt 2", fr: "ADA Standards of Care 2026, section 2", ca: "Estàndards d'atenció de l'ADA 2026, secció 2", it: "ADA Standards of Care 2026, sezione 2"}
+    source: {en: "ADA Standards of Care 2026, section 2", es: "Estándares de atención de la ADA 2026, sección 2", de: "ADA Standards of Care 2026, Abschnitt 2", fr: "ADA Standards of Care 2026, section 2", ca: "Estàndards d'atenció de l'ADA 2026, secció 2", it: "ADA Standards of Care 2026, sezione 2", pt: "Normas de cuidados da ADA 2026, secção 2"}
     cite: https://doi.org/10.2337/dc26-S002
   - id: morning_urine
-    name: {en: "Early-morning urine", es: "Orina de primera hora", de: "Morgenurin", fr: "Urines du matin", ca: "Orina de primera hora", it: "Urine del mattino"}
+    name: {en: "Early-morning urine", es: "Orina de primera hora", de: "Morgenurin", fr: "Urines du matin", ca: "Orina de primera hora", it: "Urine del mattino", pt: "Urina da manhã"}
     text:
       en: "The cited guideline prefers an early-morning urine sample for the albumin-to-creatinine ratio."
       es: "La guía citada prefiere una muestra de orina de primera hora de la mañana para el cociente albúmina/creatinina."
@@ -29,11 +30,12 @@ rows:
       fr: "La recommandation citée préfère un échantillon d'urine du matin pour le rapport albumine/créatinine."
       ca: "La guia citada prefereix una mostra d'orina de primera hora del matí per al quocient albúmina/creatinina."
       it: "La linea guida citata preferisce un campione di urine del primo mattino per il rapporto albumina/creatinina."
+      pt: "A norma citada prefere uma amostra de urina da primeira hora da manhã para a razão albumina/creatinina."
     groups: [urine_acr]
-    source: {en: "KDIGO 2024 CKD guideline", es: "Guía KDIGO 2024 de ERC", de: "KDIGO-Leitlinie 2024 zu CKD", fr: "Recommandation KDIGO 2024 sur la MRC", ca: "Guia KDIGO 2024 de MRC", it: "Linea guida KDIGO 2024 sulla MRC"}
+    source: {en: "KDIGO 2024 CKD guideline", es: "Guía KDIGO 2024 de ERC", de: "KDIGO-Leitlinie 2024 zu CKD", fr: "Recommandation KDIGO 2024 sur la MRC", ca: "Guia KDIGO 2024 de MRC", it: "Linea guida KDIGO 2024 sulla MRC", pt: "Norma KDIGO 2024 sobre DRC"}
     cite: https://kdigo.org/guidelines/ckd-evaluation-and-management/
   - id: biotin
-    name: {en: "Biotin", es: "Biotina", de: "Biotin", fr: "Biotine", ca: "Biotina", it: "Biotina"}
+    name: {en: "Biotin", es: "Biotina", de: "Biotin", fr: "Biotine", ca: "Biotina", it: "Biotina", pt: "Biotina"}
     # The FDA communication names hormone immunoassays such as the thyroid tests among those biotin can
     # disturb; this page of the FDA links the communication and is where it is kept up to date.
     text:
@@ -43,8 +45,9 @@ rows:
       fr: "La biotine (vitamine B7), fréquente dans les compléments alimentaires, peut interférer avec certaines analyses et donner un résultat erroné, selon la FDA."
       ca: "La biotina (vitamina B7), freqüent en suplements, pot interferir amb algunes proves de laboratori i donar un resultat erroni, segons la FDA."
       it: "La biotina (vitamina B7), comune negli integratori, può interferire con alcuni esami di laboratorio e dare un risultato errato, secondo la FDA."
+      pt: "A biotina (vitamina B7), frequente em suplementos, pode interferir com algumas análises e dar um resultado errado, segundo a FDA."
     groups: [tsh, ft4]
-    source: {en: "FDA, biotin interference with lab tests", es: "FDA, interferencia de la biotina en pruebas de laboratorio", de: "FDA, Störung von Labortests durch Biotin", fr: "FDA, interférence de la biotine avec les analyses", ca: "FDA, interferència de la biotina en proves de laboratori", it: "FDA, interferenza della biotina con gli esami di laboratorio"}
+    source: {en: "FDA, biotin interference with lab tests", es: "FDA, interferencia de la biotina en pruebas de laboratorio", de: "FDA, Störung von Labortests durch Biotin", fr: "FDA, interférence de la biotine avec les analyses", ca: "FDA, interferència de la biotina en proves de laboratori", it: "FDA, interferenza della biotina con gli esami di laboratorio", pt: "FDA, interferência da biotina em análises"}
     cite: https://www.fda.gov/medical-devices/in-vitro-diagnostics/biotin-interference-troponin-lab-tests-assays-subject-biotin-interference
 templates:
   # why each test is on the list
@@ -55,6 +58,7 @@ templates:
     fr: "Dernière mesure le {last}, plus ancienne que l'intervalle de {months} mois de la règle."
     ca: "Última mesura el {last}, fa més que l'interval de {months} mesos de la regla."
     it: "Ultima misurazione il {last}, più vecchia dell'intervallo di {months} mesi della regola."
+    pt: "Última medição em {last}, há mais tempo do que o intervalo de {months} meses da regra."
   reason.never_measured:
     en: "No value on record; the rule lists this test for this person."
     es: "Ningún valor en el registro; la regla incluye esta prueba para esta persona."
@@ -62,6 +66,7 @@ templates:
     fr: "Aucune valeur dans le dossier ; la règle prévoit cette analyse pour cette personne."
     ca: "Cap valor al registre; la regla inclou aquesta prova per a aquesta persona."
     it: "Nessun valore registrato; la regola prevede questo esame per questa persona."
+    pt: "Nenhum valor no registo; a regra inclui esta análise para esta pessoa."
   reason.lab_range:
     en: "Last value {value} {unit} on {date}, outside the lab range {ref}."
     es: "Último valor {value} {unit} el {date}, fuera del rango del laboratorio {ref}."
@@ -69,8 +74,9 @@ templates:
     fr: "Dernière valeur {value} {unit} le {date}, hors de la plage du laboratoire {ref}."
     ca: "Últim valor {value} {unit} el {date}, fora del rang del laboratori {ref}."
     it: "Ultimo valore {value} {unit} il {date}, fuori dall'intervallo del laboratorio {ref}."
+    pt: "Último valor {value} {unit} em {date}, fora do intervalo do laboratório {ref}."
   # the screen and the printed request
-  title: {en: "Tests for the next blood draw", es: "Pruebas para la próxima analítica", de: "Tests für die nächste Blutentnahme", fr: "Analyses pour la prochaine prise de sang", ca: "Proves per a la propera analítica", it: "Esami per il prossimo prelievo"}
+  title: {en: "Tests for the next blood draw", es: "Pruebas para la próxima analítica", de: "Tests für die nächste Blutentnahme", fr: "Analyses pour la prochaine prise de sang", ca: "Proves per a la propera analítica", it: "Esami per il prossimo prelievo", pt: "Análises para a próxima colheita de sangue"}
   notice:
     en: "Information from this person's own health record, for their doctor. It is not a prescription or a diagnosis: the doctor decides what to order."
     es: "Información del propio registro de salud de esta persona, para su médico. No es una receta ni un diagnóstico: el médico decide qué pedir."
@@ -78,18 +84,19 @@ templates:
     fr: "Informations issues du dossier de santé de cette personne, pour son médecin. Ce n'est ni une ordonnance ni un diagnostic : le médecin décide de ce qu'il prescrit."
     ca: "Informació del registre de salut d'aquesta persona, per al seu metge. No és una recepta ni un diagnòstic: el metge decideix què demana."
     it: "Informazioni dalla cartella sanitaria di questa persona, per il suo medico. Non è una prescrizione né una diagnosi: il medico decide cosa richiedere."
-  as_of: {en: "From the record as of {as_of}.", es: "Según el registro a fecha de {as_of}.", de: "Aus der Akte, Stand {as_of}.", fr: "D'après le dossier au {as_of}.", ca: "Segons el registre a data de {as_of}.", it: "Dalla cartella al {as_of}."}
-  name_blank: {en: "Name:", es: "Nombre:", de: "Name:", fr: "Nom :", ca: "Nom:", it: "Nome:"}
-  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}", fr: "né(e) le {date}", ca: "naixement {date}", it: "nascita {date}"}
-  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre", fr: "{n} ans", ca: "{n} anys", it: "{n} anni"}
-  sex.female: {en: "female", es: "mujer", de: "weiblich", fr: "femme", ca: "dona", it: "femmina"}
-  sex.male: {en: "male", es: "hombre", de: "männlich", fr: "homme", ca: "home", it: "maschio"}
-  prep_none: {en: "No preparation listed by our sources", es: "Nuestras fuentes no indican preparación", de: "Unsere Quellen nennen keine Vorbereitung", fr: "Aucune préparation indiquée par nos sources", ca: "Les nostres fonts no indiquen preparació", it: "Nessuna preparazione indicata dalle nostre fonti"}
-  col.test: {en: "Test", es: "Prueba", de: "Test", fr: "Analyse", ca: "Prova", it: "Esame"}
-  col.loinc: {en: "LOINC", es: "LOINC", de: "LOINC", fr: "LOINC", ca: "LOINC", it: "LOINC"}
-  col.reason: {en: "Why it is listed", es: "Por qué figura", de: "Warum er aufgeführt ist", fr: "Pourquoi elle figure ici", ca: "Per què hi figura", it: "Perché è elencato"}
-  col.basis: {en: "Rule and source", es: "Regla y fuente", de: "Regel und Quelle", fr: "Règle et source", ca: "Regla i font", it: "Regola e fonte"}
-  sources: {en: "Cited sources", es: "Fuentes citadas", de: "Zitierte Quellen", fr: "Sources citées", ca: "Fonts citades", it: "Fonti citate"}
+    pt: "Informação do registo de saúde desta pessoa, para o seu médico. Não é uma receita nem um diagnóstico: o médico decide o que pedir."
+  as_of: {en: "From the record as of {as_of}.", es: "Según el registro a fecha de {as_of}.", de: "Aus der Akte, Stand {as_of}.", fr: "D'après le dossier au {as_of}.", ca: "Segons el registre a data de {as_of}.", it: "Dalla cartella al {as_of}.", pt: "Segundo o registo à data de {as_of}."}
+  name_blank: {en: "Name:", es: "Nombre:", de: "Name:", fr: "Nom :", ca: "Nom:", it: "Nome:", pt: "Nome:"}
+  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}", fr: "né(e) le {date}", ca: "naixement {date}", it: "nascita {date}", pt: "nascimento {date}"}
+  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre", fr: "{n} ans", ca: "{n} anys", it: "{n} anni", pt: "{n} anos"}
+  sex.female: {en: "female", es: "mujer", de: "weiblich", fr: "femme", ca: "dona", it: "femmina", pt: "mulher"}
+  sex.male: {en: "male", es: "hombre", de: "männlich", fr: "homme", ca: "home", it: "maschio", pt: "homem"}
+  prep_none: {en: "No preparation listed by our sources", es: "Nuestras fuentes no indican preparación", de: "Unsere Quellen nennen keine Vorbereitung", fr: "Aucune préparation indiquée par nos sources", ca: "Les nostres fonts no indiquen preparació", it: "Nessuna preparazione indicata dalle nostre fonti", pt: "As nossas fontes não indicam preparação"}
+  col.test: {en: "Test", es: "Prueba", de: "Test", fr: "Analyse", ca: "Prova", it: "Esame", pt: "Análise"}
+  col.loinc: {en: "LOINC", es: "LOINC", de: "LOINC", fr: "LOINC", ca: "LOINC", it: "LOINC", pt: "LOINC"}
+  col.reason: {en: "Why it is listed", es: "Por qué figura", de: "Warum er aufgeführt ist", fr: "Pourquoi elle figure ici", ca: "Per què hi figura", it: "Perché è elencato", pt: "Porque consta"}
+  col.basis: {en: "Rule and source", es: "Regla y fuente", de: "Regel und Quelle", fr: "Règle et source", ca: "Regla i font", it: "Regola e fonte", pt: "Regra e fonte"}
+  sources: {en: "Cited sources", es: "Fuentes citadas", de: "Zitierte Quellen", fr: "Sources citées", ca: "Fonts citades", it: "Fonti citate", pt: "Fontes citadas"}
   empty:
     en: "Nothing to list: the record has no overdue retest, no test it lacks and no last value outside its range."
     es: "Nada que listar: el registro no tiene repeticiones pendientes, pruebas que falten ni últimos valores fuera de rango."
@@ -97,6 +104,7 @@ templates:
     fr: "Rien à lister : le dossier n'a ni contrôle en retard, ni analyse manquante, ni dernière valeur hors de sa plage."
     ca: "Res a llistar: el registre no té repeticions pendents, proves que faltin ni últims valors fora de rang."
     it: "Niente da elencare: la cartella non ha ripetizioni in ritardo, esami mancanti né ultimi valori fuori intervallo."
+    pt: "Nada a listar: o registo não tem repetições em atraso, análises em falta nem últimos valores fora do intervalo."
   footer:
     en: "OwnHealth · {rules} · state {hash} · page {page}/{pages}"
     es: "OwnHealth · {rules} · estado {hash} · página {page}/{pages}"
@@ -104,3 +112,4 @@ templates:
     fr: "OwnHealth · {rules} · état {hash} · page {page}/{pages}"
     ca: "OwnHealth · {rules} · estat {hash} · pàgina {page}/{pages}"
     it: "OwnHealth · {rules} · stato {hash} · pagina {page}/{pages}"
+    pt: "OwnHealth · {rules} · estado {hash} · página {page}/{pages}"

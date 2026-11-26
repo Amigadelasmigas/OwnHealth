@@ -7,10 +7,10 @@
 # out of the group when the word appears in its text.
 # The schedules cite a conjugate pneumococcal vaccine and the recombinant zoster vaccine, so the
 # polysaccharide PPSV23 (CVX 33) and the live zoster vaccine (CVX 121) do not count.
-# group	cvx	en names	es names	en label	es label	de label	fr label	ca label	it label
-td	09|113|115|138|139|196	td|tdap|tetanus|diphtheria	td|dtpa|tdpa|tétanos|difteria	Tetanus and diphtheria (Td)	Tétanos y difteria (Td)	Tetanus und Diphtherie (Td)	Tétanos et diphtérie (Td)	Tètanus i diftèria (Td)	Tetano e difterite (Td)
-influenza	88|140|141|150|158|161|171|185|186|197|205	influenza|flu	gripe|influenza|antigripal	Influenza	Gripe	Grippe	Grippe	Grip	Influenza
-hpv	62|118|137|165	hpv|papillomavirus	vph|papiloma|papilomavirus	Human papillomavirus (HPV)	Virus del papiloma humano (VPH)	Humane Papillomviren (HPV)	Papillomavirus humain (HPV)	Virus del papil·loma humà (VPH)	Papillomavirus umano (HPV)
-zoster	187|188|!121	zoster|shingles|shingrix|!live|!zostavax	zóster|zoster|herpes zóster|shingrix|!atenuada|!viva	Herpes zoster	Herpes zóster	Herpes zoster	Zona (herpès zoster)	Herpes zòster	Herpes zoster
-pneumococcal	133|152|215|216|!33	pneumococcal|pneumococcus|pcv20|pcv15|pcv21|!polysaccharide|!ppsv23	neumococo|neumocócica|vnc20|vnc15|vnc21|!polisacárida|!vnp23	Pneumococcal	Neumococo	Pneumokokken	Pneumocoque	Pneumococ	Pneumococco
-menacwy	114|136|147|203	menacwy|meningococcal acwy	menacwy|meningococo acwy	Meningococcal ACWY	Meningococo ACWY	Meningokokken ACWY	Méningocoque ACWY	Meningococ ACWY	Meningococco ACWY
+# group	cvx	en names	es names	en label	es label	de label	fr label	ca label	it label	pt label
+td	09|113|115|138|139|196	td|tdap|tetanus|diphtheria	td|dtpa|tdpa|tétanos|difteria	Tetanus and diphtheria (Td)	Tétanos y difteria (Td)	Tetanus und Diphtherie (Td)	Tétanos et diphtérie (Td)	Tètanus i diftèria (Td)	Tetano e difterite (Td)	Tétano e difteria (Td)
+influenza	88|140|141|150|158|161|171|185|186|197|205	influenza|flu	gripe|influenza|antigripal	Influenza	Gripe	Grippe	Grippe	Grip	Influenza	Gripe
+hpv	62|118|137|165	hpv|papillomavirus	vph|papiloma|papilomavirus	Human papillomavirus (HPV)	Virus del papiloma humano (VPH)	Humane Papillomviren (HPV)	Papillomavirus humain (HPV)	Virus del papil·loma humà (VPH)	Papillomavirus umano (HPV)	Vírus do papiloma humano (HPV)
+zoster	187|188|!121	zoster|shingles|shingrix|!live|!zostavax	zóster|zoster|herpes zóster|shingrix|!atenuada|!viva	Herpes zoster	Herpes zóster	Herpes zoster	Zona (herpès zoster)	Herpes zòster	Herpes zoster	Herpes zóster
+pneumococcal	133|152|215|216|!33	pneumococcal|pneumococcus|pcv20|pcv15|pcv21|!polysaccharide|!ppsv23	neumococo|neumocócica|vnc20|vnc15|vnc21|!polisacárida|!vnp23	Pneumococcal	Neumococo	Pneumokokken	Pneumocoque	Pneumococ	Pneumococco	Pneumococo
+menacwy	114|136|147|203	menacwy|meningococcal acwy	menacwy|meningococo acwy	Meningococcal ACWY	Meningococo ACWY	Meningokokken ACWY	Méningocoque ACWY	Meningococ ACWY	Meningococco ACWY	Meningococo ACWY

@@ -74,6 +74,14 @@ pub const FORMATS: &[(&str, Format)] = &[
             count_group: ('.', 5),
         },
     ),
+    (
+        "pt",
+        Format {
+            decimal: ',',
+            group: Some(('\u{a0}', 5)),
+            count_group: ('\u{a0}', 5),
+        },
+    ),
 ];
 
 /// The registry languages [`FORMATS`] has no row for.

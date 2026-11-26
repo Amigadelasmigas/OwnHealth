@@ -267,6 +267,39 @@ const IT: Words = Words {
     ],
 };
 
+const PT: Words = Words {
+    draw: "Análises · {n} resultados",
+    draw1: "Análises · 1 resultado",
+    flagged: "{n} assinalados pelo laboratório",
+    flagged1: "1 assinalado pelo laboratório",
+    started: "Início de {name}",
+    stopped: "Fim de {name}",
+    genome: "Dados genómicos importados",
+    visit: "Visita médica",
+    imaging: "Exame de imagem",
+    doc_types: &[
+        ("discharge", "Relatório de alta"),
+        ("imaging_report", "Relatório de imagem"),
+        ("prescription", "Receita"),
+        ("ecg", "Eletrocardiograma"),
+    ],
+    document: "Documento",
+    enums: &[
+        ("confirmed", "confirmado"),
+        ("provisional", "provisório"),
+        ("unconfirmed", "não confirmado"),
+        ("differential", "diferencial"),
+        ("refuted", "excluído"),
+        ("entered-in-error", "registado por erro"),
+        ("active", "ativo"),
+        ("paused", "em pausa"),
+        ("on-hold", "em pausa"),
+        ("stopped", "suspenso"),
+        ("completed", "concluído"),
+        ("intended", "previsto"),
+    ],
+};
+
 /// The words of every registry language, read with `langs::pick`.
 const WORDS: &[(&str, &Words)] = &[
     ("es", &ES),
@@ -275,6 +308,7 @@ const WORDS: &[(&str, &Words)] = &[
     ("fr", &FR),
     ("ca", &CA),
     ("it", &IT),
+    ("pt", &PT),
 ];
 
 /// The registry languages the timeline's words lack (`tests/langs.rs`).
