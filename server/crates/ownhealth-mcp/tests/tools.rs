@@ -679,35 +679,47 @@ async fn cgm_glucose_answers_to_its_names_and_loinc() -> R {
     Ok(())
 }
 
+/// C-F8: `review_open` counts what the review list shows the same grant (ownhealth_mcp::review_shown,
+/// the rule of GET /api/review): a held lab value with read:labs, a sensitive one with read:sensitive
+/// too, a held Condition with read:records, and a failed job to anyone who reviews there.
 #[tokio::test]
 async fn status_counts_open_review_rows_it_may_read() -> R {
     let w = world().await?;
     let pid = w.pid("alex");
-    // a pull's grouped item waits for a person too, like a file's fhir_unmapped item
-    for kind in [
-        "candidate_row",
-        "candidate_row",
-        "fhir_unmapped",
-        "fhir_unmapped_summary",
-        "job_failed",
+    for (kind, payload) in [
+        ("candidate_row", json!({"observation": {"category": "laboratory", "sensitivity": []}})),
+        (
+            "candidate_row",
+            json!({"observation": {"category": "laboratory", "sensitivity": ["sexual_health"]}}),
+        ),
+        (
+            "fhir_unmapped",
+            json!({"resource_type": "Condition", "resource": {"resourceType": "Condition", "code": {"text": "Asma"}}}),
+        ),
+        ("job_failed", json!({"kind": "import.pdf", "error": "unreadable"})),
     ] {
         sqlx::query(
             "insert into review_item (household_id, profile_id, kind, payload) \
-             select household_id, id, $2, '{}' from profile where id = $1",
+             select household_id, id, $2, $3 from profile where id = $1",
         )
         .bind(pid)
         .bind(kind)
+        .bind(payload)
         .execute(&w.db.pool)
         .await?;
     }
     let c = w.connect(&w.tok().await?).await?;
     let env = c.call("get_health_status", json!({"profile": "alex"})).await?.ok();
     assert_eq!(env["data"]["review_open"], json!(4));
-    let c = w
-        .connect(&w.tok_scopes(scopes(&["read:summary", "read:labs"])).await?)
-        .await?;
-    let env = c.call("get_health_status", json!({"profile": "alex"})).await?.ok();
-    assert_eq!(env["data"]["review_open"], json!(2));
+    for (granted, open) in [
+        (&["read:summary", "read:labs"][..], 2),
+        (&["read:summary", "read:labs", "read:sensitive"][..], 3),
+        (&["read:summary", "read:records"][..], 2),
+    ] {
+        let c = w.connect(&w.tok_scopes(scopes(granted)).await?).await?;
+        let env = c.call("get_health_status", json!({"profile": "alex"})).await?.ok();
+        assert_eq!(env["data"]["review_open"], json!(open), "{granted:?}");
+    }
     Ok(())
 }
 
