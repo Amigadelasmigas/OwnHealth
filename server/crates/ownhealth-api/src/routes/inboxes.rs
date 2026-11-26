@@ -15,8 +15,9 @@
 //!
 //! Both health routes take `?format=prometheus` and answer in the Prometheus text format, so a
 //! Prometheus job (or any monitor that can send a bearer token) alerts on a source that stopped
-//! syncing. A person sees the sources of the profiles they can open, plus the household-wide ones when
-//! they own or guard a profile. A source token sees its own source and nothing else.
+//! syncing. A person sees the sources of the profiles they can open whose data they may read
+//! ([`data_scopes`]) or that they manage, plus the household-wide ones when they own or guard a
+//! profile. A source token sees its own source and nothing else.
 //!
 //! The Connections screen (v1.0) reads the same rows. `can_manage` is true when the person manages the
 //! source's profile (for a household-wide source: any profile of the household), so the screen lists
@@ -625,7 +626,25 @@ fn out(rows: &[(SourceHealth, Option<bool>)]) -> (Vec<HealthOut<'_>>, Vec<Source
     (json, rows.iter().map(|(h, _)| h.clone()).collect())
 }
 
-/// The household's sources this person may see: those of profiles they can open, and the
+/// The scopes that read what a source of `kind` brings in. A source's kind and label say what the
+/// profile holds (a Dexcom source means a glucose sensor), so a reader sees the source only with one of
+/// them. A mailbox, a folder or a share files reports and other documents (read:labs or read:records;
+/// a wearables export rarely comes that way, so read:wearables alone does not show it); a device or a
+/// vendor account brings readings (read:wearables); a SMART, Blue Button or directory connection
+/// brings records (read:records); ClinVar brings genome findings (read:genome). A kind not listed shows
+/// only to who manages its profile.
+fn data_scopes(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "email" | "folder" | "paperless" | "share" | "shortcut" => &["read:labs", "read:records"],
+        "health_auto_export" | "gadgetbridge" | "nightscout" | "openwearables" | "dexcom" => &["read:wearables"],
+        "smart" | "bluebutton" | "brands" => &["read:records"],
+        "clinvar" => &["read:genome"],
+        _ => &[],
+    }
+}
+
+/// The household's sources this person may see: those of profiles they can open whose data they may
+/// read ([`data_scopes`]) or that they manage (they list and reconnect them anyway), and the
 /// household-wide ones (no profile) when they own or guard at least one profile. Each with whether
 /// the person manages it: its profile, or (household-wide) any profile of the household, as
 /// `routes::connectors` decides who reconnects.
@@ -647,8 +666,12 @@ async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(Source
         .filter(|h| {
             h.profile_id.map_or(manager, |p| {
                 profiles.get(&p).is_some_and(|perm| {
-                    perm.record_read(&[]);
-                    true
+                    let reads: Vec<&str> = data_scopes(&h.kind).iter().copied().filter(|s| perm.has(s)).collect();
+                    let shown = !reads.is_empty() || managed.contains(&p);
+                    if shown {
+                        perm.record_read(&reads);
+                    }
+                    shown
                 })
             })
         })
@@ -791,6 +814,19 @@ fn escape(v: &str) -> String {
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+
+    /// A new source kind must say which scope reads its data, or its sources show only to managers.
+    #[test]
+    fn every_source_kind_names_the_scopes_that_read_its_data() {
+        for kind in sources::SOURCE_KINDS {
+            let scopes = data_scopes(kind);
+            assert!(!scopes.is_empty(), "{kind} names no scope");
+            assert!(
+                scopes.iter().all(|s| ownhealth_core::access::is_scope(s)),
+                "{kind}: {scopes:?}"
+            );
+        }
+    }
 
     fn row(kind: &str) -> SourceHealth {
         SourceHealth {

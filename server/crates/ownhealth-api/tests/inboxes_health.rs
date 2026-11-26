@@ -88,6 +88,16 @@ async fn setup(env: &Env) -> anyhow::Result<Ids> {
     run(&mut c, ids.alex_email, false).await?;
     run(&mut c, ids.alex_email, false).await?;
     run(&mut c, ids.carmen_nightscout, true).await?;
+    // Alex, Carmen's caregiver, also reads her wearables, so her Nightscout shows to him (a reader
+    // without them: a_source_shows_only_to_a_reader_of_its_data)
+    sqlx::query(
+        "update profile_grant set categories = array_append(categories, 'read:wearables') \
+         where user_id = $1 and profile_id = $2",
+    )
+    .bind(env.user("alex"))
+    .bind(env.profile("carmen"))
+    .execute(&mut *c)
+    .await?;
     Ok(ids)
 }
 
@@ -151,12 +161,13 @@ async fn each_person_sees_the_sources_of_the_profiles_they_can_open() -> R {
         );
     }
 
-    // sam has no grant on carmen
+    // sam has no grant on carmen, and his viewer grant on alex (read:summary) shows no mailbox
     let mut sam = env.as_user(env.user("sam")).await?;
     let r = sam.get("/api/inboxes/health").await?;
     let got = ids_of(&r.json);
-    assert_eq!(got.len(), 3, "{got:?}");
+    assert_eq!(got.len(), 2, "{got:?}");
     assert!(!got.contains(&ids.carmen_nightscout.to_string()));
+    assert!(!got.contains(&ids.alex_email.to_string()));
     assert!(!got.contains(&ids.other_household.to_string()));
     let r = sam
         .get(&format!("/api/inboxes/{}/health", ids.carmen_nightscout))
@@ -178,6 +189,81 @@ async fn each_person_sees_the_sources_of_the_profiles_they_can_open() -> R {
 
     let r = env.anon().get("/api/inboxes/health").await?;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+/// Sam's categories on Alex's profile (sam is a viewer there).
+async fn sam_on_alex(env: &Env, categories: &[&str]) -> R {
+    sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(env.user("sam"))
+        .bind(env.profile("alex"))
+        .bind(categories.iter().map(|c| c.to_string()).collect::<Vec<_>>())
+        .execute(env.pool())
+        .await?;
+    Ok(())
+}
+
+/// The two sources `user` is shown, by kind: in the list, and the single row answering 200 for the same.
+async fn shown(env: &Env, user: &str, dexcom: Uuid, mail: Uuid) -> anyhow::Result<Vec<&'static str>> {
+    let mut c = env.as_user(env.user(user)).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let listed = ids_of(&r.json);
+    let mut out = Vec::new();
+    for (id, name) in [(dexcom, "dexcom"), (mail, "email")] {
+        let one = c.get(&format!("/api/inboxes/{id}/health")).await?;
+        let in_list = listed.contains(&id.to_string());
+        assert_eq!(
+            in_list,
+            one.status == StatusCode::OK,
+            "{name}: the list and the single row disagree ({:?})",
+            one.status
+        );
+        if in_list {
+            out.push(name);
+        }
+    }
+    Ok(out)
+}
+
+/// A source's kind and label say what the profile holds: a Dexcom source means a glucose sensor. So a
+/// source shows only to a reader who may read the data it brings in: a device's readings need
+/// read:wearables, the documents a mailbox files need a scope the document list reads with. The owner
+/// sees both, a member with the grant sees that source, a member without it sees neither the row nor
+/// the single source.
+#[tokio::test]
+async fn a_source_shows_only_to_a_reader_of_its_data() -> R {
+    let env = Env::new(true).await?;
+    let (dexcom, mail) = {
+        let mut c = env.pool().acquire().await?;
+        let (h, alex) = (env.fam().household_id, Some(env.profile("alex")));
+        (
+            source(&mut c, h, alex, "dexcom", "Dexcom G7 de Alex", Some(900)).await?,
+            source(&mut c, h, alex, "email", "Correo de Alex", Some(300)).await?,
+        )
+    };
+    assert_eq!(
+        shown(&env, "alex", dexcom, mail).await?,
+        ["dexcom", "email"],
+        "the owner"
+    );
+    // sam is a viewer on alex: read:summary only
+    assert!(
+        shown(&env, "sam", dexcom, mail).await?.is_empty(),
+        "a member without the grant"
+    );
+    sam_on_alex(&env, &["read:summary", "read:wearables"]).await?;
+    assert_eq!(
+        shown(&env, "sam", dexcom, mail).await?,
+        ["dexcom"],
+        "a member with read:wearables"
+    );
+    sam_on_alex(&env, &["read:summary", "read:labs"]).await?;
+    assert_eq!(
+        shown(&env, "sam", dexcom, mail).await?,
+        ["email"],
+        "a member with read:labs"
+    );
     Ok(())
 }
 
