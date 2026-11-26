@@ -289,21 +289,25 @@ pub async fn visible_document(
     })
 }
 
-/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
-/// profile): the scope its type needs, and read:sensitive when it is sensitive, as
-/// [`visible_document`] decides. A review item that only points at its document (a pull's
-/// `fhir_unmapped_summary`) shows on the same terms.
-pub async fn file_opens(conn: &mut PgConnection, perm: &Permission, document_id: Uuid) -> Result<bool, ApiError> {
+/// The scope document `document_id` needs ([`scope_for`]); None when there is no such document.
+pub async fn document_scope(conn: &mut PgConnection, document_id: Uuid) -> Result<Option<&'static str>, ApiError> {
     let row: Option<(Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select d.doc_type, {CGM_SQL} from document d where d.id = $1"
     )))
     .bind(document_id)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some((doc_type, cgm)) = row else {
+    Ok(row.map(|(doc_type, cgm)| scope_for(doc_type.as_deref(), cgm)))
+}
+
+/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
+/// profile): the scope its type needs, and read:sensitive when it is sensitive, as
+/// [`visible_document`] decides. A review item that only points at its document (a pull's
+/// `fhir_unmapped_summary`) shows on the same terms.
+pub async fn file_opens(conn: &mut PgConnection, perm: &Permission, document_id: Uuid) -> Result<bool, ApiError> {
+    let Some(scope) = document_scope(&mut *conn, document_id).await? else {
         return Ok(false);
     };
-    let scope = scope_for(doc_type.as_deref(), cgm);
     if !perm.has(scope) {
         return Ok(false);
     }

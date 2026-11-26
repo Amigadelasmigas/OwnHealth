@@ -239,7 +239,18 @@ pub const WEARABLE_JOBS: [&str; 6] = [
     ownhealth_devices::takeout_fitbit::JOB,
 ];
 
-/// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones.
+/// The import jobs whose result is the import summary their document keeps as `flags.import` (a
+/// C-CDA import's also names its sections) and whose filename names that document.
+const DOCUMENT_IMPORT_JOBS: [&str; 3] = [
+    ownhealth_ingest_structured::ccda::JOB,
+    "import.fhir_bundle",
+    "import.apple_health",
+];
+
+/// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones. A
+/// [`DOCUMENT_IMPORT_JOBS`] job's filename and error need the scope its document needs (read:records
+/// before the document exists), and its result also read:sensitive, as the document's import flags
+/// do: the summary's counts take in items the review list hides.
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));
@@ -284,6 +295,30 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         let ccda = kind == ownhealth_ingest_structured::ccda::JOB;
         if let Some(perm) = permission {
             perm.record_read(if wearable { &["read:wearables"] } else { &[] });
+        }
+        if DOCUMENT_IMPORT_JOBS.contains(&kind) {
+            let doc = j["document_id"]
+                .as_str()
+                .or_else(|| j["result"]["document_id"].as_str())
+                .and_then(|d| Uuid::parse_str(d).ok());
+            let scope = match doc {
+                Some(d) => super::documents::document_scope(&mut tx, d).await?,
+                None => None,
+            }
+            .unwrap_or("read:records");
+            match permission.filter(|p| p.has(scope)) {
+                Some(perm) => {
+                    perm.record_read(&[scope]);
+                    if !perm.may_read_sensitive(scope) {
+                        j["result"] = Value::Null;
+                    }
+                }
+                None => {
+                    j["result"] = Value::Null;
+                    j["filename"] = Value::Null;
+                    j["last_error"] = Value::Null;
+                }
+            }
         }
         if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
             j["result"] = Value::Null;

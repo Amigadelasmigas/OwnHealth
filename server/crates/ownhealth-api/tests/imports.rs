@@ -375,6 +375,95 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
     Ok(())
 }
 
+/// U-F2: a structured import's job result is the summary its document keeps as `flags.import` (and a
+/// C-CDA import's also names the sections), and its filename names the document. So the filename and
+/// any error need the scope the document needs, and the result needs read:sensitive too, as the
+/// document's flags do: its counts take in items the review list hides. Sam is a viewer on Alex.
+#[tokio::test]
+async fn a_structured_import_result_follows_what_its_document_shows() -> R {
+    let a = app().await?;
+    let alex = a.family.profile("alex");
+    let doc: uuid::Uuid = sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes) \
+         values ($1, $2, decode($3, 'hex'), 'informe_psiquiatria_alex.xml', 'application/hl7-cda+xml', 3) returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(alex)
+    .bind(ownhealth_core::ids::token_hex(32))
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let result = json!({"document_id": doc.to_string(), "accepted": 3, "queued": 32, "skipped": 0,
+                        "reasons": {"unmapped": 32}});
+    let mut ids = Vec::new();
+    for kind in ["import.ccda", "import.fhir_bundle", "import.apple_health"] {
+        let id: i64 = sqlx::query_scalar(
+            "insert into job (kind, state, payload, result, last_error) values ($1, 'done', \
+             jsonb_build_object('profile_id', $2::text, 'filename', 'informe_psiquiatria_alex.xml'), $3, \
+             'prior retry error') returning id",
+        )
+        .bind(kind)
+        .bind(alex.to_string())
+        .bind(&result)
+        .fetch_one(&a.rt.pool)
+        .await?;
+        ids.push(id);
+    }
+    let uri = format!(
+        "/jobs?ids={}",
+        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    );
+    let sam_on_alex = |categories: &'static [&'static str]| {
+        let pool = a.rt.pool.clone();
+        let (sam, alex) = (a.family.user("sam"), alex);
+        async move {
+            sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+                .bind(sam)
+                .bind(alex)
+                .bind(categories)
+                .execute(&pool)
+                .await?;
+            anyhow::Ok(())
+        }
+    };
+    // (result, filename, last_error) of each job, as `who` gets them
+    let seen = |v: &serde_json::Value| -> Vec<(serde_json::Value, serde_json::Value, serde_json::Value)> {
+        v["jobs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|j| (j["result"].clone(), j["filename"].clone(), j["last_error"].clone()))
+            .collect()
+    };
+    let null = serde_json::Value::Null;
+    let (name, error) = (json!("informe_psiquiatria_alex.xml"), json!("prior retry error"));
+    for (grant, expected) in [
+        (&["read:summary"][..], (null.clone(), null.clone(), null.clone())),
+        (
+            &["read:summary", "read:records"][..],
+            (null.clone(), name.clone(), error.clone()),
+        ),
+        (
+            &["read:summary", "read:records", "read:sensitive"][..],
+            (result.clone(), name.clone(), error.clone()),
+        ),
+    ] {
+        sam_on_alex(grant).await?;
+        let (s, v) = a.get("sam", &uri).await?;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let got = seen(&v);
+        assert_eq!(got.len(), 3, "{v}");
+        assert!(got.iter().all(|j| *j == expected), "{grant:?}: {v}");
+    }
+    let (_, owner) = a.get("alex", &uri).await?;
+    assert!(
+        seen(&owner)
+            .iter()
+            .all(|j| *j == (result.clone(), name.clone(), error.clone())),
+        "{owner}"
+    );
+    Ok(())
+}
+
 /// `GET /documents/{id}/file` as `who`: status, headers and the bytes.
 async fn file_as(a: &App, who: &str, id: uuid::Uuid) -> anyhow::Result<(StatusCode, http::HeaderMap, Vec<u8>)> {
     let req = Request::get(format!("/documents/{id}/file"))
