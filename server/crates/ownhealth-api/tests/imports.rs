@@ -2221,6 +2221,26 @@ async fn a_document_import_job_follows_the_profile_its_document_is_on_now() -> R
         [(false, false, false); 4],
         "a reader of Alex only"
     );
+    // nor the document it names, as GET /api/review hides a failed job's document
+    let named = |who: &'static str| {
+        let (a, ids) = (&a, &ids);
+        async move {
+            let uri = format!("/jobs?ids={}", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(","));
+            let (s, v) = a.get(who, &uri).await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            anyhow::Ok(
+                v["jobs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|j| !j["document_id"].is_null())
+                    .count(),
+            )
+        }
+    };
+    assert_eq!(named("sam").await?, 0, "a reader of Alex only");
+    // the PDF job names its document in its payload; a structured job only in its result
+    assert_eq!(named("alex").await?, 1, "Carmen's caregiver");
     assert_eq!(
         job_fields(&a, "alex", &ids).await?,
         [(false, true, true); 4],

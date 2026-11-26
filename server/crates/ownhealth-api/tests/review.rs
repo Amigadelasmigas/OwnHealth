@@ -1190,3 +1190,61 @@ async fn test_a_household_item_names_its_document_only_to_a_reader_of_that_docum
     }
     Ok(())
 }
+
+/// F-FAILEDJOBDOC: a failed job on a profile can name a document the reviewing reader cannot read: a
+/// lab report needs read:labs. Alex reviews on Carmen's profile with read:records alone, so he sees the
+/// failed job but not the document it names nor the error its import wrote, in the list and in the
+/// detail. With read:labs he gets both.
+#[tokio::test]
+async fn test_a_failed_job_on_a_profile_names_its_document_only_to_a_reader_of_that_document() -> R {
+    let a = app().await?;
+    let doc: Uuid = sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, doc_type) \
+         values ($1, $2, decode($3, 'hex'), 'analitica_carmen.pdf', 'application/pdf', 3, 'lab_report') returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(a.family.profile("carmen"))
+    .bind(ownhealth_core::ids::token_hex(32))
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let id = {
+        let mut c = a.conn().await?;
+        create_item(
+            &mut c,
+            &ReviewItemIn {
+                kind: "job_failed".into(),
+                household_id: Some(a.family.household_id),
+                profile_id: Some(a.family.profile("carmen")),
+                document_id: Some(doc),
+                payload: json!({"kind": "import.pdf", "error": "analitica_carmen.pdf: unreadable"}),
+                reasons: vec!["x".into()],
+                ..ReviewItemIn::default()
+            },
+        )
+        .await?
+    };
+    for (grant, sees) in [
+        (&["read:summary", "read:records"][..], false),
+        (&["read:summary", "read:records", "read:labs"][..], true),
+    ] {
+        alex_on_carmen(&a, grant).await?;
+        let (s, listed) = a.get("alex", "/review?profile=carmen").await?;
+        assert_eq!(s, StatusCode::OK, "{listed}");
+        let row = listed["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|i| i["id"] == json!(id)).cloned())
+            .ok_or_else(|| anyhow::anyhow!("{grant:?}: the failed job is not listed: {listed}"))?;
+        let (s, one) = a.get("alex", &format!("/review/{id}")).await?;
+        assert_eq!(s, StatusCode::OK, "{one}");
+        for got in [&row, &one] {
+            assert_eq!(got["document_id"] == json!(doc), sees, "{grant:?}: {got}");
+            assert_eq!(
+                got.to_string().contains("analitica_carmen"),
+                sees,
+                "{grant:?}: the error quotes the document: {got}"
+            );
+            assert_eq!(got["payload"]["kind"], json!("import.pdf"), "{grant:?}: {got}");
+        }
+    }
+    Ok(())
+}

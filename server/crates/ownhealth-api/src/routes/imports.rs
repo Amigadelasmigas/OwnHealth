@@ -276,7 +276,9 @@ fn withhold(j: &mut Value) {
 /// kind. A job that shows only its state, kind and times is not a read of health data and is not
 /// named, with one exception: a DICOM import is named for every caller with read:records on its
 /// profile, whatever it shows. A response that names no job writes no row, except an empty one, which
-/// writes a row with no profile (RUST-CONTRACTS.md section 3).
+/// writes a row with no profile (RUST-CONTRACTS.md section 3). A document's job that shows none of
+/// its fields does not name its document either (`document_id` is null), as `GET /api/review` hides
+/// the document of a failed job.
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));
@@ -353,7 +355,10 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                         j["result"] = Value::Null;
                     }
                 }
-                None => withhold(j),
+                None => {
+                    withhold(j);
+                    j["document_id"] = Value::Null;
+                }
             }
         }
         if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {

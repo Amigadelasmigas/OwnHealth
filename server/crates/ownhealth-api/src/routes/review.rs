@@ -98,26 +98,43 @@ fn truthy(v: Option<&Value>) -> bool {
 /// How many rows the review list reads at a time while it fills a page with visible items.
 const LIST_BATCH: i64 = 200;
 
-/// A household item (no profile, a failed job say) can name a document of a profile the caller cannot
-/// read. Its `document_id`, and what its job wrote about that document (the error, the document id the
-/// job was given), go out only to a caller who may read the document on the profile it is on now.
+/// The caller's permission on the profile document `doc` is on now and the scope it needs, when the
+/// caller may read it there; None for an unknown document, one with no profile, or one the caller
+/// cannot read. The rule `GET /api/jobs` applies to a document's job.
+async fn document_reader<'p>(
+    conn: &mut PgConnection,
+    perms: &'p [Permission],
+    doc: Uuid,
+) -> R<Option<(&'p Permission, &'static str)>> {
+    Ok(
+        match ownhealth_core::documents::document_profile_scope(conn, doc).await? {
+            Some((Some(profile), scope)) => perms
+                .iter()
+                .find(|p| p.profile.id == profile && p.has(scope))
+                .map(|p| (p, scope)),
+            _ => None,
+        },
+    )
+}
+
+/// A household item (no profile) or a failed job can name a document the caller cannot read: one of
+/// another profile, one that moved, or one whose scope the caller lacks (a lab report without
+/// read:labs). Its `document_id`, and what its job wrote about that document (the error, the document
+/// id the job was given), go out only to a caller who may read the document on the profile it is on
+/// now, as `GET /api/jobs` decides for the job itself.
 async fn hide_unread_document(
     conn: &mut PgConnection,
     perms: &[Permission],
     item: &ReviewItem,
     out: &mut Value,
 ) -> R<()> {
-    let (None, Some(doc)) = (item.profile_id, item.document_id) else {
+    let Some(doc) = item.document_id else {
         return Ok(());
     };
-    let reader = match ownhealth_core::documents::document_profile_scope(conn, doc).await? {
-        Some((Some(profile), scope)) => perms
-            .iter()
-            .find(|p| p.profile.id == profile && p.has(scope))
-            .map(|p| (p, scope)),
-        _ => None,
-    };
-    match reader {
+    if item.profile_id.is_some() && item.kind != "job_failed" {
+        return Ok(());
+    }
+    match document_reader(conn, perms, doc).await? {
         Some((perm, scope)) => perm.record_read(&[scope]),
         None => {
             out["document_id"] = Value::Null;
@@ -330,7 +347,7 @@ async fn get_one(State(rt): State<Runtime>, caller: Caller, Path(item_id): Path<
     let item = check(&mut tx, &caller.0, found, false).await?;
     audit(&mut tx, &caller.0, &item, "read").await?;
     let mut out = item_out(&item)?;
-    if item.profile_id.is_none() && item.document_id.is_some() {
+    if item.document_id.is_some() {
         let perms = accessible_profiles(&mut tx, &caller.0).await?;
         hide_unread_document(&mut tx, &perms, &item, &mut out).await?;
     }
