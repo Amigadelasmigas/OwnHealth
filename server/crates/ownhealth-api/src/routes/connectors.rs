@@ -719,6 +719,16 @@ const MAX_ISSUER_BYTES: usize = 2048;
 /// A change to the registration could break refresh or reconnect for all its sources, including
 /// disconnected ones. The caller holds a lock on the client so no new source can reference it.
 async fn in_use_elsewhere(conn: &mut PgConnection, p: &Principal, household: Uuid, client: Uuid) -> R<()> {
+    // A claim takes a profile out of its guardians' management by updating its row: holding the rows
+    // of the profiles this client connects makes a claim wait for the caller's transaction, or this
+    // check see the claim.
+    sqlx::query(
+        "select id from profile where id in (select profile_id from source where connector_client_id = $1) \
+         order by id for share",
+    )
+    .bind(client)
+    .execute(&mut *conn)
+    .await?;
     let mine: Vec<Uuid> = accessible_profiles(&mut *conn, p)
         .await?
         .iter()

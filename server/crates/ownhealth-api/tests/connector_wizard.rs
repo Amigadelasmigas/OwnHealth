@@ -995,6 +995,52 @@ async fn just_a_guardian_of_a_claimed_profile_cannot_set_up_connections() -> R {
     Ok(())
 }
 
+/// A claim takes a profile out of its guardian's management. A claim that commits while the guardian
+/// deletes a client its connection uses is seen by the delete's management check: the delete refuses
+/// and the connection keeps its client.
+#[tokio::test]
+async fn a_claim_while_a_guardian_deletes_a_client_is_seen_by_the_check() -> R {
+    let env = env().await?;
+    let lucia = env.profile("lucia");
+    let mut conn = env.pool().acquire().await?;
+    let pat = ownhealth_core::access::create_user(&mut conn, env.fam().household_id, "Pat Rivera", "en", None).await?;
+    let login =
+        ownhealth_core::access::create_user(&mut conn, env.fam().household_id, "Lucía Rivera", "es", None).await?;
+    ownhealth_core::access::set_grant(&mut conn, pat, lucia, "guardian", None, Some(env.user("alex")), None).await?;
+    let mut owner = alex(&env).await?;
+    let client = save_client_for_delete(&mut owner, "https://labnorte.example/fhir", CLIENT_SECRET).await?;
+    let source: Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label, enabled, connector_client_id) \
+         values ($1, $2, 'smart', 'LabNorte', false, $3) returning id",
+    )
+    .bind(env.fam().household_id)
+    .bind(lucia)
+    .bind(client)
+    .fetch_one(env.pool())
+    .await?;
+    let mut pat = env.as_user(pat).await?;
+    // Lucía claims her profile, and the claim has not committed when Pat's delete runs
+    let mut claim = env.pool().begin().await?;
+    sqlx::query("update profile set user_id = $2 where id = $1")
+        .bind(lucia)
+        .bind(login)
+        .execute(&mut *claim)
+        .await?;
+    let path = format!("/api/connectors/clients/{client}");
+    let (deleted, committed) = tokio::join!(pat.delete(&path), async {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        claim.commit().await
+    });
+    committed?;
+    assert_eq!(refusal(&deleted?), "403 client_in_use");
+    let linked: Option<Uuid> = sqlx::query_scalar("select connector_client_id from source where id = $1")
+        .bind(source)
+        .fetch_one(env.pool())
+        .await?;
+    assert_eq!(linked, Some(client));
+    Ok(())
+}
+
 #[tokio::test]
 async fn an_orphaned_connection_can_be_hidden_without_removing_its_history() -> R {
     let env = env().await?;
