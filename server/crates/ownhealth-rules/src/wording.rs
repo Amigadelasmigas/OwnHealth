@@ -134,6 +134,8 @@ pub const PATTERNS: [Patterns; 7] = [
             r"\b(?:sollte|sollten|solltest|sollst)\b",
             r"\b(?:muss|musst|müssen|müsst)\b",
             r"\bnicht (?:einnehmen|nehmen|absetzen|anwenden)\b",
+            r"\bwenden sie sich\b",
+            r"\bbitte\b",
         ],
         start_verbs: &[
             "nimm",
@@ -185,6 +187,7 @@ pub const PATTERNS: [Patterns; 7] = [
             r"\b(?:devez|devriez|devrait|devraient|doit|doivent)\b",
             r"\bil (?:faut|faudrait)\b",
             r"\bne (?:prenez|prends|arrêtez|arrête|utilisez) pas\b",
+            r"\bn['’](?:arrêtez|arrête|utilisez|augmentez|interrompez)\b",
         ],
         start_verbs: &[
             "prenez",
@@ -263,6 +266,8 @@ pub const PATTERNS: [Patterns; 7] = [
             r"\b(?:devi|dovete|dovresti|dovreste|dovrebbe|dovrebbero)\b",
             r"\bbisogna\b",
             r"\bnon (?:prendere|assumere|sospendere|usare)\b",
+            r"\bnon (?:prenda|assuma|sospenda|usi)\b",
+            r"\bsmettere di\b",
         ],
         start_verbs: &[
             "prendi", "prenda", "assumi", "assuma", "smetti", "smetta", "sospendi", "sospenda", "evita", "eviti",
@@ -382,10 +387,10 @@ mod tests {
             [
                 ("en", 5, 38),
                 ("es", 4, 45),
-                ("de", 3, 40),
-                ("fr", 4, 25),
+                ("de", 5, 40),
+                ("fr", 5, 25),
                 ("ca", 5, 31),
-                ("it", 3, 34),
+                ("it", 5, 34),
                 ("pt", 4, 30)
             ]
         );
@@ -399,6 +404,10 @@ mod tests {
             "Du solltest den Wert prüfen lassen.",
             "Die Dosis muss halbiert werden.",
             "Trink mehr Wasser.",
+            "Sie müssen die Dosis halbieren.",
+            "Wenden Sie sich an Ihren Arzt.",
+            "Bei Fragen wenden Sie sich an die Praxis.",
+            "Bitte nehmen Sie täglich 20 mg.",
         ] {
             assert!(!imperative_phrases(advice).is_empty(), "{advice}");
         }
@@ -418,6 +427,8 @@ mod tests {
             "Vous devez arrêter ce médicament.",
             "Il faut refaire l'analyse.",
             "Ne prenez pas d'ibuprofène.",
+            "N'arrêtez pas ce médicament.",
+            "N’utilisez plus ce flacon.",
         ] {
             assert!(!imperative_phrases(advice).is_empty(), "{advice}");
         }
@@ -456,6 +467,9 @@ mod tests {
             "Dovresti ridurre il sale.",
             "Bisogna ripetere l'esame.",
             "Non assumere ibuprofene.",
+            "Non prenda questo farmaco.",
+            "Smettere di prendere il farmaco.",
+            "È meglio smettere di fumare.",
         ] {
             assert!(!imperative_phrases(advice).is_empty(), "{advice}");
         }
