@@ -960,3 +960,34 @@ async fn a_coded_smoking_status_in_a_component_is_read_by_its_own_answer() -> R 
     assert_eq!((s.accepted, s.queued), (0, 1), "{s:?}");
     Ok(())
 }
+
+/// L-FHIRLABEL: an uploaded bundle is read for security labels the way a connector pull is: a resource
+/// labelled sensitive (here a CarePlan, which has no table and waits as received) makes the document
+/// sensitive, so its file needs read:sensitive. The same bundle without the label is not.
+#[tokio::test]
+async fn an_uploaded_bundle_with_a_sensitivity_label_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let bundle = |labelled: bool, id: &str| {
+        let mut plan = json!({"resourceType": "CarePlan", "id": format!("plan-{id}"), "status": "active",
+                              "intent": "plan", "title": "Plan de seguimiento",
+                              "subject": {"reference": "Patient/alex-rivera"}});
+        if labelled {
+            plan["meta"] = json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+        }
+        json!({"resourceType": "Bundle", "id": format!("upload-{id}"), "type": "collection",
+               "entry": [{"fullUrl": format!("urn:uuid:plan-{id}"), "resource": plan}]})
+    };
+    let mut docs = Vec::new();
+    for (labelled, id) in [(true, "a"), (false, "b")] {
+        let data = serde_json::to_vec(&bundle(labelled, id))?;
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "plan.json", JSON).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        docs.push(doc);
+    }
+    assert!(document_is_sensitive(&mut tx, docs[0]).await?, "the labelled bundle");
+    assert!(!document_is_sensitive(&mut tx, docs[1]).await?, "the same bundle without the label");
+    Ok(())
+}

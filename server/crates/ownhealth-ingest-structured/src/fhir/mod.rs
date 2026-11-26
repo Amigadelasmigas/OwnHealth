@@ -356,7 +356,8 @@ enum Held {
 ///   A bundle that holds a sensitive resource is flagged `sensitive` the same way, read from every
 ///   entry before the ledger or the dedupe can skip it: the mapped value's sensitivity, or a
 ///   sensitive `meta.security` label on any resource, context included. A daily pull of the same
-///   sensitive fact imports nothing new, and its file holds that fact all the same.
+///   sensitive fact imports nothing new, and its file holds that fact all the same. An uploaded file
+///   is read for `sensitive` by the same code ([`Run::one`]).
 ///
 /// The caller owns the transaction (RUST-CONTRACTS.md), and runs one pull per source at a time: the
 /// ledger is read, then written, with no lock in between. The `source.poll` job's dedupe key gives
@@ -430,17 +431,13 @@ pub(crate) async fn import_pull_with_identity(
         Some(pull),
     )
     .await?;
-    if tally.unprojected > 0 || tally.sensitive > 0 {
-        let count = |n: i64| (n > 0).then_some(n);
-        sqlx::query(
-            "update document set flags = flags || jsonb_strip_nulls(jsonb_build_object('unprojected', $1::bigint, \
-             'sensitive', $2::bigint)) where id = $3",
-        )
-        .bind(count(tally.unprojected))
-        .bind(count(tally.sensitive))
-        .bind(document_id)
-        .execute(&mut *conn)
-        .await?;
+    if tally.unprojected > 0 {
+        // `sensitive` is written by `import_with`, for an upload as for a pull
+        sqlx::query("update document set flags = flags || jsonb_build_object('unprojected', $1::bigint) where id = $2")
+            .bind(tally.unprojected)
+            .bind(document_id)
+            .execute(&mut *conn)
+            .await?;
     }
     if !imported_before {
         mark_imported(conn, document_id, &summary, Some(&identity)).await?;
@@ -573,6 +570,14 @@ async fn import_with(
     }
     run.queue_grouped(conn).await?;
     let (summary, tally) = (run.summary, run.tally);
+    if tally.sensitive > 0 {
+        // the file holds a sensitive resource: `documents::document_is_sensitive` keeps it closed
+        sqlx::query("update document set flags = flags || jsonb_build_object('sensitive', $1::bigint) where id = $2")
+            .bind(tally.sensitive)
+            .bind(document_id)
+            .execute(&mut *conn)
+            .await?;
+    }
     Ok((summary, identity, tally))
 }
 
@@ -846,21 +851,22 @@ impl Run<'_> {
         let r = &e.resource;
         let rtype = e.rtype();
         let pulled = self.pull.as_ref().map(|p| (p.source_id, p.sha.to_string()));
-        // a pull's bundle holds every entry as received, whatever this run does with it below
-        let labelled = pulled.is_some() && !mapping::sensitivity(r).is_empty();
+        // the stored file, a pull's bundle or an upload, holds every entry as received, whatever this
+        // run does with it below
+        let labelled = !mapping::sensitivity(r).is_empty();
         if is_context(rtype) {
             self.tally.context += 1;
             self.tally.sensitive += i64::from(labelled);
             return Ok(()); // context for the others; kept in the stored bundle
         }
         let m = self.map(e);
+        if labelled || mapped_sensitive(m.as_ref()) {
+            self.tally.sensitive += 1;
+        }
         let Some((source_id, sha)) = pulled else {
             self.import_one(&mut *conn, e, m, "").await?;
             return Ok(());
         };
-        if labelled || mapped_sensitive(m.as_ref()) {
-            self.tally.sensitive += 1;
-        }
         if matches!(m, None | Some(Mapped::Unmapped(_) | Mapped::Skip(_))) {
             // the bundle holds it as received, and nothing read it for sensitivity
             self.tally.unprojected += 1;
