@@ -378,7 +378,8 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
 /// U-F2: a structured import's job result is the summary its document keeps as `flags.import` (and a
 /// C-CDA import's also names the sections), and its filename names the document. So the filename and
 /// any error need the scope the document needs, and the result needs read:sensitive too, as the
-/// document's flags do: its counts take in items the review list hides. Sam is a viewer on Alex.
+/// document's flags do: its counts take in items the review list hides. A result that goes out writes
+/// a read audit row, for every kind. Sam is a viewer on Alex.
 #[tokio::test]
 async fn a_structured_import_result_follows_what_its_document_shows() -> R {
     let a = app().await?;
@@ -436,6 +437,7 @@ async fn a_structured_import_result_follows_what_its_document_shows() -> R {
     };
     let null = serde_json::Value::Null;
     let (name, error) = (json!("informe_psiquiatria_alex.xml"), json!("prior retry error"));
+    let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
     for (grant, expected) in [
         (&["read:summary"][..], (null.clone(), null.clone(), null.clone())),
         (
@@ -453,6 +455,14 @@ async fn a_structured_import_result_follows_what_its_document_shows() -> R {
         let got = seen(&v);
         assert_eq!(got.len(), 3, "{v}");
         assert!(got.iter().all(|j| *j == expected), "{grant:?}: {v}");
+        // a result that goes out writes one read row naming every job; a withheld one writes none (the
+        // grants widen, so the rows only add up)
+        let rows = job_reads(&a, a.family.user("sam")).await?;
+        if expected.0.is_null() {
+            assert_eq!(rows, [], "{grant:?}");
+        } else {
+            assert_eq!(rows, [(Some(alex), newest_first.clone())], "{grant:?}");
+        }
     }
     let (_, owner) = a.get("alex", &uri).await?;
     assert!(
@@ -461,7 +471,22 @@ async fn a_structured_import_result_follows_what_its_document_shows() -> R {
             .all(|j| *j == (result.clone(), name.clone(), error.clone())),
         "{owner}"
     );
+    assert_eq!(
+        job_reads(&a, a.family.user("alex")).await?,
+        [(Some(alex), newest_first)]
+    );
     Ok(())
+}
+
+/// The `GET /api/jobs` read rows of `actor`: (profile, job ids).
+async fn job_reads(a: &App, actor: uuid::Uuid) -> anyhow::Result<Vec<(Option<uuid::Uuid>, Vec<String>)>> {
+    Ok(sqlx::query_as(
+        "select profile_id, resource_ids from audit_event \
+         where tool = 'GET /api/jobs' and action = 'read' and actor_id = $1",
+    )
+    .bind(actor)
+    .fetch_all(&a.rt.pool)
+    .await?)
 }
 
 /// `GET /documents/{id}/file` as `who`: status, headers and the bytes.

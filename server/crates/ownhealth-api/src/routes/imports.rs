@@ -281,7 +281,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .iter()
         .map(|r| row_to_json(r).map(Value::Object))
         .collect::<Result<Vec<_>, _>>()?;
-    // Audit the DICOM details and finished C-CDA and wearable results by profile.
+    // Audit the DICOM details and finished structured-import and wearable results by profile.
     let mut read_jobs = BTreeMap::<_, Vec<_>>::new();
     for j in &mut jobs {
         pydantic_datetimes(j, &["created_at", "finished_at"]);
@@ -292,11 +292,11 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         let kind = j["kind"].as_str().unwrap_or_default();
         let wearable = WEARABLE_JOBS.contains(&kind);
         let dicom = kind == ownhealth_imaging::import::JOB;
-        let ccda = kind == ownhealth_ingest_structured::ccda::JOB;
+        let structured = DOCUMENT_IMPORT_JOBS.contains(&kind);
         if let Some(perm) = permission {
             perm.record_read(if wearable { &["read:wearables"] } else { &[] });
         }
-        if DOCUMENT_IMPORT_JOBS.contains(&kind) {
+        if structured {
             let doc = j["document_id"]
                 .as_str()
                 .or_else(|| j["result"]["document_id"].as_str())
@@ -339,7 +339,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
             }
         }
         // A result can expose health data. An unfinished poll or withheld result does not.
-        if (ccda || wearable)
+        if (wearable || structured)
             && !j["result"].is_null()
             && let Some(perm) = permission
         {
