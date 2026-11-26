@@ -2173,6 +2173,52 @@ async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() ->
     Ok(())
 }
 
+/// F-HEALTHONEBG: a source route records emergency use only for the sources it returns. Sam's
+/// ordinary read:labs shows a mailbox of Alex's, and only her emergency read:wearables shows Alex's
+/// Dexcom. Reading the mailbox's row records no use, nor does the registry, which lists only the
+/// sources she manages; reading the Dexcom's row records one.
+#[tokio::test]
+async fn one_source_health_row_records_emergency_use_only_for_that_source() -> R {
+    let mut b = setup().await?;
+    let source = |kind: &'static str, label: &'static str| {
+        let pool = b.env.pool().clone();
+        let (household, alex) = (b.env.fam().household_id, b.alex_id());
+        async move {
+            let mut c = pool.acquire().await?;
+            anyhow::Ok(
+                ownhealth_core::sources::create_source(
+                    &mut c,
+                    &ownhealth_core::sources::NewSource {
+                        profile_id: Some(alex),
+                        poll_seconds: Some(900),
+                        ..ownhealth_core::sources::NewSource::new(household, kind, label)
+                    },
+                )
+                .await?,
+            )
+        }
+    };
+    let mailbox = source("email", "Buzón de LabNorte").await?;
+    let dexcom = source("dexcom", "Dexcom G7 de Alex").await?;
+    b.grant_sam("viewer", &["read:summary", "read:labs"]).await?;
+    let mut sam = b.sam().await?;
+    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"])).await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get(&format!("/api/inboxes/{mailbox}/health")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(r.json["id"], json!(mailbox), "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "the Dexcom was not returned");
+    // the registry lists only the sources she manages: none here, so it reads none
+    let r = sam.get("/api/inboxes").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(!r.json.to_string().contains(&dexcom.to_string()), "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "the registry returned no source");
+    let r = sam.get(&format!("/api/inboxes/{dexcom}/health")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+    Ok(())
+}
+
 /// CR-REVIEWBG: a review count that holds an item only emergency access shows is a read through the
 /// request. Sam is a guardian with an ordinary read:records and an emergency read:wearables, and a
 /// document of Alex's (read with read:records) holds a held activity value. The document's

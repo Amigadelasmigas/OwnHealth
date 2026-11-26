@@ -279,7 +279,7 @@ async fn out_one(conn: &mut PgConnection, s: &Source) -> R<Value> {
 /// gives only to a manager too. A reader who does not manage sees the source on the health routes.
 async fn list(State(rt): State<Runtime>, caller: Caller) -> R {
     let mut conn = rt.pool.acquire().await?;
-    let health = visible(&mut conn, &caller).await?;
+    let health = visible(&mut conn, &caller, |_, manages| manages).await?;
     let Some(household) = caller.0.household_id else {
         return Err(ApiError::unauthenticated().into());
     };
@@ -653,8 +653,14 @@ fn data_scopes(kind: &str) -> &'static [&'static str] {
 /// read ([`data_scopes`]) or that they manage (they list and reconnect them anyway), and the
 /// household-wide ones (no profile) when they own or guard at least one profile. Each with whether
 /// the person manages it: its profile, or (household-wide) any profile of the household, as
-/// `routes::connectors` decides who reconnects.
-async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(SourceHealth, Option<bool>)>, ApiError> {
+/// `routes::connectors` decides who reconnects. Only the sources `keep` takes (by the source and
+/// whether the person manages it) come back, and only those count as read: a source that only
+/// emergency access shows records its use when the route returns it.
+async fn visible(
+    conn: &mut PgConnection,
+    caller: &Caller,
+    keep: impl Fn(&SourceHealth, bool) -> bool,
+) -> Result<Vec<(SourceHealth, Option<bool>)>, ApiError> {
     let Some(household_id) = caller.0.household_id else {
         return Err(ApiError::unauthenticated());
     };
@@ -669,8 +675,12 @@ async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(Source
     Ok(sources::source_health(conn, household_id)
         .await?
         .into_iter()
-        .filter(|h| {
-            h.profile_id.map_or(manager, |p| {
+        .filter_map(|h| {
+            let m = h.profile_id.map_or(!managed.is_empty(), |p| managed.contains(&p));
+            if !keep(&h, m) {
+                return None;
+            }
+            let shown = h.profile_id.map_or(manager, |p| {
                 profiles.get(&p).is_some_and(|perm| {
                     let scopes = data_scopes(&h.kind);
                     let reads: Vec<&str> = scopes.iter().copied().filter(|s| perm.has(s)).collect();
@@ -681,11 +691,8 @@ async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(Source
                     }
                     shown
                 })
-            })
-        })
-        .map(|h| {
-            let m = h.profile_id.map_or(!managed.is_empty(), |p| managed.contains(&p));
-            (h, Some(m))
+            });
+            shown.then_some((h, Some(m)))
         })
         .collect())
 }
@@ -696,7 +703,7 @@ async fn health_all(State(rt): State<Runtime>, who: HealthCaller, Query(q): Quer
         let mut tx = rt.pool.begin().await?;
         let rows = match who {
             HealthCaller::Person(c) => {
-                let rows = visible(&mut tx, &c).await?;
+                let rows = visible(&mut tx, &c, |_, _| true).await?;
                 if known_format(&q) {
                     audit_health(&mut tx, &c, "GET /api/inboxes/health", &rows).await?;
                 }
@@ -732,7 +739,8 @@ async fn health_one(
         // the read and its audit row commit together
         let mut tx = rt.pool.begin().await?;
         let (rows, person) = match who {
-            HealthCaller::Person(c) => (visible(&mut tx, &c).await?, Some(c)),
+            // only the source asked for is read
+            HealthCaller::Person(c) => (visible(&mut tx, &c, |h, _| h.id == id).await?, Some(c)),
             // a token answers for its own source only; another id is not found, not forbidden
             HealthCaller::Source(s) if s.id == id => (
                 sources::source_health(&mut tx, s.household_id)
