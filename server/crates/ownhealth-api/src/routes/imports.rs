@@ -274,8 +274,9 @@ fn withhold(j: &mut Value) {
 /// A response that shows a job's filename, error or result writes one read audit row per profile it
 /// read (for a document's job, the profile the document is on now) naming those jobs, for every job
 /// kind. A job that shows only its state, kind and times is not a read of health data and is not
-/// named; a response that names no job writes no row, except an empty one, which writes a row with no
-/// profile (RUST-CONTRACTS.md section 3).
+/// named, with one exception: a DICOM import is named for every caller with read:records on its
+/// profile, whatever it shows. A response that names no job writes no row, except an empty one, which
+/// writes a row with no profile (RUST-CONTRACTS.md section 3).
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));

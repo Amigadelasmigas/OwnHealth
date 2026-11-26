@@ -98,9 +98,10 @@ The Python rules (CONTRACTS.md section 3) hold, with these Rust names:
   instead in its own READ COMMITTED transaction (`write_audit_at`), stamped with the start of the read, and that row
   commits before the response goes out. Two routes follow a narrower rule, on purpose:
   - `GET /api/jobs`: a job that shows only its state, kind and times (no `filename`, `last_error` or
-    `result`) is not a read of health data, so it is named in no row; a response that names no job writes
-    no row (an empty response still writes one row with no profile). A response that shows a job's
-    filename, error or result writes one row per profile it read, naming those jobs.
+    `result`) is not a read of health data, so it is named in no row, except a DICOM import, which is
+    named for every caller with read:records on its profile, whatever it shows; a response that names no
+    job writes no row (an empty response still writes one row with no profile). A response that shows a
+    job's filename, error or result writes one row per profile it read, naming those jobs.
   - `GET /api/inboxes/health` and `GET /api/inboxes/{id}/health`, for a person or an agent, in either
     format: a response that shows at least one source writes one row per profile it shows (no profile
     for the household's own sources), naming those sources, since a source's kind names a device. A
