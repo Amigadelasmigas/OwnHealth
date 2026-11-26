@@ -52,14 +52,23 @@ use mapping::Mapped;
 const NAME_RESOLUTION: [&str; 2] = ["unmapped", "loinc_unknown"];
 
 /// Whether `obs` is a tobacco smoking status (LOINC 72166-2) whose stored answer is one of the SNOMED
-/// CT codes in [`normalize::SMOKING`], sent as a SNOMED CT coding of the resource's value.
-fn coded_smoking_status(obs: &ObservationIn, resource: &Value) -> bool {
+/// CT codes in [`normalize::SMOKING`], sent as a SNOMED CT coding of the value of the part of `resource`
+/// the row came from (`suffix`): the resource itself or one of its components.
+fn coded_smoking_status(obs: &ObservationIn, resource: &Value, suffix: &str) -> bool {
     let Some(code) = obs.value_code.as_deref() else {
         return false;
     };
+    let source = match suffix.strip_prefix("#component") {
+        None if suffix.is_empty() => resource,
+        Some(i) => match i.parse::<usize>().ok().and_then(|i| resource["component"].get(i)) {
+            Some(component) => component,
+            None => return false,
+        },
+        None => return false,
+    };
     obs.loinc.as_deref() == Some(normalize::SMOKING_LOINC)
         && normalize::SMOKING.iter().any(|(known, _)| *known == code)
-        && resource["valueCodeableConcept"]["coding"]
+        && source["valueCodeableConcept"]["coding"]
             .as_array()
             .is_some_and(|codings| {
                 codings
@@ -1165,7 +1174,7 @@ impl Run<'_> {
             // the received code answers what name resolution could not
             checks.retain(|c| c.ok || !c.reason.as_deref().is_some_and(|r| NAME_RESOLUTION.contains(&r)));
         }
-        if coded_smoking_status(&obs, resource) {
+        if coded_smoking_status(&obs, resource, &row.suffix) {
             // a smoking status coded with an answer the calculators read is a value, not printed text
             // that failed to read as a result
             checks.retain(|c| c.ok || !(c.name == "value" && c.reason.as_deref() == Some("implausible")));
