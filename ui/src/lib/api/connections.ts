@@ -18,6 +18,8 @@ export const listSourceHealth = () => get<ConnectionRow[]>('/inboxes/health');
 export const reconnectConnector = (id: Uuid) => post<{ authorize_url: string }>(`/connectors/${id}/reconnect`);
 /** Revoke at the vendor when it offers that, then delete the tokens and the cursor. */
 export const disconnectConnector = (id: Uuid) => del<DisconnectOut>(`/connectors/${id}`);
+/** Hide a switched-off connection whose client was deleted. */
+export const hideConnection = (id: Uuid) => post<{ id: Uuid }>(`/connectors/${id}/hide`);
 
 /** The US connection wizard was opened: makes the household's directory source on the first call. */
 export const openBrands = () => post<BrandsOpened>('/brands');
@@ -31,6 +33,8 @@ export const listConnectorClients = () => get<{ clients: SavedClient[] }>('/conn
 /** Save the household's client for one vendor (and server): the secret is sealed and never comes back. */
 export const saveConnectorClient = (body: { vendor: string; client_id: string; client_secret?: string; issuer?: string | null }) =>
 	post<{ client: SavedClient; replaced: boolean }>('/connectors/clients', body);
+/** Remove an unused client and its sealed secret. */
+export const deleteConnectorClient = (id: Uuid) => del<{ id: Uuid }>(`/connectors/clients/${encodeURIComponent(id)}`);
 /** Where to send the browser for the first grant of a new connection. */
 export const launchConnector = (kind: string, body: { profile_id: Uuid; client_id: Uuid; issuer?: string; label?: string }) =>
 	post<{ authorize_url: string }>(`/connectors/launch/${encodeURIComponent(kind)}`, body);

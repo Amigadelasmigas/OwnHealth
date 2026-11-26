@@ -7,9 +7,10 @@
 	import '#lib/components/pages2/pages2.css';
 	import { tick } from 'svelte';
 	import { ApiError } from '#lib/api/core';
-	import { getConnectorProfiles, launchConnector, listConnectorClients, openBrands, saveConnectorClient, searchBrands } from '#lib/api/connections';
+	import { deleteConnectorClient, getConnectorProfiles, launchConnector, listConnectorClients, openBrands, saveConnectorClient, searchBrands } from '#lib/api/connections';
 	import type { BrandDirectory, BrandHit, ConnectorProfiles, SavedClient } from '#lib/api/types';
 	import PageHeader from '#lib/components/PageHeader.svelte';
+	import ConfirmRow from '#lib/components/ConfirmRow.svelte';
 	import PhaseChip from '#lib/components/PhaseChip.svelte';
 	import NotReady from '#lib/components/pages1/NotReady.svelte';
 	import { Loader, errRaw, errText, tf } from '#lib/components/pages1/util.svelte';
@@ -62,10 +63,16 @@
 	let saved = $state<'secret' | 'public' | null>(null);
 	let savedEl: HTMLElement | undefined = $state();
 
+	let deleting = $state<string | null>(null);
+	let removing = $state(false);
+	let removed = $state(false);
+	let removedEl: HTMLElement | undefined = $state();
+	let deleteError = $state<{ text: string; raw: string } | null>(null);
+
 	// The connection: whose record, its name, the launch.
 	const mine = $derived(manageable(app.me?.profiles ?? []));
 	let profileId = $state('');
-	const whose = $derived(profileId || (mine.find((p) => p.is_self) ?? mine[0])?.id || '');
+	const whose = $derived((mine.find((p) => p.id === profileId) ?? mine.find((p) => p.is_self) ?? mine[0])?.id ?? '');
 	let label = $state('');
 	let launching = $state(false);
 	let launchError = $state<{ text: string; raw: string } | null>(null);
@@ -159,6 +166,47 @@
 		}
 	}
 
+	function confirmDelete(id: string) {
+		deleting = id;
+		removed = false;
+		deleteError = null;
+	}
+
+	async function cancelDelete(id: string) {
+		if (removing) return;
+		deleting = null;
+		deleteError = null;
+		await tick();
+		document.getElementById(`client-delete-${id}`)?.focus();
+	}
+
+	async function removeClient(id: string) {
+		removing = true;
+		deleteError = null;
+		try {
+			await deleteConnectorClient(id).catch((err: unknown) => {
+				if (!(err instanceof ApiError && err.status === 404)) throw err;
+			});
+			if (client?.id === id) {
+				replacing = false;
+				clientId = '';
+				secret = '';
+				saved = null;
+				saveError = null;
+				launchError = null;
+			}
+			clients.data = clients.data?.filter((c) => c.id !== id) ?? null;
+			deleting = null;
+			removed = true;
+			await tick();
+			removedEl?.focus();
+		} catch (err) {
+			deleteError = failure(err);
+		} finally {
+			removing = false;
+		}
+	}
+
 	async function connect(e: SubmitEvent) {
 		e.preventDefault();
 		if (!vendor || !server || !client || !whose) return;
@@ -213,6 +261,40 @@
 			{/each}
 		</div>
 	</section>
+
+	{#if clients.data?.length || clients.error || removed}
+		<section class="card step" aria-labelledby="cw-saved-clients">
+			<h3 id="cw-saved-clients">{t('cw_clients')}</h3>
+			{#if removed}
+				<div class="p2ok" role="status" tabindex="-1" bind:this={removedEl}>{t('cw_deleted')}</div>
+			{/if}
+			{#if clients.error}
+				<NotReady error={clients.error} onretry={loadClients} />
+			{:else if clients.data?.length}
+				<ul class="saved-clients" role="list">
+					{#each clients.data as item (item.id)}
+						<li>
+							<div class="p2row">
+								<div class="client-name">
+									<b>{p.vendors.find((v) => v.key === item.vendor)?.name ?? item.vendor}</b>
+									<span class="mono">{item.client_id}</span>
+									<span class="dim d">{item.issuer ?? t('cw_any_server')}</span>
+								</div>
+								{#if deleting !== item.id}
+									<button class="btn sm" type="button" id={`client-delete-${item.id}`} disabled={removing || saving || launching} onclick={() => confirmDelete(item.id)}>{t('cw_delete')}</button>
+								{/if}
+							</div>
+							{#if deleting === item.id}
+								<ConfirmRow text={t('cw_delete_confirm')} confirmLabel={t('cw_delete')} busy={removing || saving || launching}
+									onconfirm={() => removeClient(item.id)} oncancel={() => cancelDelete(item.id)} />
+								{#if deleteError}<div class="p2err" role="alert" title={deleteError.raw}>{deleteError.text}</div>{/if}
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+	{/if}
 
 	{#if vendor}
 		{#if !vendor.verified_live}<div class="note" role="note" style="color:var(--watch);margin:0 0 10px">{t('cw_not_verified_d')}</div>{/if}
@@ -302,7 +384,7 @@
 						{/if}
 						{#if saveError}<div class="p2err" role="alert" title={saveError.raw}>{saveError.text}</div>{/if}
 						<div class="p2row">
-							<button class="btn pri" type="submit" disabled={saving || !clientId.trim() || (needsSecret(vendor) && !secret)}>{t('cw_save')}</button>
+							<button class="btn pri" type="submit" disabled={saving || removing || !clientId.trim() || (needsSecret(vendor) && !secret)}>{t('cw_save')}</button>
 							{#if client}<button class="btn" type="button" onclick={() => ((replacing = false), (secret = ''), (clientId = ''), (saveError = null))}>{t('cw_cancel')}</button>{/if}
 						</div>
 					</form>
@@ -327,7 +409,7 @@
 						<label>{t('cw_label')}<input class="p2in" bind:value={label} maxlength="120" placeholder={defaultLabel(server, facility)} /></label>
 						{#if launchError}<div class="p2err" role="alert" title={launchError.raw}>{launchError.text}</div>{/if}
 						<div class="p2row">
-							<button class="btn pri" type="submit" disabled={launching}>{tf('cw_go', { vendor: vendor.name })}</button>
+							<button class="btn pri" type="submit" disabled={launching || removing}>{tf('cw_go', { vendor: vendor.name })}</button>
 							<span class="dim d">{t('cw_go_d')}</span>
 						</div>
 					</form>
@@ -448,6 +530,26 @@
 		overflow-wrap: anywhere;
 		user-select: all;
 	}
+	.saved-clients {
+		list-style: none;
+		display: grid;
+		gap: 8px;
+		margin: 0;
+		padding: 0;
+	}
+	.saved-clients li {
+		display: grid;
+		gap: 8px;
+		border-top: 1px solid var(--line2);
+		padding-top: 8px;
+	}
+	.client-name {
+		flex: 1 1 240px;
+		display: grid;
+		gap: 2px;
+		overflow-wrap: anywhere;
+	}
+
 	.facts {
 		font-size: 12px;
 	}

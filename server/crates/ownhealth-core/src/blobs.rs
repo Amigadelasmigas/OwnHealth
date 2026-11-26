@@ -515,11 +515,19 @@ pub const HOLDERS: &[(&str, &[&str], &str, &str)] = &[
         "(select d.profile_id::text from document d where d.id = document_id)",
         "true",
     ),
-    // an item whose importer released its raw bytes no longer reads them
+    // Match the legacy ownership order in ownhealth_ops::seal. Held or deleted mail with
+    // no explicit profile has no profile owner, and released raw bytes have no holder.
+    // A document move re-keys the raw file of a row whose owner changes with it (documents::rekey_document).
     (
         "source_item",
         &["blob_sha256"],
-        "profile_id::text",
+        "coalesce(profile_id, (select case when source_item.quarantine_id is null or q.status = 'released' then \
+            coalesce((select d.profile_id from document d where d.id = source_item.document_id), \
+                     (select case when count(distinct r.profile_id) = 1 then (array_agg(r.profile_id))[1] end \
+                      from document r where r.id = any(q.released_document_ids) and r.profile_id is not null), \
+                     s.profile_id) end \
+          from source s left join quarantine_item q on q.id = source_item.quarantine_id \
+          where s.id = source_item.source_id))::text",
         "raw_released_at is null",
     ),
     ("quarantine_item", &["raw_blob"], "null::text", "true"),

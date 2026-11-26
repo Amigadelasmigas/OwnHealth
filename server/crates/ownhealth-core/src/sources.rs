@@ -513,6 +513,12 @@ pub struct ManagedHealth {
     pub reconsent_needed_at: Option<DateTime<Utc>>,
     pub grant_expires_at: Option<DateTime<Utc>>,
     pub access_expires_at: Option<DateTime<Utc>>,
+    /// Whether an OAuth source still has its registered client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_client: Option<bool>,
+    /// Whether an orphaned OAuth source was hidden from the Connections screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden_from_connections: Option<bool>,
     /// Open sync-gap alerts of this source on its own profile: `source_gap` review items with
     /// `ref_table = 'source'`.
     pub open_gaps: i32,
@@ -534,6 +540,9 @@ pub async fn source_health(conn: &mut PgConnection, household_id: Uuid) -> Resul
          left(coalesce((r.errors -> 0 ->> 'code') || ': ' || (r.errors -> 0 ->> 'message'), r.error), 500) \
            as last_run_problem, \
          s.created_at, s.poll_seconds, s.reconsent_needed_at, s.grant_expires_at, s.access_expires_at, \
+         case when s.kind = any($3) then s.connector_client_id is not null end as has_client, \
+         case when s.kind = any($3) then s.config @> '{\"hidden_from_connections\":true}'::jsonb end \
+           as hidden_from_connections, \
          (select count(*)::int4 from review_item g where g.household_id = s.household_id and g.status = 'open' \
            and g.kind = 'source_gap' and g.ref_table = 'source' and g.ref_id = s.id \
            and g.profile_id is not distinct from s.profile_id) as open_gaps, \
@@ -547,6 +556,7 @@ pub async fn source_health(conn: &mut PgConnection, household_id: Uuid) -> Resul
     )
     .bind(household_id)
     .bind(STALE_INTERVALS)
+    .bind(crate::connector_oauth::OAUTH_KINDS)
     .fetch_all(conn)
     .await?)
 }

@@ -270,7 +270,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .iter()
         .map(|r| row_to_json(r).map(Value::Object))
         .collect::<Result<Vec<_>, _>>()?;
-    // Audit the DICOM details and finished C-CDA results under the profiles they came from.
+    // Audit the DICOM details and finished C-CDA and wearable results by profile.
     let mut read_jobs = BTreeMap::<_, Vec<_>>::new();
     for j in &mut jobs {
         pydantic_datetimes(j, &["created_at", "finished_at"]);
@@ -287,6 +287,8 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         }
         if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
             j["result"] = Value::Null;
+            j["filename"] = Value::Null;
+            j["last_error"] = Value::Null;
         }
         if dicom {
             if let Some(perm) = permission.filter(|p| p.has("read:records")) {
@@ -301,8 +303,8 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                 j["last_error"] = Value::Null;
             }
         }
-        // a finished C-CDA import's result says what it brought into the record
-        if ccda
+        // A result can expose health data. An unfinished poll or withheld result does not.
+        if (ccda || wearable)
             && !j["result"].is_null()
             && let Some(perm) = permission
         {
