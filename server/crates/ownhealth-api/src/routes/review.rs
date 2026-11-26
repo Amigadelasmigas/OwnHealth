@@ -162,6 +162,20 @@ async fn opens_document(conn: &mut PgConnection, item: &ReviewItem, perm: &Permi
     }
 }
 
+/// `review_open` on the dashboard: what the list for this one profile shows the caller, the household's
+/// own items included. A reader who cannot review there is shown none.
+pub(super) async fn count_shown_on_profile(conn: &mut PgConnection, perm: &Permission) -> Result<i64, ApiError> {
+    if !perm.can("review") {
+        return Ok(0);
+    }
+    count_shown(conn, perm.profile.household_id, &[perm]).await
+}
+
+/// The items of the household itself show only to who can review on some profile.
+fn shows_household_items<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> bool {
+    perms.into_iter().any(|p| p.can("review"))
+}
+
 /// How many open items the list shows the caller, ordinary and emergency alike: the list's `open` and
 /// `review_open` on `/api/me`. `perms` are the caller's permissions on the profiles to count.
 pub(super) async fn count_shown(
@@ -169,24 +183,7 @@ pub(super) async fn count_shown(
     household: Uuid,
     perms: &[&Permission],
 ) -> Result<i64, ApiError> {
-    count_matching(conn, household, perms, true).await
-}
-
-/// `review_open` on the dashboard: the open items of this one profile the list shows the caller, without
-/// the household's own items. A reader who cannot review there is shown none.
-pub(super) async fn count_shown_on_profile(conn: &mut PgConnection, perm: &Permission) -> Result<i64, ApiError> {
-    if !perm.can("review") {
-        return Ok(0);
-    }
-    count_matching(conn, perm.profile.household_id, &[perm], false).await
-}
-
-async fn count_matching(
-    conn: &mut PgConnection,
-    household: Uuid,
-    perms: &[&Permission],
-    household_items: bool,
-) -> Result<i64, ApiError> {
+    let household_items = shows_household_items(perms.iter().copied());
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, *p)).collect();
     // the list's own query: a held study or a sync alert counts only where the list shows it
     let imaging_profiles = imaging_review_profiles(perms.iter().copied());
@@ -250,7 +247,10 @@ async fn check(
 ) -> R<ReviewItem> {
     let item = item.ok_or_else(no_item)?;
     let Some(profile_id) = item.profile_id else {
-        if item.kind == ownhealth_imaging::import::REVIEW_KIND || item.household_id != principal.household_id {
+        if item.kind == ownhealth_imaging::import::REVIEW_KIND
+            || item.household_id != principal.household_id
+            || !shows_household_items(&accessible_profiles(&mut *conn, principal).await?)
+        {
             return Err(no_item());
         }
         return Ok(item);
@@ -368,10 +368,11 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     )
     .await?;
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
+    let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
     let mut shown: Vec<&ReviewItem> = Vec::new();
     for i in &items {
         let show = match i.profile_id {
-            None => true,
+            None => shows_household_items(counted.iter().copied()),
             Some(pid) => match by_profile.get(&pid) {
                 Some(p) if visible(i, p) && opens_document(&mut tx, i, p).await? => {
                     if !visible(i, &p.own_only()) {
@@ -388,7 +389,6 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         }
     }
     let household = principal.household_id.unwrap_or_default();
-    let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
     let open = count_shown(&mut tx, household, &counted).await?;
     let mut audit = review_audit(principal, "read");
     if let [profile_id] = pids.as_slice() {
