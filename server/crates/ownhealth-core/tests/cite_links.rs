@@ -1,8 +1,9 @@
 //! scripts/cite-links.sh checks the links of the connector pages (docs/connectors) as well as the cited
 //! data files. These tests run the script itself, with no network: `--list` prints the links a run would
-//! fetch, and a page whose link names a host that cannot exist (the `.invalid` top-level domain, RFC
-//! 2606) must make a run fail.
+//! fetch, and a page whose link a fake `curl` answers as a host that does not resolve must make a run
+//! fail.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -10,13 +11,15 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// Run the script with no proxy from the caller's environment. With one, curl would send the `.invalid`
-/// request to the proxy, and a proxy that cannot be reached is a transfer error (could not be checked),
-/// not a dead host.
-fn run(args: &[&str]) -> Output {
+/// Run the script. `bin`, when given, goes first on its PATH, so a fake `curl` there answers instead of
+/// the real one.
+fn run(args: &[&str], bin: Option<&Path>) -> Output {
     let mut cmd = Command::new("bash");
-    for var in ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"] {
-        cmd.env_remove(var).env_remove(var.to_lowercase());
+    if let Some(bin) = bin {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let mut dirs = vec![bin.to_path_buf()];
+        dirs.extend(std::env::split_paths(&path));
+        cmd.env("PATH", std::env::join_paths(dirs).expect("PATH"));
     }
     cmd.arg(repo().join("scripts/cite-links.sh"))
         .args(args)
@@ -71,7 +74,7 @@ fn the_link_reader_stops_where_the_script_stops() {
 
 #[test]
 fn a_default_run_checks_every_link_of_the_connector_pages() {
-    let out = run(&["--list"]);
+    let out = run(&["--list"], None);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let listed = String::from_utf8_lossy(&out.stdout);
     let listed: Vec<&str> = listed.lines().collect();
@@ -96,7 +99,26 @@ fn a_dead_link_in_a_connector_page_fails_the_run() {
         "# Acme\n\n> The vendor's words.\n\nSource: <https://terms.cite-links-test.invalid/api>\nFetched: 2026-11-25\n",
     )
     .expect("page");
-    let out = run(&[dir.to_str().expect("utf-8 path")]);
+    // A fake curl answers as curl does for a host that does not resolve (exit 6), and writes down the
+    // link it was given, so the test asks no resolver and reaches no network.
+    let bin = tree.path().join("bin");
+    let asked = tree.path().join("asked");
+    std::fs::create_dir_all(&bin).expect("mkdir bin");
+    std::fs::write(
+        bin.join("curl"),
+        format!(
+            "#!/bin/sh\nfor a; do last=$a; done\nprintf '%s\\n' \"$last\" >>'{}'\nexit 6\n",
+            asked.display()
+        ),
+    )
+    .expect("fake curl");
+    std::fs::set_permissions(bin.join("curl"), std::fs::Permissions::from_mode(0o755)).expect("chmod fake curl");
+    let out = run(&[dir.to_str().expect("utf-8 path")], Some(&bin));
+    assert_eq!(
+        std::fs::read_to_string(&asked).unwrap_or_default(),
+        "https://terms.cite-links-test.invalid/api\n",
+        "the fake curl, not a real one, was asked for the link"
+    );
     let report = String::from_utf8_lossy(&out.stdout);
     assert_eq!(
         out.status.code(),
