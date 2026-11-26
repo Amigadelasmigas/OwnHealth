@@ -2177,7 +2177,10 @@ async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() ->
 /// request. Sam is a guardian with an ordinary read:records and an emergency read:wearables, and a
 /// document of Alex's (read with read:records) holds a held activity value. The document's
 /// `open_review`, the list's `open` and `/api/me`'s `review_open` count the item, and each read records
-/// one use. With an ordinary read:wearables the same counts record none.
+/// one use. With an ordinary read:wearables the document's and the list's counts record none, though
+/// the request's read:genome is still emergency-only: the item does not need it. (`/api/me` lists each
+/// profile's scopes, the emergency ones too, so it records a use whenever any is added; its count is
+/// checked with no emergency scope left.)
 #[tokio::test]
 async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows() -> R {
     let mut b = setup().await?;
@@ -2203,7 +2206,7 @@ async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows()
     b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
     let mut sam = b.sam().await?;
     let id = b
-        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"]))
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables", "read:genome"]))
         .await?;
     let reads = [
         (format!("/api/documents/{doc}"), "open_review"),
@@ -2219,13 +2222,21 @@ async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows()
     }
     b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables"])
         .await?;
-    for (path, key) in &reads {
+    for (path, key) in &reads[..2] {
         let before = record_uses(&b, id).await?;
         let r = sam.get(path).await?;
         assert_eq!(r.status, 200, "{path}: {:?}", r.json);
         assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
         assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
     }
+    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables", "read:genome"])
+        .await?;
+    let (path, key) = &reads[2];
+    let before = record_uses(&b, id).await?;
+    let r = sam.get(path).await?;
+    assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+    assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
     Ok(())
 }
 
