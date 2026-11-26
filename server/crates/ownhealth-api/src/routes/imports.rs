@@ -15,7 +15,9 @@
 //!
 //! A job's `result` counts what its import brought or lists files a failed import left out. The result of a wearables import
 //! ([`WEARABLE_JOBS`]) is shown only to a caller who may read wearables on that profile; anyone else
-//! with a grant there sees the job with `result: null`.
+//! with a grant there sees the job with `result: null`. A document's job (PDF, C-CDA, FHIR, Apple
+//! Health) shows its filename, error and result on the terms of that document, where it is now
+//! ([`jobs`]).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -247,12 +249,33 @@ const DOCUMENT_IMPORT_JOBS: [&str; 3] = [
     "import.apple_health",
 ];
 
-/// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones. A
-/// [`DOCUMENT_IMPORT_JOBS`] job's filename and error need the scope its document needs (read:records
-/// before the document exists), and its result also read:sensitive, as the document's import flags
-/// do: the summary's counts take in items the review list hides. A response that shows a job's
-/// filename, error or result writes one read audit row per profile naming those jobs, for every job
-/// kind; one that shows none of them writes none, and an empty one writes a row with no profile.
+/// The PDF and image import job; its payload names its document.
+const PDF_JOB: &str = "import.pdf";
+
+/// A job's filename, error and result, left out of what the caller is shown.
+fn withhold(j: &mut Value) {
+    j["result"] = Value::Null;
+    j["filename"] = Value::Null;
+    j["last_error"] = Value::Null;
+}
+
+/// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones.
+///
+/// A job's filename names its upload, its error can quote it, and its result can count health data, so
+/// each goes out only on the terms of what the job read:
+/// - a PDF job or a [`DOCUMENT_IMPORT_JOBS`] job, once its document exists: the scope that document
+///   needs on the profile it is on now (a move does not rewrite a finished job), and read:sensitive
+///   too for the result, as the document's import flags do (the summary's counts take in items the
+///   review list hides). A job whose document is gone, or is on a profile the caller cannot read with
+///   that scope, shows none of them; so does a PDF job that names no document. A structured job whose
+///   document does not exist yet shows its filename and error with read:records on its profile.
+/// - a [`WEARABLE_JOBS`] job: read:wearables on its profile; a DICOM import: read:records.
+///
+/// A response that shows a job's filename, error or result writes one read audit row per profile it
+/// read (for a document's job, the profile the document is on now) naming those jobs, for every job
+/// kind. A job that shows only its state, kind and times is not a read of health data and is not
+/// named; a response that names no job writes no row, except an empty one, which writes a row with no
+/// profile (RUST-CONTRACTS.md section 3).
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));
@@ -294,38 +317,44 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         let kind = j["kind"].as_str().unwrap_or_default();
         let wearable = WEARABLE_JOBS.contains(&kind);
         let dicom = kind == ownhealth_imaging::import::JOB;
+        let pdf = kind == PDF_JOB;
         let structured = DOCUMENT_IMPORT_JOBS.contains(&kind);
         if let Some(perm) = permission {
             perm.record_read(if wearable { &["read:wearables"] } else { &[] });
         }
-        if structured {
+        // the permission whose profile the shown fields belong to, when they may go out at all
+        let mut reader = permission;
+        if pdf || structured {
             let doc = j["document_id"]
                 .as_str()
                 .or_else(|| j["result"]["document_id"].as_str())
-                .and_then(|d| Uuid::parse_str(d).ok());
-            let scope = match doc {
-                Some(d) => super::documents::document_scope(&mut tx, d).await?,
+                .map(|d| Uuid::parse_str(d).ok());
+            let shown = match doc {
+                // a structured import before its document exists: the upload on the job's profile
+                None if structured => permission.filter(|p| p.has("read:records")).map(|p| (p, "read:records")),
                 None => None,
-            }
-            .unwrap_or("read:records");
-            match permission.filter(|p| p.has(scope)) {
-                Some(perm) => {
+                Some(None) => None,
+                Some(Some(d)) => match ownhealth_core::documents::document_profile_scope(&mut tx, d).await? {
+                    Some((Some(profile), scope)) => perms
+                        .iter()
+                        .find(|p| p.profile.id == profile && p.has(scope))
+                        .map(|p| (p, scope)),
+                    _ => None,
+                },
+            };
+            reader = shown.map(|(p, _)| p);
+            match shown {
+                Some((perm, scope)) => {
                     perm.record_read(&[scope]);
                     if !perm.may_read_sensitive(scope) {
                         j["result"] = Value::Null;
                     }
                 }
-                None => {
-                    j["result"] = Value::Null;
-                    j["filename"] = Value::Null;
-                    j["last_error"] = Value::Null;
-                }
+                None => withhold(j),
             }
         }
         if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
-            j["result"] = Value::Null;
-            j["filename"] = Value::Null;
-            j["last_error"] = Value::Null;
+            withhold(j);
         }
         if dicom {
             if let Some(perm) = permission.filter(|p| p.has("read:records")) {
@@ -335,9 +364,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                     .or_default()
                     .push(j["id"].to_string());
             } else {
-                j["result"] = Value::Null;
-                j["filename"] = Value::Null;
-                j["last_error"] = Value::Null;
+                withhold(j);
             }
         }
         // A filename names a document, an error can quote it, and a result can expose health data. A
@@ -347,7 +374,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
             .any(|field| !j[*field].is_null());
         if !dicom
             && shown
-            && let Some(perm) = permission
+            && let Some(perm) = reader
         {
             read_jobs
                 .entry(Some(perm.profile.id))
