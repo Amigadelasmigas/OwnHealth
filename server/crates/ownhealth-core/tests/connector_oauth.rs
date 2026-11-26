@@ -1338,3 +1338,67 @@ async fn committing_a_grant_without_a_refresh_token_makes_the_access_token_avail
     assert!(gone);
     Ok(())
 }
+
+// ------------------------------------------------------- sync-gap episodes ----
+
+/// A sync-gap alert of `source` on Alex's profile: open, or dismissed by a person (an episode that
+/// still runs until the source recovers).
+async fn gap_alert(s: &Setup, source: Uuid, decided: bool) -> anyhow::Result<Uuid> {
+    Ok(sqlx::query_scalar(
+        "insert into review_item (household_id, profile_id, kind, ref_table, ref_id, payload, status, decided_by, decided_at) \
+         values ($1, $2, 'source_gap', 'source', $3, '{\"message\": {\"en\": \"Sync has stopped.\"}}', \
+           case when $4 then 'dismissed' else 'open' end, case when $4 then $5 end, case when $4 then now() end) \
+         returning id",
+    )
+    .bind(s.fam.household_id)
+    .bind(s.alex())
+    .bind(source)
+    .bind(decided)
+    .bind(s.fam.user("alex"))
+    .fetch_one(&s.db.pool)
+    .await?)
+}
+
+/// status, decision_reason, whether the episode ended
+async fn gap_state(s: &Setup, item: Uuid) -> anyhow::Result<(String, Option<String>, bool)> {
+    Ok(
+        sqlx::query_as("select status, decision_reason, payload ? 'ended_at' from review_item where id = $1")
+            .bind(item)
+            .fetch_one(&s.db.pool)
+            .await?,
+    )
+}
+
+/// A disconnect switches the source off, as a person switching it off does: its open sync alert closes
+/// and a dismissed one ends its episode, so a gap after a reconnect opens a new alert.
+#[tokio::test]
+async fn a_disconnect_ends_the_sync_gap_episode() -> R {
+    let s = setup().await?;
+    let (id, _) = s.connect(None, t0()).await?;
+    let open = gap_alert(&s, id, false).await?;
+    let dismissed = gap_alert(&s, id, true).await?;
+    oauth::disconnect(&s.db.pool, &s.sb, id, &egress()).await?;
+    assert_eq!(
+        gap_state(&s, open).await?,
+        ("dismissed".into(), Some("source_unavailable".into()), true)
+    );
+    assert_eq!(gap_state(&s, dismissed).await?, ("dismissed".into(), None, true));
+    Ok(())
+}
+
+/// A reconnect brings a new grant: the old grant's sync alert ends with it, as when the source is
+/// switched off and on, so a dismissal of the old alert does not hide a gap of the new grant.
+#[tokio::test]
+async fn a_reconnect_ends_the_sync_gap_episode() -> R {
+    let s = setup().await?;
+    let (id, _) = s.connect(None, t0()).await?;
+    let open = gap_alert(&s, id, false).await?;
+    let dismissed = gap_alert(&s, id, true).await?;
+    s.connect(Some(id), t0() + Duration::hours(1)).await?;
+    assert_eq!(
+        gap_state(&s, open).await?,
+        ("dismissed".into(), Some("source_unavailable".into()), true)
+    );
+    assert_eq!(gap_state(&s, dismissed).await?, ("dismissed".into(), None, true));
+    Ok(())
+}

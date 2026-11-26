@@ -45,7 +45,7 @@ use crate::connector_profiles::{self as profiles, Rotation, Vendor};
 use crate::error::Error;
 use crate::net::{self, Egress, Fetched, NetError};
 use crate::secrets::{self, SecretBox, SecretString};
-use crate::sources::Source;
+use crate::sources::{self, Source};
 
 /// The source kinds that connect through OAuth here.
 pub const OAUTH_KINDS: [&str; 3] = ["smart", "bluebutton", "dexcom"];
@@ -1062,6 +1062,9 @@ pub async fn save_connection(
     .bind(&access)
     .execute(&mut *conn)
     .await?;
+    // The old grant's sync alert ends with it, as when the source is switched off and on: a gap of the
+    // new grant opens a new alert, and a dismissal of the old one does not hide it.
+    sources::end_gap_episode(conn, source_id, client.household_id).await?;
     if let (Some(old), None) = (old, secret_id) {
         sqlx::query("delete from secret where id = $1")
             .bind(old)
@@ -1543,6 +1546,8 @@ pub async fn disconnect(
     .bind(source_id)
     .execute(&mut *tx)
     .await?;
+    // Switched off, as a person switching it off does: its sync alert's episode ends.
+    sources::end_gap_episode(&mut tx, source_id, household).await?;
     if let Some(id) = secret_id {
         sqlx::query("delete from secret where id = $1")
             .bind(id)

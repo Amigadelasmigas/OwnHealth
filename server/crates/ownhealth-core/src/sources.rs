@@ -208,7 +208,7 @@ pub async fn update_source(conn: &mut PgConnection, id: Uuid, p: &SourcePatch) -
 /// End the episode of a switched-off source's sync alert: an open alert closes as unavailable, and a
 /// decided one keeps the person's decision. Either way the next gap opens a new alert. The stamp comes
 /// from the clock the gap checks read, not the database's, since a check compares it with its own.
-async fn end_gap_episode(conn: &mut PgConnection, id: Uuid, household_id: Uuid) -> Result<()> {
+pub(crate) async fn end_gap_episode(conn: &mut PgConnection, id: Uuid, household_id: Uuid) -> Result<()> {
     sqlx::query(
         "update review_item set payload = jsonb_set(payload, '{ended_at}', to_jsonb($3::timestamptz)), \
          decided_at = coalesce(decided_at, $3), \
