@@ -256,7 +256,7 @@ test('the SMART wizard distinguishes a missing configuration from an outage in b
 			'Conectar en Oracle Health', 'No se pudo contactar con el servidor del proveedor. Inténtalo más tarde.']
 	]) {
 		await page.goto(`/connections/add?lang=${lang}`);
-		await page.getByText('Oracle Health', { exact: true }).click();
+		await page.locator('label[data-vendor="oracle"]').click();
 		await page.getByText(another, { exact: true }).click();
 		await page.getByLabel(address).fill(`${fake}/down-${lang}`);
 		await page.getByRole('button', { name: connect }).click();
