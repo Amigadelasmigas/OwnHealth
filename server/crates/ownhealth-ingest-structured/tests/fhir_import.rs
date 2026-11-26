@@ -975,7 +975,8 @@ async fn an_uploaded_bundle_with_a_sensitivity_label_is_a_sensitive_document() -
                               "intent": "plan", "title": "Plan de seguimiento",
                               "subject": {"reference": "Patient/alex-rivera"}});
         if labelled {
-            plan["meta"] = json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+            plan["meta"] =
+                json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
         }
         json!({"resourceType": "Bundle", "id": format!("upload-{id}"), "type": "collection",
                "entry": [{"fullUrl": format!("urn:uuid:plan-{id}"), "resource": plan}]})
@@ -988,6 +989,9 @@ async fn an_uploaded_bundle_with_a_sensitivity_label_is_a_sensitive_document() -
         docs.push(doc);
     }
     assert!(document_is_sensitive(&mut tx, docs[0]).await?, "the labelled bundle");
-    assert!(!document_is_sensitive(&mut tx, docs[1]).await?, "the same bundle without the label");
+    assert!(
+        !document_is_sensitive(&mut tx, docs[1]).await?,
+        "the same bundle without the label"
+    );
     Ok(())
 }

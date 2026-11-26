@@ -25,10 +25,10 @@ use ownhealth_core::access::{Permission, Principal, accessible_profiles, effecti
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::review::{self, ItemQuery, ReviewItem};
 use ownhealth_core::{Error, Runtime};
-pub(super) use ownhealth_mcp::review_shown::{count_shown, count_shown_on_profile, shown_per_document};
 use ownhealth_mcp::review_shown::{
     SOURCE_GAP, gap_review_profiles, imaging_review_profiles, opens_document, shows_household_items, visible,
 };
+pub(super) use ownhealth_mcp::review_shown::{count_shown, count_shown_on_profile, shown_per_document};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -122,8 +122,8 @@ async fn hide_unread_document(
         None => {
             out["document_id"] = Value::Null;
             if let Some(payload) = out.get_mut("payload").and_then(Value::as_object_mut) {
-                payload.remove("error");
-                payload.remove("payload_document_id");
+                payload.shift_remove("error");
+                payload.shift_remove("payload_document_id");
             }
         }
     }

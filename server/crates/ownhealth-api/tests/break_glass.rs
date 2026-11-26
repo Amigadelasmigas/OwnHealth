@@ -2202,7 +2202,9 @@ async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows()
     }
     b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
     let mut sam = b.sam().await?;
-    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"])).await?;
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"]))
+        .await?;
     let reads = [
         (format!("/api/documents/{doc}"), "open_review"),
         ("/api/review?profile=alex&limit=0".to_string(), "open"),
@@ -2215,7 +2217,8 @@ async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows()
         assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
         assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1), "{path}");
     }
-    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables"]).await?;
+    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables"])
+        .await?;
     for (path, key) in &reads {
         let before = record_uses(&b, id).await?;
         let r = sam.get(path).await?;

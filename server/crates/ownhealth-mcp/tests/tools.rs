@@ -687,7 +687,10 @@ async fn status_counts_open_review_rows_it_may_read() -> R {
     let w = world().await?;
     let pid = w.pid("alex");
     for (kind, payload) in [
-        ("candidate_row", json!({"observation": {"category": "laboratory", "sensitivity": []}})),
+        (
+            "candidate_row",
+            json!({"observation": {"category": "laboratory", "sensitivity": []}}),
+        ),
         (
             "candidate_row",
             json!({"observation": {"category": "laboratory", "sensitivity": ["sexual_health"]}}),

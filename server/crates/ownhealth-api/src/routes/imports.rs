@@ -331,7 +331,9 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                 .map(|d| Uuid::parse_str(d).ok());
             let shown = match doc {
                 // a structured import before its document exists: the upload on the job's profile
-                None if structured => permission.filter(|p| p.has("read:records")).map(|p| (p, "read:records")),
+                None if structured => permission
+                    .filter(|p| p.has("read:records"))
+                    .map(|p| (p, "read:records")),
                 None => None,
                 Some(None) => None,
                 Some(Some(d)) => match ownhealth_core::documents::document_profile_scope(&mut tx, d).await? {

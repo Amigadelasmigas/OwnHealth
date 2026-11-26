@@ -680,7 +680,10 @@ async fn a_health_read_that_shows_a_source_writes_one_read_row_per_profile() -> 
         (Some(env.profile("lucia")), vec![ids.lucia_hae.to_string()]),
     ];
     expected.sort();
-    assert_eq!(health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?, expected);
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?,
+        expected
+    );
     let r = c.get(&format!("/api/inboxes/{}/health", ids.alex_email)).await?;
     assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
     assert_eq!(
@@ -699,7 +702,12 @@ async fn a_health_read_that_shows_a_source_writes_one_read_row_per_profile() -> 
         format!("/api/inboxes/{}/health?format=prometheus", ids.alex_email),
     ] {
         let r = monitor
-            .send(Method::GET, &path, None, &[("authorization", &format!("Bearer {token}"))])
+            .send(
+                Method::GET,
+                &path,
+                None,
+                &[("authorization", &format!("Bearer {token}"))],
+            )
             .await?;
         assert_eq!(r.status, StatusCode::OK, "{path}");
     }

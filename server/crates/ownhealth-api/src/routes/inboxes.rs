@@ -747,7 +747,13 @@ async fn health_one(
         if let Some(c) = person
             && known_format(&q)
         {
-            audit_health(&mut conn, &c, "GET /api/inboxes/{id}/health", std::slice::from_ref(&row)).await?;
+            audit_health(
+                &mut conn,
+                &c,
+                "GET /api/inboxes/{id}/health",
+                std::slice::from_ref(&row),
+            )
+            .await?;
         }
         Ok::<_, ApiError>(row)
     };

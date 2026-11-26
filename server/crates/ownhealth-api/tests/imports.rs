@@ -1616,7 +1616,11 @@ async fn a_jobs_poll_that_shows_only_a_filename_or_an_error_writes_one_read_row(
             json!({"profile_id": alex.to_string(), "filename": "run.fit"}),
             None,
         ),
-        ("import.pdf", json!({"profile_id": alex.to_string(), "document_id": doc}), None),
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string(), "document_id": doc}),
+            None,
+        ),
     ] {
         let id: i64 = sqlx::query_scalar(
             "insert into job (kind, state, payload, last_error) values ($1, 'queued', $2, $3) returning id",
@@ -2110,14 +2114,23 @@ async fn finished_document_job(a: &App, kind: &str, doc: uuid::Uuid) -> anyhow::
 
 /// (result shown, filename shown, error shown) of each job `who` polls, in order.
 async fn job_fields(a: &App, who: &str, ids: &[i64]) -> anyhow::Result<Vec<(bool, bool, bool)>> {
-    let uri = format!("/jobs?ids={}", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(","));
+    let uri = format!(
+        "/jobs?ids={}",
+        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    );
     let (s, v) = a.get(who, &uri).await?;
     assert_eq!(s, StatusCode::OK, "{v}");
     let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
     assert_eq!(jobs.len(), ids.len(), "{who}: {v}");
     Ok(jobs
         .iter()
-        .map(|j| (!j["result"].is_null(), !j["filename"].is_null(), !j["last_error"].is_null()))
+        .map(|j| {
+            (
+                !j["result"].is_null(),
+                !j["filename"].is_null(),
+                !j["last_error"].is_null(),
+            )
+        })
         .collect())
 }
 

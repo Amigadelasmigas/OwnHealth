@@ -1075,7 +1075,12 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
         async move {
             let (s, v) = a.get("alex", &format!("/review?profile=carmen{query}")).await?;
             assert_eq!(s, StatusCode::OK, "{v}");
-            let ids: Vec<Value> = v["items"].as_array().into_iter().flatten().map(|i| i["id"].clone()).collect();
+            let ids: Vec<Value> = v["items"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|i| i["id"].clone())
+                .collect();
             anyhow::Ok((ids, v["open"].clone()))
         }
     };
@@ -1086,7 +1091,11 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
     sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
         .bind(a.family.user("alex"))
         .bind(a.family.profile("carmen"))
-        .bind(vec!["read:summary".to_string(), "read:labs".to_string(), "read:wearables".to_string()])
+        .bind(vec![
+            "read:summary".to_string(),
+            "read:labs".to_string(),
+            "read:wearables".to_string(),
+        ])
         .execute(&a.rt.pool)
         .await?;
     let (ids, open) = page("&limit=100").await?;
@@ -1137,11 +1146,7 @@ async fn test_a_held_fhir_observation_takes_the_scope_of_its_imported_category()
         }
     };
     assert_eq!(shown(&["read:summary", "read:labs"]).await?, [ids[3]], "labs only");
-    assert_eq!(
-        shown(&["read:summary", "read:vitals"]).await?,
-        ids[..3],
-        "vitals only"
-    );
+    assert_eq!(shown(&["read:summary", "read:vitals"]).await?, ids[..3], "vitals only");
     Ok(())
 }
 
