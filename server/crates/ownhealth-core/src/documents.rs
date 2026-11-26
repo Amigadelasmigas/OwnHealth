@@ -580,9 +580,10 @@ fn short_filename(f: Option<&str>) -> Option<String> {
 }
 
 /// The lock an upload of `sha256` for `profile` takes shared ([`create_document`], held until its
-/// transaction ends) and the removal of that profile's copy of the bytes takes exclusive
-/// (`ownhealth_auth::household::drop_moved_copies`): the removal never runs while an upload that names
-/// the same bytes is in flight, and it sees the upload's row once it commits.
+/// transaction ends), as does a move that stores the bytes for that profile ([`rekey_document`]), and
+/// the removal of that profile's copy of the bytes takes exclusive
+/// (`ownhealth_auth::household::drop_moved_copies`): the removal never runs while an upload or a move
+/// that names the same bytes is in flight, and it sees the row once it commits.
 pub async fn lock_blob(conn: &mut PgConnection, profile: Uuid, sha256: &str, shared: bool) -> Result<()> {
     let sql = if shared {
         "select pg_advisory_xact_lock_shared(hashtextextended($1, 0))"
@@ -1078,6 +1079,18 @@ pub async fn rekey_document(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    // A removal an earlier move queued for a copy this move reuses takes this lock exclusively, so it
+    // waits for this move to end and then sees the move's rows: taken before the copy is looked for.
+    let destinations: BTreeSet<(Uuid, &str)> = copies
+        .iter()
+        .filter_map(|(sha, _, to, _)| match to {
+            BlobOwner::Profile(p) => Some((*p, sha.as_str())),
+            _ => None,
+        })
+        .collect();
+    for (profile, sha) in destinations {
+        lock_blob(&mut *conn, profile, sha, true).await?;
+    }
     let blobs = blobs.clone();
     let moved = tokio::task::spawn_blocking(move || {
         'copies: for (sha, read_from, to, what) in &copies {
