@@ -3938,3 +3938,65 @@ async fn pre1_a_listed_code_outside_social_history_stays_unlabelled() -> R {
     assert!(!ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
     Ok(())
 }
+
+/// PRE-1.0 (R6-L2): every reader of narrative text keeps the cut flag when its own words, not a
+/// referenced paragraph, exhaust the node budget before the first word: the Social History and
+/// Results text values, the reference range, the medication sig, an activity note, and an original
+/// text. Each lists the cut and keeps no words it did not read.
+#[test]
+fn pre1_every_narrative_reader_lists_a_local_text_cut_before_its_first_word() -> R {
+    let beyond = text_past_the_node_limit();
+    // the words of the section paragraph no entry points at, in observation_with_narrative
+    const UNSEEN: &str = "section text no entry points at (2 words)";
+    for social in [true, false] {
+        let c = convert(&observation_with_narrative(
+            social,
+            &format!(r#"<value xsi:type="ST">{beyond}</value>"#),
+        ))?;
+        assert!(resources(&c, "Observation")[0].get("valueString").is_none(), "{social}");
+        assert_eq!(
+            c.sections[0].not_read,
+            ["observation value (text scan limit reached)", UNSEEN],
+            "{social}"
+        );
+    }
+    let c = convert(&observation_with_narrative(
+        false,
+        &format!(
+            r#"<value xsi:type="PQ" value="5"/>
+               <referenceRange><observationRange><text>{beyond}</text></observationRange></referenceRange>"#
+        ),
+    ))?;
+    assert!(resources(&c, "Observation")[0].get("referenceRange").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["reference range (text scan limit reached)", UNSEEN]
+    );
+
+    let c = convert(&medicine_with("", &beyond, ""))?;
+    assert!(resources(&c, "MedicationStatement")[0].get("dosage").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["medication instructions (text scan limit reached)"]
+    );
+
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        let c = convert(&activity_with_note(tag, template, "completed", "", &beyond))?;
+        assert!(resources(&c, rtype)[0].get("note").is_none(), "{rtype}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("{tag} {template} (note scan limit reached)")]
+        );
+    }
+
+    let c = convert(&observation_with_narrative(
+        false,
+        &format!(r#"<value xsi:type="CD" nullFlavor="OTH"><originalText>{beyond}</originalText></value>"#),
+    ))?;
+    assert!(resources(&c, "Observation")[0].get("valueCodeableConcept").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        [UNSEEN, "value (original text kept in the uploaded file)"]
+    );
+    Ok(())
+}
