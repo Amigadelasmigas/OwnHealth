@@ -1973,7 +1973,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "ownhealth-core"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-genome"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2044,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ingest-pdf"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ingest-structured"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-normalize"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "futures",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ops"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2152,7 +2152,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-rules"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
