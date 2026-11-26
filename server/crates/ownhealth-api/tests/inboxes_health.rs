@@ -267,6 +267,115 @@ async fn a_source_shows_only_to_a_reader_of_its_data() -> R {
     Ok(())
 }
 
+/// The scopes that read what each source kind brings in, written out here on purpose (not taken from
+/// the route), so a change to the route's table shows as a failure.
+const KIND_SCOPES: [(&str, &[&str]); 14] = [
+    ("email", &["read:labs", "read:records"]),
+    ("folder", &["read:labs", "read:records"]),
+    ("paperless", &["read:labs", "read:records"]),
+    ("share", &["read:labs", "read:records"]),
+    ("shortcut", &["read:labs", "read:records"]),
+    ("health_auto_export", &["read:wearables"]),
+    ("gadgetbridge", &["read:wearables"]),
+    ("nightscout", &["read:wearables"]),
+    ("openwearables", &["read:wearables"]),
+    ("dexcom", &["read:wearables"]),
+    ("smart", &["read:records"]),
+    ("bluebutton", &["read:records"]),
+    ("brands", &["read:records"]),
+    ("clinvar", &["read:genome"]),
+];
+
+/// Every source kind, one scope at a time: a viewer holding only that scope (and read:summary) is
+/// shown a source exactly when the scope reads what the kind brings in. read:summary alone shows
+/// none, and so do the scopes no kind lists. A guardian of a child's profile manages it, so he is
+/// shown every source of it whatever scopes he holds.
+#[tokio::test]
+async fn each_source_kind_shows_to_a_reader_of_its_own_scopes_only() -> R {
+    let mut listed: Vec<&str> = KIND_SCOPES.iter().map(|(kind, _)| *kind).collect();
+    let mut known = sources::SOURCE_KINDS.to_vec();
+    listed.sort_unstable();
+    known.sort_unstable();
+    assert_eq!(listed, known, "a source kind is missing from the table");
+    let env = Env::new(true).await?;
+    let (mut kinds, mut lucia) = (Vec::new(), Vec::new());
+    {
+        let mut c = env.pool().acquire().await?;
+        let h = env.fam().household_id;
+        for (kind, _) in KIND_SCOPES {
+            let id = source(
+                &mut c,
+                h,
+                Some(env.profile("alex")),
+                kind,
+                &format!("{kind} de Alex"),
+                Some(900),
+            )
+            .await?;
+            kinds.push((id, kind));
+            // a household holds one directory source (brands), which Alex's set has
+            if kind != "brands" {
+                let id = source(
+                    &mut c,
+                    h,
+                    Some(env.profile("lucia")),
+                    kind,
+                    &format!("{kind} de Lucía"),
+                    Some(900),
+                )
+                .await?;
+                lucia.push((id, kind));
+            }
+        }
+    }
+    let shown_of = |sources: &[(Uuid, &'static str)], v: &Value| -> Vec<&'static str> {
+        let ids = ids_of(v);
+        sources
+            .iter()
+            .filter(|(id, _)| ids.contains(&id.to_string()))
+            .map(|(_, kind)| *kind)
+            .collect()
+    };
+    for scope in [
+        "read:summary",
+        "read:labs",
+        "read:records",
+        "read:wearables",
+        "read:genome",
+        "read:vitals",
+        "read:sensitive",
+        "read:documents_text",
+    ] {
+        sam_on_alex(&env, &["read:summary", scope]).await?;
+        let mut sam = env.as_user(env.user("sam")).await?;
+        let r = sam.get("/api/inboxes/health").await?;
+        assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+        let expected: Vec<&str> = KIND_SCOPES
+            .iter()
+            .filter(|(_, scopes)| scopes.contains(&scope))
+            .map(|(kind, _)| *kind)
+            .collect();
+        assert_eq!(shown_of(&kinds, &r.json), expected, "a viewer with {scope}");
+    }
+    sqlx::query("update profile_grant set role = 'guardian', categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(env.user("sam"))
+        .bind(env.profile("lucia"))
+        .bind(vec!["read:summary".to_string()])
+        .execute(env.pool())
+        .await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let every: Vec<&str> = lucia.iter().map(|(_, kind)| *kind).collect();
+    assert_eq!(every.len(), KIND_SCOPES.len() - 1);
+    assert_eq!(
+        shown_of(&lucia, &r.json),
+        every,
+        "a guardian of Lucía with read:summary only"
+    );
+    Ok(())
+}
+
 /// C-M2: the registry (`GET /api/inboxes`) carries a source's settings: the mailbox host and user, the
 /// token prefix, the last error, the held-mail count. It lists only the sources the person manages, as
 /// `GET /api/inboxes/{id}` answers only for them. A reader of the data sees the source on the health

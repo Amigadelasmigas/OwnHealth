@@ -870,6 +870,107 @@ async fn carmen_flags(a: &App, doc: Uuid) -> anyhow::Result<(Value, Value)> {
     Ok((one["flags"].clone(), listed))
 }
 
+/// An open item of the household itself (no profile) on document `doc`.
+async fn household_item_on(a: &App, kind: &str, doc: Uuid, payload: Value) -> anyhow::Result<Uuid> {
+    let mut c = a.conn().await?;
+    Ok(create_item(
+        &mut c,
+        &ReviewItemIn {
+            kind: kind.into(),
+            household_id: Some(a.family.household_id),
+            profile_id: None,
+            document_id: Some(doc),
+            payload,
+            ..ReviewItemIn::default()
+        },
+    )
+    .await?)
+}
+
+/// `open_review` of each document holds what the review list shows the reader for that document: its
+/// own items the reader may see, plus the household's own items on it (a failed job, not a sync alert,
+/// which the list takes only on a profile it names). A pull's grouped item on a sensitive bundle stays
+/// out for a reader the bundle would not open for. Two documents with different counts keep their
+/// own. A member who cannot review on the profile is shown 0.
+#[tokio::test]
+async fn test_open_review_counts_per_document_what_the_list_shows() -> R {
+    let a = app().await?;
+    let first = carmen_document(&a, "informe.xml", json!({})).await?;
+    let bundle = carmen_document(&a, "bundle.json", json!({"sensitive": 1})).await?;
+    for doc in [first, first, bundle] {
+        let id = item(&a, "carmen", "candidate_row", None, json!({})).await?;
+        sqlx::query("update review_item set document_id = $1 where id = $2")
+            .bind(doc)
+            .bind(id)
+            .execute(&a.rt.pool)
+            .await?;
+    }
+    household_item_on(
+        &a,
+        "job_failed",
+        first,
+        json!({"kind": "import.pdf", "error": "unreadable"}),
+    )
+    .await?;
+    household_item_on(&a, "source_gap", first, json!({})).await?;
+    let grouped = item(
+        &a,
+        "carmen",
+        "fhir_unmapped_summary",
+        Some(json!({"resource_type": "ExplanationOfBenefit", "count": 1})),
+        json!({}),
+    )
+    .await?;
+    sqlx::query("update review_item set document_id = $1 where id = $2")
+        .bind(bundle)
+        .bind(grouped)
+        .execute(&a.rt.pool)
+        .await?;
+    let counts = |list: &Value| -> Vec<(Value, Value)> {
+        let mut out: Vec<(Value, Value)> = list["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|d| d["id"] == json!(first) || d["id"] == json!(bundle))
+            .map(|d| (d["filename"]["text"].clone(), d["open_review"].clone()))
+            .collect();
+        out.sort_by_key(|(name, _)| name.to_string());
+        out
+    };
+    // Alex is Carmen's caregiver: he reviews, without read:sensitive
+    let (s, list) = a.get("alex", "/profiles/carmen/documents").await?;
+    assert_eq!(s, StatusCode::OK, "{list}");
+    assert_eq!(
+        counts(&list),
+        [(json!("bundle.json"), json!(1)), (json!("informe.xml"), json!(3))],
+        "{list}"
+    );
+    for (doc, n) in [(first, 3), (bundle, 1)] {
+        let (s, queue) = a
+            .get("alex", &format!("/review?profile=carmen&document_id={doc}"))
+            .await?;
+        assert_eq!(s, StatusCode::OK, "{queue}");
+        assert_eq!(queue["items"].as_array().map(Vec::len), Some(n), "{queue}");
+        let (s, one) = a.get("alex", &format!("/documents/{doc}")).await?;
+        assert_eq!(s, StatusCode::OK, "{one}");
+        assert_eq!(one["open_review"], json!(n), "{one}");
+    }
+    // as a viewer he reads the same documents and reviews none of them
+    sqlx::query("update profile_grant set role = 'viewer' where user_id = $1 and profile_id = $2")
+        .bind(a.family.user("alex"))
+        .bind(a.family.profile("carmen"))
+        .execute(&a.rt.pool)
+        .await?;
+    let (s, list) = a.get("alex", "/profiles/carmen/documents").await?;
+    assert_eq!(s, StatusCode::OK, "{list}");
+    assert_eq!(
+        counts(&list),
+        [(json!("bundle.json"), json!(0)), (json!("informe.xml"), json!(0))],
+        "{list}"
+    );
+    Ok(())
+}
+
 /// U-F1: a FHIR resource a file import held unmapped (`fhir_unmapped` with the whole `resource`) shows
 /// on the terms of the fact it would be: an Observation with the scope of its category, any other type
 /// with read:records, and a sensitive one (a security label) with read:sensitive too. The same rule

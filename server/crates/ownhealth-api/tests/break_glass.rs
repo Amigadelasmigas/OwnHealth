@@ -2075,6 +2075,58 @@ async fn document_page(b: &Bg, doc: Uuid) -> R {
     Ok(())
 }
 
+/// What emergency access adds is used, and recorded, only where it shows something: a Dexcom source on
+/// the inbox health list that only the emergency read:wearables shows records one use. A sensitive
+/// document's import flags need read:sensitive and the document's scope from one source: an emergency
+/// read:labs over an ordinary read:sensitive does not show them.
+#[tokio::test]
+async fn emergency_scopes_show_a_source_with_a_use_and_no_sensitive_flags_alone() -> R {
+    let mut b = setup().await?;
+    let dexcom = {
+        let mut c = b.env.pool().acquire().await?;
+        ownhealth_core::sources::create_source(
+            &mut c,
+            &ownhealth_core::sources::NewSource {
+                profile_id: Some(b.alex_id()),
+                poll_seconds: Some(900),
+                ..ownhealth_core::sources::NewSource::new(b.env.fam().household_id, "dexcom", "Dexcom G7 de Alex")
+            },
+        )
+        .await?
+    };
+    let doc = lab_document(&b).await?;
+    sqlx::query("update document set flags = flags || '{\"sensitive\": 1, \"unprojected\": 1}' where id = $1")
+        .bind(doc)
+        .execute(b.env.pool())
+        .await?;
+    b.grant_sam("viewer", &["read:summary", "read:sensitive"]).await?;
+    let mut sam = b.sam().await?;
+    let shows = |r: &Resp| {
+        r.json
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["id"] == json!(dexcom))
+    };
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(!shows(&r), "without read:wearables: {:?}", r.json);
+
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables", "read:labs"]))
+        .await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through emergency read:wearables: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+
+    let r = sam.get(&format!("/api/documents/{doc}")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(r.json["flags"], json!({}), "{:?}", r.json);
+    Ok(())
+}
+
 async fn record_uses(b: &Bg, id: Uuid) -> anyhow::Result<(i64, i64)> {
     Ok((
         b.uses(id).await?,
