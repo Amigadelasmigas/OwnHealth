@@ -974,10 +974,21 @@ async fn store_day(
         return Ok(None);
     }
     archive_new_rows(ctx, &mut tx, source, binding.profile, &bundle).await?;
+    let new_before = out.new;
     write(&mut tx, source, binding.profile, bundle, out).await?;
     let mut next = cursor.cloned().unwrap_or_else(|| json!({}));
     if mark(cursor, provider).is_none_or(|t| t < to) {
         next["providers"][provider] = json!(to);
+    }
+    // A new usable row ends the vendor's clock for rows that do not read, with the commit that stores
+    // it: if a later day of this poll fails, the next poll reads the row again as known.
+    if out.new > new_before
+        && let Some(health) = next
+            .get_mut(gaps::CURSOR_KEY)
+            .and_then(|c| c.get_mut(provider))
+            .and_then(Value::as_object_mut)
+    {
+        health.shift_remove("unreadable_since");
     }
     sqlx::query("update source set cursor = $2 where id = $1")
         .bind(source)

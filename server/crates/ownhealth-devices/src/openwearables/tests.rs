@@ -2623,6 +2623,56 @@ async fn another_vendors_row_that_does_not_read_starts_no_clock() -> anyhow::Res
     Ok(())
 }
 
+/// WHOOP is on its clock for rows that do not read. A poll stores a new usable WHOOP row, then fails to
+/// store a later day. The stored row is news: the clock ends with the day that stored it, so the next
+/// poll, which reads that row again as known, does not keep the old clock.
+#[tokio::test]
+async fn a_stored_usable_row_ends_the_clock_even_when_a_later_day_fails() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let readable = {
+        let mut fake = env.fake();
+        fake.connections = json!([["whoop", "active", Utc::now()]]);
+        let readable = fake
+            .rows
+            .iter()
+            .find(|r| r["source"]["provider"] == "whoop")
+            .cloned()
+            .expect("whoop");
+        let mut bad = readable.clone();
+        bad["value"] = json!("n/a");
+        fake.rows = vec![bad];
+        fake.scores.clear();
+        readable
+    };
+    poll(&env.ctx, &env.base, id).await?;
+    assert!(unreadable_since(&env, id, "whoop").await?.is_some());
+    // a new usable WHOOP row on a day it already stored; storing a later day fails
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["whoop", "active", Utc::now()]]);
+        let mut good = readable;
+        good["timestamp"] = json!(Utc::now() - Duration::days(3));
+        fake.rows.push(good);
+    }
+    sqlx::raw_sql(
+        "create function stop_whoop_mark() returns trigger language plpgsql as $$ begin \
+         if new.cursor #> '{providers,whoop}' is distinct from old.cursor #> '{providers,whoop}' \
+         then raise exception 'store refused'; end if; return new; end $$; \
+         create trigger stop_whoop_mark before update on source for each row execute function stop_whoop_mark();",
+    )
+    .execute(&env.ctx.pool)
+    .await?;
+    assert!(poll(&env.ctx, &env.base, id).await.is_err(), "the later day was stored");
+    assert_eq!(
+        unreadable_since(&env, id, "whoop").await?,
+        None,
+        "a stored usable row kept the clock"
+    );
+    Ok(())
+}
+
 /// After the far-future alert closed, real time reaches the day before its bogus stamp. A gap then
 /// still opens an alert: an ended alert is stamped by when it ended, not by when it was filed.
 #[tokio::test]
