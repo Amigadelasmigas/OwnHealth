@@ -969,6 +969,33 @@ impl<'a, 'i> Conv<'a, 'i> {
         }
     }
 
+    /// Holds a negated entry whose concept has an original text (its own or a translation's) the scan
+    /// cut: the unread words may name what the entry says is absent, so it is neither "no known ..."
+    /// nor a named exclusion. True when it held `el`.
+    fn held_for_a_cut_name(
+        &mut self,
+        el: Node<'_, '_>,
+        concept: Option<Node<'_, '_>>,
+        rep: &mut SectionReport,
+    ) -> bool {
+        let Some(concept) = concept.filter(|_| is_true(el, "negationInd")) else {
+            return false;
+        };
+        let originals: Vec<_> = std::iter::once(concept)
+            .chain(children(concept, "translation"))
+            .filter_map(|code| child(code, "originalText"))
+            .collect();
+        if !originals
+            .into_iter()
+            .any(|original| self.narrative_of(original).truncated)
+        {
+            return false;
+        }
+        let line = format!("{} (text scan limit reached)", self.hold(el));
+        rep.not_read.push(line);
+        true
+    }
+
     // ------------------------------------------------------------- header ----
 
     fn header(&mut self, root: Node<'_, '_>) {
@@ -1226,6 +1253,9 @@ impl<'a, 'i> Conv<'a, 'i> {
             .find(|p| attr(*p, "typeCode") == Some("CSM"))
             .or_else(|| child(obs, "participant"));
         let allergen = participant.and_then(|p| path(p, &["participantRole", "playingEntity", "code"]));
+        if self.held_for_a_cut_name(obs, allergen, rep) {
+            return;
+        }
         let id = self.new_id("AllergyIntolerance", &[obs, act.unwrap_or(obs)], obs);
         let mut r = Map::new();
         r.insert("resourceType".into(), json!("AllergyIntolerance"));
@@ -1331,6 +1361,9 @@ impl<'a, 'i> Conv<'a, 'i> {
     ) -> Option<String> {
         let negated = is_true(obs, "negationInd");
         let value = child(obs, "value");
+        if self.held_for_a_cut_name(obs, value, rep) {
+            return None;
+        }
         let nodes: Vec<Node<'_, '_>> = act.into_iter().chain([obs]).collect();
         let nullified = nodes.iter().any(|n| status_of(*n) == Some("nullified"));
         let effective = child(obs, "effectiveTime");
@@ -1409,6 +1442,9 @@ impl<'a, 'i> Conv<'a, 'i> {
     fn medication(&mut self, sa: Node<'_, '_>, at: &str, rep: &mut SectionReport) {
         let negated = is_true(sa, "negationInd");
         let code = Self::material(sa).and_then(|m| child(m, "code"));
+        if self.held_for_a_cut_name(sa, code, rep) {
+            return;
+        }
         let request = !negated && matches!(attr(sa, "moodCode"), Some("INT" | "RQO" | "PRMS" | "PRP"));
         let rtype = if request {
             "MedicationRequest"

@@ -4000,3 +4000,82 @@ fn pre1_every_narrative_reader_lists_a_local_text_cut_before_its_first_word() ->
     );
     Ok(())
 }
+
+/// PRE-1.0 (R6-L1, K21R7-L1): a reference and local words whose characters fit only without the
+/// "; " between them are cut when joined, and the cut is flagged.
+#[test]
+fn pre1_the_join_separator_counts_against_the_text_bound() {
+    use ccda::xml::{joined, joined_cuts};
+    let fits = ("a".repeat(999), "b".repeat(999));
+    assert!(!joined_cuts(&fits.0, &fits.1));
+    assert_eq!(joined(&fits.0, &fits.1), format!("{}; {}", fits.0, fits.1));
+    // one more character: 1,000 + 999 fit in 2,000 only without the separator
+    let over = ("a".repeat(1_000), "b".repeat(999));
+    assert!(joined_cuts(&over.0, &over.1));
+    assert_ne!(joined(&over.0, &over.1), format!("{}; {}", over.0, over.1));
+}
+
+/// PRE-1.0 (K21R7-L2): a negated entry whose only words sit in an original text cut before its first
+/// word may name something no one read: it is held whole, never "no known allergies", "no known
+/// problems" or "no known medications".
+#[test]
+fn pre1_a_negated_entry_whose_text_was_cut_is_not_a_no_known_list() -> R {
+    let beyond = text_past_the_node_limit();
+    let original = r##"<originalText><reference value="#late"/></originalText>"##;
+    let narrative = format!(r#"<text><paragraph ID="late">{beyond}</paragraph></text>"#);
+    let allergy = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.6.1"/><title>Allergies</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+             <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="419199007" codeSystem="2.16.840.1.113883.6.96"/>
+             <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+               <code nullFlavor="OTH">{original}</code>
+             </playingEntity></participantRole></participant>
+           </observation></entry></section></component>"#
+    ));
+    let problem = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+             <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="55607006" codeSystem="2.16.840.1.113883.6.96">{original}</value>
+           </observation></entry></section></component>"#
+    ));
+    let medication = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.1.1"/><title>Medications</title>
+           {narrative}
+           <entry><substanceAdministration classCode="SBADM" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.16"/><statusCode code="completed"/>
+             <consumable><manufacturedProduct><manufacturedMaterial>
+               <code nullFlavor="OTH">{original}</code>
+             </manufacturedMaterial></manufacturedProduct></consumable>
+           </substanceAdministration></entry></section></component>"#
+    ));
+    for (rtype, held, bytes) in [
+        (
+            "AllergyIntolerance",
+            "observation 2.16.840.1.113883.10.20.22.4.7",
+            allergy,
+        ),
+        ("Condition", "observation 2.16.840.1.113883.10.20.22.4.4", problem),
+        (
+            "MedicationStatement",
+            "substanceAdministration 2.16.840.1.113883.10.20.22.4.16",
+            medication,
+        ),
+    ] {
+        let c = convert(&bytes)?;
+        assert!(resources(&c, rtype).is_empty(), "{rtype}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("{held} (text scan limit reached)")],
+            "{rtype}"
+        );
+    }
+    Ok(())
+}
