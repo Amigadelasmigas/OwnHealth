@@ -19,7 +19,8 @@
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
 //! such. Without read:sensitive a document's import flags leave out the C-CDA section titles, the
 //! sensitive and unprojected counts, the import summary and the Apple Health record types it did not
-//! import; a SMART Health Card's rows show only to a reader the file would open for; and
+//! import; a SMART Health Card's rows show only to a reader the file would open for (anyone else gets
+//! `flags.shc_withheld`); the list and the detail go out with `Cache-Control: private, no-store`; and
 //! `open_review` counts only the open items the review list shows the reader (none when they cannot
 //! review there).
 
@@ -74,6 +75,10 @@ const SENSITIVE_FLAGS: [&str; 4] = ["ccda", "import", "sensitive", "unprojected"
 /// reader without read:sensitive does not get them from a sensitive document.
 const SHC_FLAG: &str = "shc";
 
+/// Set in place of [`SHC_FLAG`] when the card rows stay out: the reader learns only that the document
+/// is a card whose rows they may not read, which the file route's 403 tells them anyway.
+const SHC_WITHHELD: &str = "shc_withheld";
+
 /// Whether the card rows of document `row` stay out of what `perm` is shown: it holds a card, the
 /// reader may not read sensitive values of its scope, and something read from it is sensitive.
 async fn card_rows_hidden(
@@ -118,7 +123,7 @@ fn unknown(message: &str) -> ApiError {
 /// no one else list or open it. The [`SENSITIVE_FLAGS`] and the Apple Health record types an export
 /// held but OwnHealth did not import (sexual activity, menstrual flow: `apple_health.not_imported`)
 /// reach only a reader with read:sensitive. `hide_card_rows` ([`card_rows_hidden`]) leaves out the
-/// SMART Health Card rows. `open_review` counts the items the review list shows the reader
+/// SMART Health Card rows and sets [`SHC_WITHHELD`]. `open_review` counts the items the review list shows the reader
 /// (`review::shown_per_document`).
 fn summary(
     row: &Map<String, Value>,
@@ -130,7 +135,7 @@ fn summary(
     let cgm = row.get("flags").and_then(|f| f.get("cgm_csv")).is_some();
     let scope = scope_for(row.get("doc_type").and_then(Value::as_str), cgm);
     let sensitive = perm.may_read_sensitive(scope);
-    let flags: Map<String, Value> = row
+    let mut flags: Map<String, Value> = row
         .get("flags")
         .and_then(Value::as_object)
         .map(|f| {
@@ -150,6 +155,11 @@ fn summary(
                 .collect()
         })
         .unwrap_or_default();
+    if hide_card_rows {
+        // the document is still a card: the page says its rows are withheld, and never renders (or
+        // requests) a card photo as a plain scan
+        flags.insert(SHC_WITHHELD.into(), Value::Bool(true));
+    }
     let mut out = Map::new();
     for k in ["id", "profile_id"] {
         out.insert(k.into(), row.get(k).cloned().unwrap_or(Value::Null));

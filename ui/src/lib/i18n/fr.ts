@@ -1972,6 +1972,7 @@ export const fr: Table = {
 	shc_doc_none: "Cette carte ne contient aucune ligne qu'OwnHealth affiche ici.",
 	shc_doc_kid: "clé {kid}",
 	shc_doc_review: "Les lignes qui vous attendent sont sous « Autres éléments en attente », plus bas.",
+	shc_doc_withheld: "Une SMART Health Card avec des données sensibles. Votre accès à ce profil ne montre pas les données sensibles, donc ses lignes et sa photo restent masquées.",
 	shc_rt_Immunization: "Vaccination",
 	shc_rt_Observation: "Résultat",
 	shc_rt_DiagnosticReport: "Compte rendu",

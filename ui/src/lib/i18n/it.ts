@@ -1972,6 +1972,7 @@ export const it: Table = {
 	shc_doc_none: "Questa tessera non contiene righe che OwnHealth mostra qui.",
 	shc_doc_kid: "chiave {kid}",
 	shc_doc_review: "Le righe che ti aspettano sono in «Altri elementi in sospeso», più in basso.",
+	shc_doc_withheld: "Una SMART Health Card con dati sensibili. Il tuo accesso a questo profilo non mostra i dati sensibili, quindi le sue righe e la sua foto restano nascoste.",
 	shc_rt_Immunization: "Vaccinazione",
 	shc_rt_Observation: "Risultato",
 	shc_rt_DiagnosticReport: "Referto",

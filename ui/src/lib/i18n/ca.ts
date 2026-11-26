@@ -1972,6 +1972,7 @@ export const ca: Table = {
 	shc_doc_none: "Aquesta targeta no té files que OwnHealth mostri aquí.",
 	shc_doc_kid: "clau {kid}",
 	shc_doc_review: "Les files que esperen la teva decisió són a «Altres elements pendents», més avall.",
+	shc_doc_withheld: "Una SMART Health Card amb dades sensibles. El teu accés a aquest perfil no mostra dades sensibles, així que les seves files i la seva foto queden ocultes.",
 	shc_rt_Immunization: "Vacunació",
 	shc_rt_Observation: "Resultat",
 	shc_rt_DiagnosticReport: "Informe",

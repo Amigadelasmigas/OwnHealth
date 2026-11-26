@@ -804,10 +804,14 @@ async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -
     let (card, card_listed) = carmen_flags(&a, sensitive_card).await?;
     for f in [&card, &card_listed] {
         assert!(f.get("shc").is_none(), "card rows of a sensitive card: {f}");
+        // F-SHCPHOTO: the card is still a card, so the page shows that its rows are withheld and never
+        // renders (or requests) its photo as a plain scan
+        assert_eq!(f["shc_withheld"], json!(true), "{f}");
     }
     let (card, card_listed) = carmen_flags(&a, plain_card).await?;
     for f in [&card, &card_listed] {
         assert_eq!(f["shc"][0]["entries"][0]["text"], "Gripe 2026", "{f}");
+        assert!(f.get("shc_withheld").is_none(), "{f}");
     }
     let (export, export_listed) = carmen_flags(&a, apple).await?;
     for f in [&export, &export_listed] {
@@ -824,6 +828,7 @@ async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -
     let (card, card_listed) = carmen_flags(&a, sensitive_card).await?;
     for f in [&card, &card_listed] {
         assert_eq!(f["shc"][0]["entries"][0]["text"], "VIH 1+2 Ac: Positivo", "{f}");
+        assert!(f.get("shc_withheld").is_none(), "{f}");
     }
     let (export, export_listed) = carmen_flags(&a, apple).await?;
     for f in [&export, &export_listed] {

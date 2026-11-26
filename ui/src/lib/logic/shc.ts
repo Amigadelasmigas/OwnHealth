@@ -88,6 +88,15 @@ export function shcWaiting(doc: { open_review?: number; flags?: Record<string, u
 	return doc?.open_review ?? 0;
 }
 
+/**
+ * True when the document is a card whose rows (and photo) the server withholds from this reader: it
+ * sends `flags.shc_withheld` in place of `flags.shc` when the card holds sensitive facts and the
+ * reader may not read them. The page then says so and never requests the file, which would answer 403.
+ */
+export function shcWithheld(flags: unknown): boolean {
+	return (flags as { shc_withheld?: unknown } | null)?.shc_withheld === true;
+}
+
 /** The cards a document holds (its `flags.shc`), or null for a document that is not a card. */
 export function shcCards(flags: unknown): ShcDocCard[] | null {
 	const list = (flags as { shc?: unknown } | null)?.shc;

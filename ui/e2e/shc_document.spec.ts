@@ -115,3 +115,36 @@ test('a card document whose reload fails says so and offers a retry', async ({ p
 	await expect(page.getByText(NOTE)).toHaveCount(0);
 	expect(errors).toEqual([]);
 });
+
+/** A photo of a card on Carmen's profile, as a card import leaves it; `sensitive` marks it as holding a sensitive fact. */
+function seedCarmenPhotoCard(sensitive: boolean): string {
+	const card = { iss: ISSUER, host: 'issuer.labnorte.example', kid: 'k'.repeat(43), issued: '2026-01-15T10:00:00Z', entries: [{ type: 'Observation', date: '2025-10-01', text: 'VIH 1+2 Ac' }] };
+	const flags = JSON.stringify({ shc: [card], ...(sensitive ? { sensitive: 1 } : {}) });
+	return sql(
+		`insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, flags) select household_id, id, decode(md5(random()::text) || md5(random()::text), 'hex'), 'tarjeta.png', 'image/png', 3, '${flags}'::jsonb from profile where slug = 'carmen' returning id`
+	);
+}
+
+test('a sensitive card photo whose rows are withheld says so and never requests the photo', async ({ page }) => {
+	const errors = collectPageErrors(page);
+	// Alex is Carmen's caregiver, with no read:sensitive on her profile
+	const hidden = seedCarmenPhotoCard(true);
+	const plain = seedCarmenPhotoCard(false);
+	const files: string[] = [];
+	page.on('request', (r) => {
+		const path = new URL(r.url()).pathname;
+		if (path.endsWith('/file')) files.push(path);
+	});
+	await page.goto('/import-review?lang=en');
+	await page.evaluate(() => localStorage.setItem('oh.profile', 'carmen'));
+	await page.goto(`/import-review?lang=en&doc=${hidden}`);
+	await expect(page.getByText('A SMART Health Card with sensitive facts.')).toBeVisible();
+	await expect(page.locator('img.scan')).toHaveCount(0);
+	await expect(page.getByText(ISSUER)).toHaveCount(0);
+	expect(files.filter((f) => f.includes(hidden))).toEqual([]);
+	// positive control: a plain card photo still shows as a card
+	await page.goto(`/import-review?lang=en&doc=${plain}`);
+	await expect(page.getByText(ISSUER)).toBeVisible();
+	await expect(page.getByText('A SMART Health Card with sensitive facts.')).toHaveCount(0);
+	expect(errors).toEqual([]);
+});

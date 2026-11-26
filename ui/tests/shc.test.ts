@@ -22,7 +22,8 @@ import {
 	refusalKey,
 	refusalVars,
 	shcCards,
-	shcWaiting
+	shcWaiting,
+	shcWithheld
 } from '../src/lib/logic/shc.ts';
 import { dict } from '../src/lib/i18n/dict.ts';
 
@@ -92,6 +93,16 @@ test('a card document lists its cards from the document flags, and any other doc
 	assert.equal(cards?.[0].entries[0].text, '207');
 	assert.equal(shcCards({ import: {} }), null);
 	assert.equal(shcCards({ shc: 'not a list' }), null);
+});
+
+test('a card whose rows the server withholds is told apart from a plain image, and a readable card is not withheld', () => {
+	// the server sends shc_withheld in place of shc to a reader without read:sensitive on a sensitive card
+	assert.equal(shcWithheld({ shc_withheld: true }), true);
+	assert.equal(shcWithheld({ shc: [], import: {} }), false);
+	assert.equal(shcWithheld({}), false);
+	assert.equal(shcWithheld(null), false);
+	assert.equal(shcWithheld({ shc_withheld: 'yes' }), false);
+	for (const lang of ['en', 'es']) assert.ok(tables[lang].shc_doc_withheld, lang);
 });
 
 test('a card document says rows wait from what this reader reviews, not from the import summary', () => {
