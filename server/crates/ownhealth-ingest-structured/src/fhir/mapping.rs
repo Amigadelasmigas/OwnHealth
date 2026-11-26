@@ -236,6 +236,18 @@ fn social_history_sensitivity(code: &str) -> Option<&'static str> {
     })
 }
 
+/// The same concepts by SNOMED CT code, as a Social History question or as its coded answer.
+fn social_history_snomed_sensitivity(code: &str) -> Option<&'static str> {
+    Some(match code {
+        // Sexual orientation (the observable and the US Core answers) and sexual activity findings.
+        "66621004" | "20430005" | "38628009" | "42035005" | "765288000" | "162171002" | "228452000" | "267068004"
+        | "365951004" => "sexual_health",
+        // Pregnancy (the observable and the US Core pregnancy status answers).
+        "364320009" | "77386006" | "60001007" | "102874004" => "reproductive",
+        _ => return None,
+    })
+}
+
 pub fn sensitivity(resource: &Value) -> Vec<String> {
     let mut tags: BTreeSet<&str> = list(resource.get("meta"), "security")
         .iter()
@@ -249,12 +261,23 @@ pub fn sensitivity(resource: &Value) -> Vec<String> {
         })
     {
         for observation in std::iter::once(resource).chain(list(Some(resource), "component")) {
-            tags.extend(
-                list(observation.get("code"), "coding")
-                    .iter()
-                    .filter(|coding| coding["system"] == LOINC)
-                    .filter_map(|coding| coding["code"].as_str().and_then(social_history_sensitivity)),
-            );
+            // the question by its LOINC or SNOMED CT code, then a SNOMED CT coded answer: an
+            // "ASSERTION" question says nothing, its answer does
+            let question = list(observation.get("code"), "coding").iter().filter_map(|coding| {
+                let code = coding["code"].as_str()?;
+                if coding["system"] == LOINC {
+                    social_history_sensitivity(code)
+                } else if coding["system"] == SNOMED {
+                    social_history_snomed_sensitivity(code)
+                } else {
+                    None
+                }
+            });
+            let answer = list(observation.get("valueCodeableConcept"), "coding")
+                .iter()
+                .filter(|coding| coding["system"] == SNOMED)
+                .filter_map(|coding| coding["code"].as_str().and_then(social_history_snomed_sensitivity));
+            tags.extend(question.chain(answer).collect::<Vec<_>>());
         }
     }
     tags.into_iter().map(String::from).collect()

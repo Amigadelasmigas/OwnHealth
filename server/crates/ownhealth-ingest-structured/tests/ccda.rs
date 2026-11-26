@@ -3812,3 +3812,129 @@ async fn pre1_a_coded_smoking_status_is_stored_as_an_observation() -> R {
     assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
     Ok(())
 }
+
+/// One Social History observation (4.38) with `code` and `value`, no security label.
+fn social_observation(code: &str, value: &str) -> String {
+    format!(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             {code}<statusCode code="completed"/><effectiveTime value="20210301"/>{value}
+           </observation></entry>"#
+    )
+}
+
+/// The sensitivity of each open candidate row of `doc`, by the printed name of its observation.
+async fn sensitivity_by_name(conn: &mut PgConnection, doc: Uuid) -> anyhow::Result<BTreeMap<String, Value>> {
+    Ok(open_items(conn, doc, "candidate_row")
+        .await?
+        .iter()
+        .map(|item| {
+            let obs = &item.payload["observation"];
+            (
+                obs["printed_name"].as_str().unwrap_or_default().to_string(),
+                obs["sensitivity"].clone(),
+            )
+        })
+        .collect())
+}
+
+/// PRE-1.0 privacy triage (L5): an unlabelled Social History observation is classified by its SNOMED
+/// CT code too (the code itself, a translation, or the coded answer), so an answer about sexual
+/// activity, sexual orientation or pregnancy needs read:sensitive without a label. A SNOMED CT number
+/// under another code system, and an ordinary social history code, stay unlabelled.
+#[tokio::test]
+async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let text = r#"<value xsi:type="ST">Synthetic answer</value>"#;
+    let snomed_answer =
+        |code: &str| format!(r#"<value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96"/>"#);
+    let entries = [
+        social_observation(
+            r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.96" displayName="Q orientation"/>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="local" codeSystem="1.2.3" displayName="Q pregnancy">
+                 <translation code="364320009" codeSystem="2.16.840.1.113883.6.96"/></code>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q activity"/>"#,
+            &snomed_answer("162171002"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q answer translation"/>"#,
+            r#"<value xsi:type="CD" code="x" codeSystem="1.2.3">
+                 <translation code="38628009" codeSystem="2.16.840.1.113883.6.96"/></value>"#,
+        ),
+        social_observation(
+            r#"<code code="229819007" codeSystem="2.16.840.1.113883.6.96" displayName="Q tobacco"/>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.1" displayName="Q other system"/>"#,
+            &snomed_answer("160573003"),
+        ),
+    ]
+    .concat();
+    let bytes = social_history(&entries);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "snomed.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(
+        sensitivity_by_name(&mut tx, doc).await?,
+        BTreeMap::from([
+            ("Q activity".to_string(), json!(["sexual_health"])),
+            ("Q answer translation".to_string(), json!(["sexual_health"])),
+            ("Q orientation".to_string(), json!(["sexual_health"])),
+            ("Q other system".to_string(), json!([])),
+            ("Q pregnancy".to_string(), json!(["reproductive"])),
+            ("Q tobacco".to_string(), json!([])),
+        ])
+    );
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["sensitive"], 4, "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+/// PRE-1.0 (L2): the curated list classifies Social History only. A result whose LOINC or SNOMED CT
+/// code is on the list stays unlabelled, as its file does.
+#[tokio::test]
+async fn pre1_a_listed_code_outside_social_history_stays_unlabelled() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let result = |code: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                 {code}<statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    };
+    let entries = [
+        result(r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.1" displayName="R loinc"/>"#),
+        result(r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.96" displayName="R snomed"/>"#),
+    ]
+    .concat();
+    let bytes = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.3.1"/><title>Results</title>
+           {entries}</section></component>"#
+    ));
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "results.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(
+        sensitivity_by_name(&mut tx, doc).await?,
+        BTreeMap::from([("R loinc".to_string(), json!([])), ("R snomed".to_string(), json!([])),])
+    );
+    assert!(!ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
