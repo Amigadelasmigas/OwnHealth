@@ -25,7 +25,7 @@ use crate::py::{self, get_truthy, list, truthy};
 
 pub const LOINC: &str = "http://loinc.org";
 pub const UCUM: &str = "http://unitsofmeasure.org";
-const SNOMED: &str = "http://snomed.info/sct";
+pub(crate) const SNOMED: &str = "http://snomed.info/sct";
 const RXNORM: &str = "http://www.nlm.nih.gov/research/umls/rxnorm";
 
 /// `core.fhir.CODE_SYSTEMS`, read backwards: URL -> our short name.
@@ -236,6 +236,51 @@ fn social_history_sensitivity(code: &str) -> Option<&'static str> {
     })
 }
 
+/// The same concepts by SNOMED CT code, as a Social History question or as its coded answer.
+fn social_history_snomed_sensitivity(code: &str) -> Option<&'static str> {
+    Some(match code {
+        // Sexual orientation: the observable and the US Core answers.
+        "66621004" | "20430005" | "38628009" | "42035005" | "765288000" => "sexual_health",
+        // 285058000 "Finding relating to sexual activity" and every concept under it (30 codes, SNOMED
+        // CT International, expanded on tx.fhir.org): an answer matches by exact code only.
+        "285058000" | "14286004" | "86785008" | "162171002" | "162172009" | "162173004" | "162174005" | "162175006"
+        | "162176007" | "225518001" | "228452000" | "228453005" | "228460004" | "228461000" | "267068004"
+        | "365950003" | "365951004" | "414254005" | "472951008" | "472952001" | "472986005" | "472987001"
+        | "472988006" | "472998000" | "472999008" | "473000009" | "473022002" | "714093000" | "714095007"
+        | "714096008" => "sexual_health",
+        // Pregnancy (the observable and the US Core pregnancy status answers).
+        "364320009" | "77386006" | "60001007" | "102874004" => "reproductive",
+        _ => return None,
+    })
+}
+
+/// Word stems that name a sensitive concept in a Social History question or answer, in English and
+/// Spanish. They cover a local code or a free-text answer that no code list can know ("Sexual
+/// activity: active, two partners"). A stem matches anywhere in a word ("bisexual", "nonpregnant"),
+/// so a longer word fails closed. "Sex" alone (sex assigned at birth) is not one.
+const SOCIAL_HISTORY_WORDS: [(&str, &str); 5] = [
+    ("sexual", "sexual_health"),
+    ("pregnan", "reproductive"),
+    ("embaraz", "reproductive"),
+    ("contracep", "reproductive"),
+    ("anticoncep", "reproductive"),
+];
+
+/// The [`SOCIAL_HISTORY_WORDS`] tags of the words of `text`.
+fn social_history_words_sensitivity(text: &str) -> Vec<&'static str> {
+    let mut tags = Vec::new();
+    for word in text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()) {
+        let word = word.to_lowercase();
+        tags.extend(
+            SOCIAL_HISTORY_WORDS
+                .iter()
+                .filter(|(stem, _)| word.contains(stem))
+                .map(|(_, tag)| *tag),
+        );
+    }
+    tags
+}
+
 pub fn sensitivity(resource: &Value) -> Vec<String> {
     let mut tags: BTreeSet<&str> = list(resource.get("meta"), "security")
         .iter()
@@ -249,12 +294,39 @@ pub fn sensitivity(resource: &Value) -> Vec<String> {
         })
     {
         for observation in std::iter::once(resource).chain(list(Some(resource), "component")) {
-            tags.extend(
-                list(observation.get("code"), "coding")
-                    .iter()
-                    .filter(|coding| coding["system"] == LOINC)
-                    .filter_map(|coding| coding["code"].as_str().and_then(social_history_sensitivity)),
-            );
+            // the question by its LOINC or SNOMED CT code, then a SNOMED CT coded answer: an
+            // "ASSERTION" question says nothing, its answer does
+            let question = list(observation.get("code"), "coding").iter().filter_map(|coding| {
+                let code = coding["code"].as_str()?;
+                if coding["system"] == LOINC {
+                    social_history_sensitivity(code)
+                } else if coding["system"] == SNOMED {
+                    social_history_snomed_sensitivity(code)
+                } else {
+                    None
+                }
+            });
+            let answer = list(observation.get("valueCodeableConcept"), "coding")
+                .iter()
+                .filter(|coding| coding["system"] == SNOMED)
+                .filter_map(|coding| coding["code"].as_str().and_then(social_history_snomed_sensitivity));
+            tags.extend(question.chain(answer).collect::<Vec<_>>());
+            // then the words of both, for a local code or an answer in words
+            let concept_words = |cc: Option<&Value>| {
+                std::iter::once(cc.and_then(|c| c.get("text")))
+                    .chain(list(cc, "coding").iter().map(|coding| coding.get("display")))
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            };
+            let words = concept_words(observation.get("code"))
+                .into_iter()
+                .chain(concept_words(observation.get("valueCodeableConcept")))
+                .chain(observation.get("valueString").and_then(Value::as_str).map(String::from));
+            for text in words {
+                tags.extend(social_history_words_sensitivity(&text));
+            }
         }
     }
     tags.into_iter().map(String::from).collect()
