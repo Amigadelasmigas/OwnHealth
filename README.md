@@ -16,31 +16,34 @@ You run it yourself.
   <img src="https://raw.githubusercontent.com/GeiserX/OwnHealth/main/docs/images/screenshots/dashboard.png" alt="OwnHealth: the family dashboard in the dark theme, with synthetic data" width="800">
 </p>
 
-**Status: pre-alpha.** Expect breaking changes before 1.0. Upgrades keep your data: see the [changelog](CHANGELOG.md).
+**Status: 1.0.0.** Upgrades from every 0.x release keep your data: see the [changelog](CHANGELOG.md).
 
 ## What it does
 
-In 0.4.0:
+In 1.0.0:
 
 - One dashboard for the whole family, one profile per person, with OK, Watch, Out, Stale or No data per body system
 - Lab reports read from PDFs into trendable values, each linked to its page and position on the page; anything uncertain waits in a review queue
 - Inboxes, so data arrives without an upload: a mailbox of its own (allowed senders go to their profile, everything else waits in quarantine until you release it), a watched folder for a scanner or a synced phone folder, Paperless-ngx, the Android share target and an iOS Shortcut
 - Local OCR for scans and photos, in the `drumsergio/ownhealth:<version>-ocr` image and the `ocr` compose profile, on CPU; every value it reads is checked against the page. Without it, scans wait for your own agent to read them over MCP
-- FHIR and IPS bundles, the Apple Health export, Health Auto Export, Gadgetbridge, Nightscout with a CGM summary, and manual entry
+- FHIR and IPS bundles, C-CDA files, SMART Health Cards and Links, the Apple Health export, Health Auto Export, Gadgetbridge, Nightscout with a CGM summary, and manual entry
+- US patient portals (Epic, Oracle Health, athenahealth, eClinicalWorks, MEDITECH, NextGen, VA) through SMART on FHIR, and Medicare claims through CMS Blue Button, each with your own registered vendor app, synced every day
+- Wearables: Oura, WHOOP, Polar and Withings through the optional `wearables` profile, and Garmin, Strava, Fitbit, FIT, LibreView and Dexcom Clarity exports; a sync alert when a source stops
+- Imaging: hospital CDs imported into Orthanc in the optional `imaging` profile, opened in a sandboxed viewer next to their report
 - Genome findings from [OwnGenome](https://github.com/GeiserX/OwnGenome): drug response, carrier status and risk variants, joined with your medications and labs
 - A drug check that quotes the CPIC guideline for your genotype, and DPWG text from your genome file, next to your current medicines, supplements and relevant labs
 - Medicines with their schedule and prescriber, and supplements with a label photo and your recorded decision
 - Calculators with their citation and sourced inputs: eGFR (CKD-EPI 2021), FIB-4, HOMA-IR, SCORE2 and PREVENT, or the reason one does not apply
 - The screenings and vaccines due for each person by their country's guideline (Spain and the US), the tests to ask for at the next blood draw, and a private calendar feed
 - Family history as a pedigree with its cited patterns, exported as FHIR, and ClinVar changes to the variants you carry, checked every week
-- A two-page doctor summary and an International Patient Summary, in Spanish or English, where every value names its source
+- A two-page doctor summary and an International Patient Summary, in Spanish or English, where every value names its source; share it through a SMART Health Link with a PIN and revoke, or as an emergency card
 - An MCP server with 10 tools, scoped per person and per token, with a citation behind every answer; connect with a token or with OAuth 2.1 (claude.ai and Claude Code, no client registration)
-- Passkeys, an append-only audit log, a full export, and restic backups with a scripted restore test
-- Dark theme, Spanish and English
+- Passkeys, a hash-chained audit log, each profile's files under its own key, emergency access after a delay the owner can cancel, a full export, and restic backups with a scripted restore test
+- Dark theme, Spanish and English, and German, French, Catalan, Italian and Portuguese as beta languages
 
-Limits in 0.4.0. Lab PDFs are read with generic table rules plus one template, for the fictional LabNorte lab. Real lab layouts come later as contributed templates. The LOINC set is a curated subset of 202 codes, so a test outside it waits in review. OCR rows go to review unless a vendor template matches.
+Limits in 1.0.0. Lab PDFs are read with generic table rules plus one template, for the fictional LabNorte lab. Real lab layouts come later as contributed templates. The LOINC set is a curated subset of 202 codes, so a test outside it waits in review. OCR rows go to review unless a vendor template matches. Only Polar wearable data reach agents; the other vendors stay withheld until their terms allow it ([docs/connectors](docs/connectors/README.md)). No US vendor is verified live yet.
 
-Later: imaging (DICOM), more wearables and US patient portals. See the [roadmap](docs/ROADMAP.md).
+Later: EU formats, a connector SDK and a companion app. See the [roadmap](docs/ROADMAP.md).
 
 ## Quick start
 
@@ -53,8 +56,10 @@ cp .env.example .env
 openssl rand -hex 32     # paste as OWNHEALTH_DB_PASSWORD in .env
 openssl rand -hex 32     # paste as OWNHEALTH_APP_DB_PASSWORD in .env
 openssl rand -hex 48     # paste as OWNHEALTH_SECRET_KEY in .env
-openssl rand -base64 32  # paste as OWNHEALTH_SECRETS_KEY in .env (encrypts inbox passwords and tokens)
+mkdir -m 700 secrets && openssl rand -base64 32 | tr -d '\n' > secrets/secrets_key && chmod 644 secrets/secrets_key
+                         # seals every profile's files and inbox secrets: keep a copy with your backups
 mkdir -p inbox && sudo chown 10001:10001 inbox   # the watched folder, writable by the app
+mkdir -p -m 700 keyring/ownhealth && sudo chown 10001:10001 keyring/ownhealth   # the profile keys: never version this folder
 docker compose up -d
 ```
 
