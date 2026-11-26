@@ -1015,7 +1015,8 @@ async fn inbox_raw_owners(
     Ok(rows.into_iter().map(|(s, e, sha, o)| ((s, e), (sha, o))).collect())
 }
 
-/// After document `document_id` moved from profile `from` to `to` (`None`: no profile): every blob of
+/// After document `document_id` moved from profile `from` to `to` (`None`: no profile, where only a
+/// document that had none stays; a move back there is refused): every blob of
 /// the document (the file, its page layers and images, its OCR layers) is stored for `to` as well, so
 /// the new profile's key opens them, and the removal of `from`'s copies is queued
 /// ([`DROP_MOVED_JOB`]). The raw file of a live inbox row whose owner in `blobs::HOLDERS` resolves
@@ -1037,6 +1038,14 @@ pub async fn rekey_document(
             from: old,
             shas: Vec::new(),
         });
+    }
+    // No route moves a filed document back to no profile: a move names its profile. Its item key went
+    // when it was filed, and the removal of the item's folder that move queued would also take the
+    // files a move back stored there, under the same item id. So the move back is refused.
+    if from.is_some() && to.is_none() {
+        return Err(Error::Invalid(
+            "a document on a profile cannot move back to no profile".into(),
+        ));
     }
     let files: Vec<String> = sqlx::query_scalar(
         "select distinct encode(h, 'hex') from (select blob_sha256 as h from document where id = $1 \
