@@ -128,13 +128,18 @@ for (const l of LANGS) {
 				})
 			))
 		);
-		// the picker: every button keeps one line, and the avatar stays on the picker's row
+		// the picker: every button has the same height, and the review count and the avatar stay on the
+		// picker's row
 		const head = await page.locator('header.top').evaluate((h) => {
 			const bs = [...h.querySelectorAll('.seg[role=group] button')].map((b) => b.getBoundingClientRect());
-			const av = h.querySelector('.av')?.getBoundingClientRect();
-			return { heights: bs.map((b) => Math.round(b.height)), top: Math.round(bs[0].top), bottom: Math.round(bs[0].bottom), av: av && Math.round(av.top + av.height / 2) };
+			const mid = (e: Element | null) => {
+				const r = e?.getBoundingClientRect();
+				return r && Math.round(r.top + r.height / 2);
+			};
+			return { heights: bs.map((b) => Math.round(b.height)), top: Math.round(bs[0].top), bottom: Math.round(bs[0].bottom), review: mid(h.querySelector('a.iconbtn')), av: mid(h.querySelector('.av')) };
 		});
 		if (new Set(head.heights).size > 1) out.push(`picker: buttons of different heights ${head.heights}`);
+		if (head.review === undefined || head.review < head.top || head.review > head.bottom) out.push(`picker: the review count is not on its row (${head.review} outside ${head.top}-${head.bottom})`);
 		if (head.av !== undefined && (head.av < head.top || head.av > head.bottom)) out.push(`picker: the avatar is not on its row (${head.av} outside ${head.top}-${head.bottom})`);
 		// a phone has no tooltip, so each beta language says beta in its button, readable and inside it
 		const tags = await page.locator('header.top .seg[role=group] button').evaluateAll((bs) =>
@@ -142,7 +147,10 @@ for (const l of LANGS) {
 				const s = b.querySelector('small');
 				const r = s?.getBoundingClientRect();
 				const o = b.getBoundingClientRect();
-				const shown = !!r && r.width >= 10 && r.height >= 7 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5;
+				const inside = !!r && r.width >= 10 && r.height >= 7 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5;
+				// and painted: not hidden, not faded out, not a transparent colour
+				const alpha = s ? Number(getComputedStyle(s).color.match(/[\d.]+/g)?.[3] ?? 1) : 0;
+				const shown = inside && !!s?.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && alpha > 0;
 				return { label: b.textContent?.trim() ?? '', tag: s?.textContent ?? '', shown };
 			})
 		);
