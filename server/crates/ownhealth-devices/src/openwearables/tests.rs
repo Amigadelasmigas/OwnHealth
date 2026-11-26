@@ -2196,3 +2196,42 @@ async fn a_vendor_removed_just_before_its_window_passes_raises_no_alert() -> any
     assert_eq!(kept, None, "a vendor removed while healthy stays in the cursor");
     Ok(())
 }
+
+/// A pass whose clock ran far ahead (a box clock set a year ahead, then put right) stamped its alert in
+/// the future. A stamp more than a day ahead of a pass is ignored, so the next passes still judge the
+/// source, and the alert closes once sync is back instead of waiting a year.
+#[tokio::test]
+async fn a_far_future_clock_stamp_does_not_freeze_the_gap_check() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(365)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    // the clock is right again, and Polar syncs
+    synced(a + Duration::hours(21)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(22)).await?;
+    assert_eq!(
+        alert_reason(&env, item).await?,
+        ("dismissed".into(), Some("sync_recovered".into()), true),
+        "a stamp a year ahead froze the gap check"
+    );
+    Ok(())
+}
