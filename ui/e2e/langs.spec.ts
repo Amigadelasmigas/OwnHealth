@@ -87,8 +87,14 @@ test('the gap letter offers every registry language by its code', async ({ page 
 });
 
 // Longer words must not push text out of its card: the glance card header, the biomarker list, the
-// buttons of a due item and the header picker, in every language, on a desktop and on a phone.
+// buttons of a due item and the header picker, in every language, on a desktop and on a phone. On the
+// phone the picker also keeps the beta tag visible, since a touch screen shows no tooltip. A tablet
+// keeps a search field wide enough to type in.
 const DESKTOP = { width: 1440, height: 900 };
+const TABLETS = [
+	{ width: 768, height: 1024 },
+	{ width: 1024, height: 768 }
+];
 const PHONE = { width: 390, height: 844 };
 
 for (const l of LANGS) {
@@ -112,6 +118,12 @@ for (const l of LANGS) {
 		await expect(list).toBeVisible();
 		const { scroll, client } = await list.evaluate((e) => ({ scroll: e.scrollWidth, client: e.clientWidth }));
 		if (scroll > client + 1) out.push(`biomarkers: the list is ${scroll} px wide in a ${client} px card`);
+		// the picker once left the search 4 px wide on an iPad held upright
+		for (const vp of TABLETS) {
+			await page.setViewportSize(vp);
+			const w = await page.locator('header.top .search input').evaluate((e) => Math.round(e.getBoundingClientRect().width));
+			if (w < 120) out.push(`tablet ${vp.width}: the search is ${w} px wide`);
+		}
 
 		await page.setViewportSize(PHONE);
 		await page.goto(`/due?lang=${l.code}`);
@@ -127,14 +139,89 @@ for (const l of LANGS) {
 				})
 			))
 		);
-		// the picker: every button keeps one line, and the avatar stays on the picker's row
+		// the picker: every button has the same height, and the review count and the avatar stay on the
+		// picker's row
 		const head = await page.locator('header.top').evaluate((h) => {
 			const bs = [...h.querySelectorAll('.seg[role=group] button')].map((b) => b.getBoundingClientRect());
-			const av = h.querySelector('.av')?.getBoundingClientRect();
-			return { heights: bs.map((b) => Math.round(b.height)), top: Math.round(bs[0].top), bottom: Math.round(bs[0].bottom), av: av && Math.round(av.top + av.height / 2) };
+			const mid = (e: Element | null) => {
+				const r = e?.getBoundingClientRect();
+				return r && Math.round(r.top + r.height / 2);
+			};
+			return { heights: bs.map((b) => Math.round(b.height)), top: Math.round(bs[0].top), bottom: Math.round(bs[0].bottom), review: mid(h.querySelector('a.iconbtn')), av: mid(h.querySelector('.av')) };
 		});
 		if (new Set(head.heights).size > 1) out.push(`picker: buttons of different heights ${head.heights}`);
+		if (head.review === undefined || head.review < head.top || head.review > head.bottom) out.push(`picker: the review count is not on its row (${head.review} outside ${head.top}-${head.bottom})`);
 		if (head.av !== undefined && (head.av < head.top || head.av > head.bottom)) out.push(`picker: the avatar is not on its row (${head.av} outside ${head.top}-${head.bottom})`);
+		// a phone has no tooltip, so each beta language says beta in its button, readable and inside it
+		const tags = await page.locator('header.top .seg[role=group] button').evaluateAll((bs) =>
+			bs.map((b) => {
+				const s = b.querySelector('small');
+				const r = s?.getBoundingClientRect();
+				const o = b.getBoundingClientRect();
+				const inside = !!r && r.width >= 10 && r.height >= 7 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5;
+				// and painted: not hidden, not faded out, not a transparent colour
+				const alpha = s ? Number(getComputedStyle(s).color.match(/[\d.]+/g)?.[3] ?? 1) : 0;
+				const shown = inside && !!s?.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && alpha > 0;
+				return { label: b.textContent?.trim() ?? '', tag: s?.textContent ?? '', shown };
+			})
+		);
+		for (const x of LANGS) {
+			const t = tags.find((g) => g.label.startsWith(x.label));
+			if (x.beta && !(t?.tag === 'beta' && t.shown)) out.push(`picker: ${x.label} does not show beta on a phone`);
+			if (!x.beta && t?.tag) out.push(`picker: ${x.label} says ${t.tag}`);
+		}
 		expect(out).toEqual([]);
 	});
 }
+
+// A notice puts the bell in the header too. Beside the picker and the bell, the search once shrank to
+// 6 px at 1051 to 1100 px.
+const NOTICES = {
+	items: [
+		{
+			id: '00000000-0000-4000-8000-000000000001',
+			kind: 'break_glass.request',
+			profile: { id: '00000000-0000-4000-8000-000000000002', slug: 'alex', display_name: 'Alex Rivera' },
+			request_id: '00000000-0000-4000-8000-000000000003',
+			actor: { user_id: '00000000-0000-4000-8000-000000000004', display_name: 'Sam Fixture' },
+			contact: { user_id: '00000000-0000-4000-8000-000000000004', display_name: 'Sam Fixture' },
+			created_at: '2026-11-26T09:00:00Z',
+			read_at: null
+		}
+	],
+	uses: [],
+	ice: [],
+	unread: 1
+};
+
+for (const l of LANGS) {
+	test(`with the bell shown, the header search stays wide enough to type in, in ${l.code}`, async ({ page }) => {
+		await page.route('**/api/notifications', (route) => route.fulfill({ json: NOTICES }));
+		await page.setViewportSize({ width: 1080, height: 900 });
+		await page.goto(`/?lang=${l.code}`);
+		await expect(page.locator('header.top .nt .iconbtn')).toBeVisible();
+		const out: string[] = [];
+		for (const width of [1051, 1080, 1100]) {
+			await page.setViewportSize({ width, height: 900 });
+			const w = await page.locator('header.top .search input').evaluate((e) => Math.round(e.getBoundingClientRect().width));
+			if (w < 120) out.push(`${width} px with the bell: the search is ${w} px wide`);
+		}
+		expect(out).toEqual([]);
+	});
+}
+
+// The picker clips whatever spills past its rounded border, so a button's focus ring is drawn inside
+// the button, where the clip cannot cut its top and bottom off.
+test('the focus ring of a picker button is drawn whole', async ({ page }) => {
+	await page.goto('/?lang=en');
+	await expect(page.locator('.sc').first()).toBeVisible();
+	const picker = page.locator('header .seg[role=group]');
+	for (let i = 0; i < 100 && !(await picker.evaluate((g) => g.contains(document.activeElement))); i++) await page.keyboard.press('Tab');
+	const ring = await picker.evaluate((g) => {
+		const b = document.activeElement as HTMLElement;
+		const st = getComputedStyle(b);
+		return { inPicker: g.contains(b), focusVisible: b.matches(':focus-visible'), style: st.outlineStyle, reach: parseFloat(st.outlineOffset) + parseFloat(st.outlineWidth) };
+	});
+	expect(ring).toMatchObject({ inPicker: true, focusVisible: true, style: 'solid' });
+	expect(ring.reach).toBeLessThanOrEqual(0);
+});

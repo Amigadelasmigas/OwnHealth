@@ -6,7 +6,7 @@
 // open after the request moved on says so in the reader's language and shows the step that fits now.
 // A request is moved 49 hours back with psql in the database serve.sh made, so its 48-hour delay has
 // passed, as the minute sweep would find it.
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page, type Request } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 
 const db = process.env.OWNHEALTH_E2E_DB ?? '';
@@ -210,6 +210,10 @@ test('a contact asks, the owner cancels from the calendar link, and nothing open
 
 test('a second request waits for the owner calendar past its delay, opens once it was fetched, and each read reaches the owner', async () => {
 	const pp = await pat.newPage();
+	const inFlight = new Set<Request>();
+	pp.on('request', (r) => inFlight.add(r));
+	pp.on('response', (r) => inFlight.delete(r.request()));
+	pp.on('requestfailed', (r) => inFlight.delete(r));
 	const patErrors = pageErrors(pp);
 	await pp.goto('/family?lang=en');
 	const mine = pp.getByTestId('bg-contact-card');
@@ -261,9 +265,29 @@ test('a second request waits for the owner calendar past its delay, opens once i
 
 	await mine.getByRole('button', { name: "Open Alex Rivera's records" }).click();
 	await expect(pp.getByRole('heading', { level: 1 })).toContainText('Alex Rivera');
+	// the list's own reads start only once the layout has the profile, after the heading shows. The page
+	// left behind may still answer one of the same reads, so only requests sent after the new document
+	// commits count: the old one can send nothing after that, whatever the address bar says.
+	const fresh = new Set<Request>();
+	let navigating = false;
+	let committed = false;
+	pp.on('request', (r) => {
+		if (r.isNavigationRequest() && r.frame() === pp.mainFrame() && new URL(r.url()).pathname === '/biomarkers') navigating = true;
+		else if (committed) fresh.add(r);
+	});
+	pp.on('framenavigated', (f) => {
+		if (navigating && f === pp.mainFrame()) committed = true;
+	});
+	const listReads = ['observations', 'dashboard'].map((what) =>
+		pp.waitForResponse((r) => fresh.has(r.request()) && new URL(r.url()).pathname === `/api/profiles/alex/${what}`)
+	);
 	await pp.goto('/biomarkers?lang=en');
 	await expect(pp.getByRole('heading', { level: 1 })).toBeVisible();
+	await Promise.all(listReads);
 	expect(patErrors).toEqual([]);
+	// the server writes each read before its answer leaves, so once every request of the page has its
+	// answer, none can land after the count below (a late one once did: the panel showed one read more)
+	await expect.poll(() => inFlight.size).toBe(0);
 	await pp.close();
 
 	// every read through the request is in the owner's notices, as one line with the server's count
