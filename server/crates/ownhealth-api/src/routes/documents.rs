@@ -433,7 +433,7 @@ async fn list_documents(
     Caller(principal): Caller,
     Path(p): Path<String>,
     Query(qs): Query<Params>,
-) -> R<Json<Value>> {
+) -> R<Response> {
     let mut e = Errors::new();
     let q = e.str_max(&qs, "q", 200);
     let limit = e.int("query", &qs, "limit", 100, Some(1), Some(500));
@@ -452,14 +452,20 @@ async fn list_documents(
     let mut tx = rt.pool.begin().await?;
     let out = list_for(&mut tx, &principal, &p, q, doc_type, limit, latest.is_some()).await?;
     tx.commit().await?;
-    Ok(Json(out))
+    Ok(private_json(out))
+}
+
+/// The list and the detail carry flags chosen for this reader (a card's rows, import counts), so no
+/// browser or proxy cache keeps them, as no cache keeps the file.
+fn private_json(v: Value) -> Response {
+    ([(header::CACHE_CONTROL, "private, no-store")], Json(v)).into_response()
 }
 
 async fn get_document(
     State(rt): State<Runtime>,
     Caller(principal): Caller,
     Path(document_id): Path<String>,
-) -> R<Json<Value>> {
+) -> R<Response> {
     let document_id = uuid_path("document_id", &document_id)?;
     let mut tx = rt.pool.begin().await?;
     let doc = visible_document(&mut tx, &principal, document_id, None, false).await?;
@@ -515,7 +521,7 @@ async fn get_document(
         })
         .collect();
     out.insert("expected_tests".into(), Value::Array(tests));
-    Ok(Json(Value::Object(out)))
+    Ok(private_json(Value::Object(out)))
 }
 
 fn file_headers(mime: &str) -> [(header::HeaderName, String); 4] {

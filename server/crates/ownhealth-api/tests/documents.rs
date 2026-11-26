@@ -701,6 +701,25 @@ async fn document_bytes_are_never_kept_in_the_browser_cache() -> R {
     Ok(())
 }
 
+/// The document list and detail carry flags that depend on who reads them (a card's rows, import
+/// counts), so no browser or proxy keeps them either.
+#[tokio::test]
+async fn document_json_is_never_kept_in_a_cache() -> R {
+    let a = app().await?;
+    let doc = doc_with(&a, "alex", &[]).await?;
+    for uri in [format!("/documents/{doc}"), "/profiles/alex/documents".to_string()] {
+        let r = get(&a, "alex", &uri).await?;
+        assert_eq!(r.status, StatusCode::OK, "{uri}");
+        let cache = r
+            .headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert_eq!(cache, "private, no-store", "{uri}");
+    }
+    Ok(())
+}
+
 /// How many of `p`'s sealed files the store holds.
 fn sealed_of(a: &App, p: Uuid) -> anyhow::Result<usize> {
     let prefix = format!("{}/", p.simple());
