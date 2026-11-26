@@ -4079,3 +4079,58 @@ fn pre1_a_negated_entry_whose_text_was_cut_is_not_a_no_known_list() -> R {
     }
     Ok(())
 }
+
+/// PRE-1.0 (K21R9-L1, K21R9-L2): a local label that differs from the narrative only by punctuation,
+/// case or spacing is the same text: the value keeps one copy and review gets no line. A label that is
+/// part of a narrative word ("reactive" in "Nonreactive.") is still a label of its own.
+#[test]
+fn pre1_punctuation_alone_does_not_make_another_text() -> R {
+    let observation = |display: &str, local: &str| {
+        format!(
+            r##"<text><paragraph ID="t1">Nonreactive.</paragraph></text>
+           <entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="266919005" codeSystem="2.16.840.1.113883.6.96" {display}>
+               <originalText><reference value="#t1"/>{local}</originalText></value>
+           </observation></entry>"##
+        )
+    };
+    let read = |xml: String| -> anyhow::Result<(Value, Vec<String>)> {
+        let c = convert(&social_history(&xml))?;
+        let o = resources(&c, "Observation");
+        anyhow::ensure!(o.len() == 1, "{o:?}");
+        Ok((
+            o[0]["valueCodeableConcept"]["text"].clone(),
+            c.sections[0].not_read.clone(),
+        ))
+    };
+    let unread = || vec!["value (original text kept in the uploaded file)".to_string()];
+    // L1: the local label is the narrative without its full stop
+    assert_eq!(read(observation("", "Nonreactive"))?, (json!("Nonreactive."), vec![]));
+    assert_eq!(
+        read(observation("", " «nonreactive» "))?,
+        (json!("Nonreactive."), vec![])
+    );
+    // L2: a bare reference beside the same display
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, ""))?,
+        (json!("Nonreactive"), vec![])
+    );
+    // a word inside a narrative word stays a label of its own
+    assert_eq!(
+        read(observation("", "reactive"))?,
+        (json!("Nonreactive.; reactive"), vec![])
+    );
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, "reactive."))?,
+        (json!("Nonreactive"), unread())
+    );
+    // a sign that carries meaning is no punctuation to drop
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, "-Nonreactive"))?,
+        (json!("Nonreactive"), unread())
+    );
+    Ok(())
+}

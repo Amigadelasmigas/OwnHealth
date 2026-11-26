@@ -525,9 +525,21 @@ fn coded(system: &str, code: &str) -> Value {
     json!({"coding": [{"system": system, "code": code}]})
 }
 
+/// Sentence punctuation, quotes and brackets: at either end of a word they do not change the text.
+const EDGE_PUNCTUATION: [char; 23] = [
+    '.', ',', ';', ':', '!', '?', '¡', '¿', '…', '"', '\'', '«', '»', '“', '”', '‘', '’', '(', ')', '[', ']', '{', '}',
+];
+
+/// Text as compared: lower case, one space between words, and the [`EDGE_PUNCTUATION`] at either end of
+/// a word dropped, so "Nonreactive." and "nonreactive" are one text. Punctuation inside a word ("1.5",
+/// "HIV-1") and signs that carry meaning ("<", "-", "+", "%") stay.
 fn normalized_text(text: &str) -> String {
     let mut normalized = String::new();
-    for word in text.split_whitespace() {
+    for word in text
+        .split_whitespace()
+        .map(|word| word.trim_matches(&EDGE_PUNCTUATION[..]))
+        .filter(|word| !word.is_empty())
+    {
         if !normalized.is_empty() {
             normalized.push(' ');
         }
