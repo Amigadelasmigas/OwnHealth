@@ -4247,6 +4247,51 @@ fn pre1_a_leading_decimal_point_is_no_punctuation() -> R {
     Ok(())
 }
 
+/// PRE-1.0 (CodeRabbit, mirror PR 7): a negated problem whose original text points into a PSY section
+/// and that is then held for another reason (status active with an end date) passes no label of that
+/// text to the next problem of its concern act.
+#[test]
+fn pre1_a_negated_problem_held_after_the_probe_passes_no_narrative_labels_on() -> R {
+    let c = convert(&document(&format!(
+        r##"{}<component><section><text><paragraph ID="named">Depression</paragraph></text><entry>{}</entry></section></component>"##,
+        problems_section(&format!(
+            r##"<entry><act classCode="ACT" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.3"/>
+              <id root="1.2.3.4" extension="act-two"/>
+              <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN" negationInd="true">
+                <templateId root="2.16.840.1.113883.10.20.22.4.4"/><id root="1.2.3.4" extension="obs-held"/>
+                <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/>
+                <effectiveTime><low value="20190101"/><high value="20200301"/></effectiveTime>
+                <value xsi:type="CD" code="x" codeSystem="1.2.3"><originalText><reference value="#named"/></originalText></value>{}
+              </observation></entryRelationship>
+              <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.4"/><id root="1.2.3.4" extension="obs-next"/>
+                <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/>
+                <effectiveTime><low value="20100101"/></effectiveTime>
+                <value xsi:type="CD" code="195967001" codeSystem="2.16.840.1.113883.6.96" displayName="Asthma"/>
+              </observation></entryRelationship></act></entry>"##,
+            problem_status("55561003")
+        )),
+        security_label("PSY")
+    )))?;
+    let conditions = resources(&c, "Condition");
+    assert_eq!(conditions.len(), 1, "{conditions:?}");
+    assert_eq!(conditions[0]["code"]["coding"][0]["code"], "195967001");
+    assert_eq!(label_codes(&c, "Condition"), [Vec::<String>::new()]);
+    let problems = c
+        .sections
+        .iter()
+        .find(|s| s.kind == Some(Section::Problems))
+        .ok_or_else(|| anyhow::anyhow!("no problems section"))?;
+    assert!(
+        problems
+            .not_read
+            .contains(&"observation 2.16.840.1.113883.10.20.22.4.4 (status active with an end date)".to_string()),
+        "{:?}",
+        problems.not_read
+    );
+    Ok(())
+}
+
 /// PRE-1.0 (K21R8-L2): a Notes, Encounters, Procedures or Social History section that says it has no
 /// information (nullFlavor) but holds words is held, as it was before these sections were read. A core
 /// section that says so keeps its guard: "No information" there needs no review.
