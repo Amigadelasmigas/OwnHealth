@@ -97,9 +97,9 @@ pub(crate) struct ConnectionHealth {
     /// from here, so a vendor that never sends data still raises an alert. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen_since: Option<DateTime<Utc>>,
-    /// The first poll whose read of this vendor's new days failed, or whose rows of this vendor all
-    /// failed to read, in the current streak. A failed re-read of days already stored does not count.
-    /// OwnHealth sets it.
+    /// The first poll whose read of this vendor's new days failed, or that got rows of this vendor that do
+    /// not read and no row of it that was new, in the current streak. A failed re-read of days already
+    /// stored does not count, and a stored row read again is not new. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_since: Option<DateTime<Utc>>,
     /// The last poll whose report included this connection. When no newer report says anything about

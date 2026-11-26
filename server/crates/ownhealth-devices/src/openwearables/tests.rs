@@ -847,6 +847,8 @@ async fn a_vendor_with_an_unreadable_row_or_answer_holds_no_other_vendor_back() 
     assert_eq!(env.count(hr).await?, 1);
     let oura = env.mark(id, "oura").await?.expect("Oura's cursor moved");
     let polar = env.mark(id, "polar").await?.expect("Polar's cursor moved");
+    // An Oura row read, so Oura keeps no failure clock for the row that did not.
+    assert_eq!(failing_since(&env, id, "oura").await?, None);
 
     // An Oura answer that does not read stops Oura only; Polar, read after it, still moves.
     {
@@ -2449,3 +2451,81 @@ async fn a_report_that_reads_clears_the_failed_report_mark() -> anyhow::Result<(
     assert_eq!(cursor_at(&env, id, &[gaps::REPORT_FAILED_KEY]).await?, None);
     Ok(())
 }
+
+/// WHOOP stored a good row 3 days ago, then its format changes: the next poll's only new WHOOP row does
+/// not read. The re-read of the stored row is not news, so WHOOP's clock starts at that poll.
+#[tokio::test]
+async fn new_rows_that_do_not_read_start_the_clock_after_good_days() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    let bad = {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        let i = fake.rows.iter().position(|r| r["source"]["provider"] == "whoop").expect("whoop");
+        let mut good = fake.rows.remove(i);
+        let mut bad = good.clone();
+        good["timestamp"] = json!(now - Duration::days(3));
+        bad["value"] = json!("n/a");
+        fake.rows.push(good);
+        bad
+    };
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(failing_since(&env, id, "whoop").await?, None);
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+        fake.rows.push(bad);
+    }
+    let before = Utc::now();
+    poll(&env.ctx, &env.base, id).await?;
+    assert!(
+        failing_since(&env, id, "whoop").await? >= Some(before),
+        "a stored row hid the new rows that do not read"
+    );
+    assert_eq!(failing_since(&env, id, "polar").await?, None);
+    Ok(())
+}
+
+/// No WHOOP row ever reads and its clock runs past the window. A poll that moves over more such days
+/// and then fails on a later day made no progress: the clock goes on, and the alert opens.
+#[tokio::test]
+async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["whoop", "active", now]]);
+        let i = fake.rows.iter().position(|r| r["source"]["provider"] == "whoop").expect("whoop");
+        let base = fake.rows.remove(i);
+        for d in [6i64, 5, 4, 3, 2, 1] {
+            let mut bad = base.clone();
+            bad["timestamp"] = json!(now - Duration::days(d) + Duration::hours(1));
+            bad["value"] = json!("n/a");
+            fake.rows.push(bad);
+        }
+        fake.fail_from = Some(now - Duration::days(4));
+    }
+    let _ = poll(&env.ctx, &env.base, id).await;
+    let since = Utc::now() - Duration::hours(37);
+    set_failing_since(&env, id, "whoop", since).await?;
+    let same = |kept: Option<DateTime<Utc>>| kept.is_some_and(|k| (k - since).num_milliseconds().abs() < 1);
+    let first = env.mark(id, "whoop").await?;
+    env.fake().fail_from = Some(now - Duration::days(2));
+    let _ = poll(&env.ctx, &env.base, id).await;
+    assert!(env.mark(id, "whoop").await? > first, "whoop moved over more days");
+    let kept = failing_since(&env, id, "whoop").await?;
+    assert!(same(kept), "a move over rows that do not read reset the clock: {kept:?}");
+    env.fake().fail_from = None;
+    env.fake().connections = json!([["whoop", "active", Utc::now()]]);
+    let _ = poll(&env.ctx, &env.base, id).await;
+    let kept = failing_since(&env, id, "whoop").await?;
+    assert!(same(kept), "{kept:?}");
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(open_gaps(&env, id).await?.len(), 1);
+    Ok(())
+}
+
