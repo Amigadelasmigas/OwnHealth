@@ -692,22 +692,25 @@ async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(Source
 
 async fn health_all(State(rt): State<Runtime>, who: HealthCaller, Query(q): Query<HealthQuery>) -> Response {
     let rows = async {
-        let mut conn = rt.pool.acquire().await?;
-        match who {
+        // the read and its audit rows commit together
+        let mut tx = rt.pool.begin().await?;
+        let rows = match who {
             HealthCaller::Person(c) => {
-                let rows = visible(&mut conn, &c).await?;
+                let rows = visible(&mut tx, &c).await?;
                 if known_format(&q) {
-                    audit_health(&mut conn, &c, "GET /api/inboxes/health", &rows).await?;
+                    audit_health(&mut tx, &c, "GET /api/inboxes/health", &rows).await?;
                 }
-                Ok::<_, ApiError>(rows)
+                rows
             }
-            HealthCaller::Source(s) => Ok(sources::source_health(&mut conn, s.household_id)
+            HealthCaller::Source(s) => sources::source_health(&mut tx, s.household_id)
                 .await?
                 .into_iter()
                 .filter(|h| h.id == s.id)
                 .map(|h| (h, None))
-                .collect()),
-        }
+                .collect(),
+        };
+        tx.commit().await?;
+        Ok::<_, ApiError>(rows)
     };
     match rows.await {
         Ok(rows) => {
@@ -726,12 +729,13 @@ async fn health_one(
 ) -> Response {
     let row = async {
         let id = Uuid::parse_str(&id).map_err(|_| ApiError::not_found())?;
-        let mut conn = rt.pool.acquire().await?;
+        // the read and its audit row commit together
+        let mut tx = rt.pool.begin().await?;
         let (rows, person) = match who {
-            HealthCaller::Person(c) => (visible(&mut conn, &c).await?, Some(c)),
+            HealthCaller::Person(c) => (visible(&mut tx, &c).await?, Some(c)),
             // a token answers for its own source only; another id is not found, not forbidden
             HealthCaller::Source(s) if s.id == id => (
-                sources::source_health(&mut conn, s.household_id)
+                sources::source_health(&mut tx, s.household_id)
                     .await?
                     .into_iter()
                     .map(|h| (h, None))
@@ -748,13 +752,14 @@ async fn health_one(
             && known_format(&q)
         {
             audit_health(
-                &mut conn,
+                &mut tx,
                 &c,
                 "GET /api/inboxes/{id}/health",
                 std::slice::from_ref(&row),
             )
             .await?;
         }
+        tx.commit().await?;
         Ok::<_, ApiError>(row)
     };
     match row.await {

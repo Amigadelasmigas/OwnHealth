@@ -717,3 +717,35 @@ async fn a_health_read_that_shows_a_source_writes_one_read_row_per_profile() -> 
     assert_eq!(after, before, "the scrape path writes no row");
     Ok(())
 }
+
+/// F-HEALTHTX: the health list and its read rows commit together. When the row of the last profile it
+/// shows cannot be written, the request fails and leaves none of the rows of the other profiles.
+#[tokio::test]
+async fn a_health_read_whose_audit_fails_leaves_no_read_row() -> R {
+    let env = Env::new(true).await?;
+    setup(&env).await?;
+    let alex = env.user("alex");
+    let last = ["alex", "carmen", "lucia"]
+        .into_iter()
+        .map(|p| env.profile(p))
+        .max()
+        .ok_or_else(|| anyhow::anyhow!("no profile"))?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "create function reject_health_read() returns trigger language plpgsql as
+         $$ begin raise exception 'cannot audit this read'; end $$;
+         create trigger reject_health_read before insert on audit_event
+         for each row when (new.tool = 'GET /api/inboxes/health' and new.profile_id = '{last}')
+         execute function reject_health_read();"
+    )))
+    .execute(env.pool())
+    .await?;
+    let mut c = env.as_user(alex).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::INTERNAL_SERVER_ERROR, "{:?}", r.json);
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?,
+        Vec::<(Option<Uuid>, Vec<String>)>::new(),
+        "no row of another profile stays"
+    );
+    Ok(())
+}
