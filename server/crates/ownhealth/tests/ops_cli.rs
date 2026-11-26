@@ -755,6 +755,40 @@ async fn restore_test_leaves_another_runs_folder_alone() -> R {
     Ok(())
 }
 
+/// A restic restore that fails after it wrote part of the snapshot leaves no run folder behind, so a
+/// retry within a day does not restore a second copy beside the first.
+#[tokio::test]
+async fn restore_test_removes_its_folder_when_the_restic_restore_fails() -> R {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir()?;
+    let db = TestDb::empty().await?;
+    let s = db.settings(&tmp.path().join("live"))?;
+    let mut env = env_for(&s, tmp.path());
+    let dir = tmp.path().join("restic-fails");
+    std::fs::create_dir_all(&dir)?;
+    let shim = dir.join("restic");
+    std::fs::write(
+        &shim,
+        "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --target ]; then mkdir -p \"$2\" && echo part > \"$2/db.dump\"; fi\n  shift\ndone\necho 'restic: no space left on device' >&2\nexit 1\n",
+    )?;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    for (k, v) in env.vars.iter_mut() {
+        if k == "PATH" {
+            *v = format!("{}:{v}", dir.display());
+        }
+    }
+    let check = script("restore-test.sh", &env)?;
+    assert_eq!(check.status.code(), Some(1), "{}", text(&check));
+    assert!(text(&check).contains("no space left"), "{}", text(&check));
+    assert_eq!(
+        entries(&tmp.path().join("restore"))?,
+        Vec::<String>::new(),
+        "{}",
+        text(&check)
+    );
+    Ok(())
+}
+
 /// restore.sh passes on restic's own error instead of claiming that no snapshot matched, and
 /// refuses an explicit id of a snapshot without host ownhealth and tag ownhealth (restic ignores
 /// both filters for an explicit id).

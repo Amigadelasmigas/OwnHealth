@@ -28,10 +28,12 @@ $RUN sh -c 'now=$(date +%s); for d in "$1"/* "$1"/.[!.]* "$1"/..?*; do
   esac
   rm -rf "$d"
 done' sweep "$SCRATCH"
+# Remove this run's folder however the run ends: a restore that fails part way would leave its partial
+# copy for a day, and a retry meanwhile would restore a second copy beside it.
+trap '$RUN rm -rf "$HERE" || true' EXIT
 log "restic restore $SNAPSHOT"
 $RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$HERE" >&2
 status=0
 $RUN ownhealth verify-restore "$HERE" || status=$?
-$RUN rm -rf "$HERE"
 if [ "$status" -eq 0 ]; then log "restore test passed"; else log "restore test FAILED"; fi
 exit "$status"
