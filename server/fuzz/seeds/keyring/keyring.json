@@ -1,0 +1,17 @@
+{
+  "schema": "ownhealth.keyring/v1",
+  "kek_fingerprint": "abababababababab",
+  "profiles": {
+    "00000000-0000-4000-8000-000000000001": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "00000000-0000-4000-8000-000000000002": "AQABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ow=="
+  },
+  "shredded": [
+    "00000000-0000-4000-8000-000000000002",
+    "00000000-0000-4000-8000-000000000003"
+  ],
+  "shredded_keys": {
+    "00000000-0000-4000-8000-000000000002": [
+      "abababababababababababababababababababababababababababababababab"
+    ]
+  }
+}

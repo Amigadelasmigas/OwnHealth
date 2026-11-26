@@ -1,0 +1,1 @@
+{"status": "finalized", "files": [{"contentType": "application/fhir+json", "embedded": "a.b.c.d.e"}, {"contentType": "application/smart-health-card", "location": "https://shl.example/api/shl/x/file/y"}, {"contentType": "application/smart-api-access", "location": "https://shl.example/api/shl/x/file/z"}]}

@@ -35,6 +35,8 @@ pub const CONTENT_TYPE: &str = "application/fhir+json";
 pub const URL_MAX: usize = 128;
 /// "Construct a SMART Health Link Payload": the label is no longer than 80 characters.
 pub const LABEL_MAX: usize = 80;
+/// The longest recipient the access log keeps, in characters.
+pub const RECIPIENT_MAX: usize = 200;
 
 /// 32 random bytes, base64url: 43 characters. "Establish a SMART Health Link Manifest URL": the
 /// manifest URL SHALL include at least 256 bits of entropy.
@@ -62,6 +64,47 @@ pub fn manifest_url(share_url: &str, id: &str) -> String {
 /// A file location: the ticket a manifest answer made, under its link.
 pub fn file_url(share_url: &str, id: &str, ticket: &str) -> String {
     format!("{share_url}/api/shl/{id}/file/{ticket}")
+}
+
+/// What a manifest request (`POST /api/shl/{id}`, a public route) asks with, read from its body
+/// before any passcode is checked. A body that is not a JSON object asks with nothing. Its `Debug`
+/// never shows the passcode.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ManifestRequest {
+    /// [`recipient`] of the body's `recipient`.
+    pub recipient: Option<String>,
+    /// The body's `passcode` as given; None when it is absent, not a string, or empty. An empty one
+    /// guesses nothing, so it costs no attempt.
+    pub passcode: Option<String>,
+}
+
+impl ManifestRequest {
+    pub fn read(body: &[u8]) -> ManifestRequest {
+        let input: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+        ManifestRequest {
+            recipient: recipient(&input["recipient"]),
+            passcode: input["passcode"].as_str().filter(|p| !p.is_empty()).map(str::to_string),
+        }
+    }
+}
+
+impl std::fmt::Debug for ManifestRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManifestRequest")
+            .field("recipient", &self.recipient)
+            .field("passcode", &self.passcode.as_ref().map(|_| "<hidden>"))
+            .finish()
+    }
+}
+
+/// The recipient as the access log keeps it: trimmed, without control characters, at most
+/// [`RECIPIENT_MAX`] characters. "SMART Health Link Manifest Request": recipient is required (1..1).
+pub fn recipient(v: &Value) -> Option<String> {
+    let clean: String = v.as_str()?.chars().filter(|c| !c.is_control()).collect();
+    // cut first, then trim, so a cut that lands on a space leaves none at the end
+    let cut: String = clean.trim_start().chars().take(RECIPIENT_MAX).collect();
+    let cut = cut.trim_end();
+    (!cut.is_empty()).then(|| cut.to_string())
 }
 
 /// A sealed file and the key that opens it.
@@ -154,6 +197,39 @@ mod tests {
         assert!(is_segment(&a) && is_segment(&b) && a != b);
         assert_eq!(URL_SAFE_NO_PAD.decode(&a).map(|v| v.len()).unwrap_or_default(), 32);
         assert!(!is_segment(&a[..42]) && !is_segment(&format!("{}=", &a[..42])));
+    }
+
+    #[test]
+    fn a_manifest_request_reads_its_recipient_and_passcode() {
+        let read = |body: &str| ManifestRequest::read(body.as_bytes());
+        let both = read(r#"{"recipient": "  Dr. Ortega\u0007\n ", "passcode": "1234"}"#);
+        assert_eq!(both.recipient.as_deref(), Some("Dr. Ortega"));
+        assert_eq!(both.passcode.as_deref(), Some("1234"));
+        // a request that reaches a log through Debug never carries the passcode
+        let shown = format!("{both:?}");
+        assert!(!shown.contains("1234") && shown.contains("Dr. Ortega"), "{shown}");
+        // an empty passcode guesses nothing, the same as none; a number is no passcode
+        assert_eq!(read(r#"{"recipient": "x", "passcode": ""}"#).passcode, None);
+        assert_eq!(read(r#"{"recipient": "x", "passcode": 1234}"#).passcode, None);
+        // a body that is not a JSON object asks with nothing
+        for body in ["", "not json", "[]", "\"x\"", "null", "{\"recipient\": 7}"] {
+            assert_eq!(read(body), ManifestRequest::default(), "{body}");
+        }
+    }
+
+    #[test]
+    fn a_recipient_is_trimmed_text_without_control_characters_and_never_empty() {
+        assert_eq!(recipient(&json!("  Dr. Ortega\u{7}\n ")).as_deref(), Some("Dr. Ortega"));
+        assert_eq!(recipient(&json!(" \n ")), None);
+        assert_eq!(recipient(&json!(7)), None);
+        assert_eq!(recipient(&json!("x".repeat(500))).map(|r| r.len()), Some(RECIPIENT_MAX));
+    }
+
+    #[test]
+    fn a_recipient_cut_at_the_limit_never_ends_in_whitespace() {
+        let name = "x".repeat(RECIPIENT_MAX - 1);
+        assert_eq!(recipient(&json!(format!("{name} y"))), Some(name.clone()));
+        assert_eq!(recipient(&json!(format!("  {name}   y"))), Some(name));
     }
 
     #[test]

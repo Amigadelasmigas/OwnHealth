@@ -554,15 +554,58 @@ async fn download_all(
     if let Some(r) = status_refusal(got.status) {
         return Err(r);
     }
-    let Ok(manifest) = serde_json::from_slice::<Value>(&got.body) else {
+    let mut out = Vec::new();
+    for file in manifest_files(&got.body)? {
+        let (content_type, bytes) = match file {
+            ManifestFile::Embedded { content_type, jwe } => (content_type, jwe),
+            ManifestFile::Location { content_type, url } => {
+                // ".files.location links": short-lived and intended for single use, so each is
+                // fetched once; it may be on another public host than the manifest
+                let (to, egress) = routed(route, &url);
+                let got = net::get(&to, &egress, &[("accept", "application/jose")])
+                    .await
+                    .map_err(net_refusal)?;
+                // a location that is gone expired or was used, while the manifest answered: the
+                // link may well be active, and reading it again gives fresh locations
+                if matches!(got.status, 404 | 410) {
+                    return Err(Refusal::LocationExpired);
+                }
+                if let Some(r) = status_refusal(got.status) {
+                    return Err(r);
+                }
+                (content_type, got.body)
+            }
+        };
+        if bytes.len() > MAX_BYTES {
+            return Err(Refusal::Fetch("too_large".into()));
+        }
+        out.push(Fetched { bytes, content_type });
+    }
+    Ok(out)
+}
+
+/// One file a manifest lists: its content type, and its JWE, sent in the manifest (`embedded`) or
+/// at a location to fetch once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManifestFile {
+    Embedded { content_type: String, jwe: Vec<u8> },
+    Location { content_type: String, url: String },
+}
+
+/// The files of a manifest answer ("SMART Health Link Manifest File"), as the link's server wrote
+/// it: at least one and at most [`MAX_FILES`], each with a `contentType` and either `embedded` or
+/// `location` (`embedded` when it has both). No network: every file is checked before any
+/// location is fetched.
+pub fn manifest_files(body: &[u8]) -> std::result::Result<Vec<ManifestFile>, Refusal> {
+    let Ok(manifest) = serde_json::from_slice::<Value>(body) else {
         return Err(Refusal::Manifest("it is not JSON"));
     };
     if manifest.get("status").and_then(Value::as_str) == Some("no-longer-valid") {
         return Err(Refusal::Inactive);
     }
     let files = match manifest.get("files") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(files)) => files.clone(),
+        None | Some(Value::Null) => return Err(Refusal::NoFiles),
+        Some(Value::Array(files)) => files,
         Some(_) => return Err(Refusal::Manifest("files is not a list")),
     };
     if files.is_empty() {
@@ -571,41 +614,28 @@ async fn download_all(
     if files.len() > MAX_FILES {
         return Err(Refusal::TooMany);
     }
-    let mut out = Vec::new();
-    for f in &files {
-        let Some(content_type) = f.get("contentType").and_then(Value::as_str) else {
-            return Err(Refusal::Manifest("a file has no contentType"));
-        };
-        let bytes = if let Some(embedded) = f.get("embedded").and_then(Value::as_str) {
-            embedded.as_bytes().to_vec()
-        } else if let Some(location) = f.get("location").and_then(Value::as_str) {
-            // ".files.location links": short-lived and intended for single use, so each is fetched
-            // once; it may be on another public host than the manifest
-            let (to, egress) = routed(route, location);
-            let got = net::get(&to, &egress, &[("accept", "application/jose")])
-                .await
-                .map_err(net_refusal)?;
-            // a location that is gone expired or was used, while the manifest answered: the link
-            // may well be active, and reading it again gives fresh locations
-            if matches!(got.status, 404 | 410) {
-                return Err(Refusal::LocationExpired);
+    files
+        .iter()
+        .map(|f| {
+            let Some(content_type) = f.get("contentType").and_then(Value::as_str) else {
+                return Err(Refusal::Manifest("a file has no contentType"));
+            };
+            let content_type = content_type.to_string();
+            if let Some(embedded) = f.get("embedded").and_then(Value::as_str) {
+                Ok(ManifestFile::Embedded {
+                    content_type,
+                    jwe: embedded.as_bytes().to_vec(),
+                })
+            } else if let Some(url) = f.get("location").and_then(Value::as_str) {
+                Ok(ManifestFile::Location {
+                    content_type,
+                    url: url.to_string(),
+                })
+            } else {
+                Err(Refusal::Manifest("a file has neither embedded nor location"))
             }
-            if let Some(r) = status_refusal(got.status) {
-                return Err(r);
-            }
-            got.body
-        } else {
-            return Err(Refusal::Manifest("a file has neither embedded nor location"));
-        };
-        if bytes.len() > MAX_BYTES {
-            return Err(Refusal::Fetch("too_large".into()));
-        }
-        out.push(Fetched {
-            bytes,
-            content_type: content_type.to_string(),
-        });
-    }
-    Ok(out)
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------------- opening ----
@@ -1052,6 +1082,63 @@ mod tests {
         assert_eq!(
             parse("shlink:/%%%", now()).map_err(|r| r.code()).map(|_| ()),
             Err("link")
+        );
+    }
+
+    #[test]
+    fn a_manifest_lists_its_files_or_says_why_not() {
+        let files = |v: Value| manifest_files(v.to_string().as_bytes());
+        assert_eq!(
+            files(json!({"status": "finalized", "files": [
+                {"contentType": FHIR, "embedded": "a.b.c.d.e"},
+                {"contentType": SMART_HEALTH_CARD, "location": "https://files.example/1"},
+                {"contentType": FHIR, "embedded": "x", "location": "https://files.example/2"},
+            ]})),
+            Ok(vec![
+                ManifestFile::Embedded {
+                    content_type: FHIR.into(),
+                    jwe: b"a.b.c.d.e".to_vec()
+                },
+                ManifestFile::Location {
+                    content_type: SMART_HEALTH_CARD.into(),
+                    url: "https://files.example/1".into()
+                },
+                // a file with both is read from its embedded copy, with no fetch
+                ManifestFile::Embedded {
+                    content_type: FHIR.into(),
+                    jwe: b"x".to_vec()
+                },
+            ])
+        );
+        assert_eq!(manifest_files(b"<html>"), Err(Refusal::Manifest("it is not JSON")));
+        assert_eq!(
+            files(json!({"status": "no-longer-valid", "files": [{"contentType": FHIR, "embedded": "x"}]})),
+            Err(Refusal::Inactive)
+        );
+        assert_eq!(
+            files(json!({"files": {}})),
+            Err(Refusal::Manifest("files is not a list"))
+        );
+        assert_eq!(files(json!({})), Err(Refusal::NoFiles));
+        assert_eq!(files(json!({"files": null})), Err(Refusal::NoFiles));
+        assert_eq!(files(json!([])), Err(Refusal::NoFiles));
+        let one = json!({"contentType": FHIR, "embedded": "x"});
+        assert_eq!(
+            files(json!({"files": vec![one.clone(); MAX_FILES]})).map(|f| f.len()),
+            Ok(MAX_FILES)
+        );
+        assert_eq!(files(json!({"files": vec![one; MAX_FILES + 1]})), Err(Refusal::TooMany));
+        assert_eq!(
+            files(json!({"files": [{"embedded": "x"}]})),
+            Err(Refusal::Manifest("a file has no contentType"))
+        );
+        // the last file is malformed: refused before any location is fetched
+        assert_eq!(
+            files(json!({"files": [
+                {"contentType": FHIR, "location": "https://files.example/1"},
+                {"contentType": FHIR},
+            ]})),
+            Err(Refusal::Manifest("a file has neither embedded nor location"))
         );
     }
 
