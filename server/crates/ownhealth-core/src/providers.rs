@@ -186,6 +186,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_epic_page_says_the_organisations_stay_in_fhir_brand() {
+        // brands.rs keeps each organisation's name, endpoint and state in fhir_brand and deletes only
+        // the downloaded file. The page once said that nothing of Epic's is stored, which the code
+        // contradicts. The page words are compared with line breaks folded into spaces and in lower
+        // case, so a sentence that starts with the claim is caught too.
+        let pages = pages();
+        let page = pages.get("epic").expect("docs/connectors/epic.md");
+        let page = page.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        let brands =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ownhealth-ingest-structured/src/brands.rs");
+        let brands = std::fs::read_to_string(brands).expect("brands.rs");
+        // the space and the parenthesis keep the fhir_brand_feed insert (the downloaded file) out
+        assert!(
+            brands.contains("insert into fhir_brand ("),
+            "brands.rs no longer stores the organisations: update epic.md and this test"
+        );
+        assert!(
+            page.contains("in the `fhir_brand` table"),
+            "epic.md must say the organisations are kept in fhir_brand"
+        );
+        assert!(
+            !page.contains("nothing of epic's is stored"),
+            "epic.md says nothing of Epic's is stored, but fhir_brand keeps the organisations"
+        );
+    }
+
     /// Providers whose data are the person's own files or pushes (account exports, their own
     /// Nightscout, an app on their own phone). No vendor API terms reach them (docs/design/connectors.md
     /// section 4), so they need no connector page. Every other provider marked served needs
