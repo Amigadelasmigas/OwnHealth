@@ -2890,6 +2890,33 @@ mod tests {
         Ok(())
     }
 
+    /// A folder above the store that this user may pass through but not read cannot be opened to flush
+    /// it: the open skips that folder and still opens the store, and still flushes the root.
+    #[cfg(unix)]
+    #[test]
+    fn a_store_below_a_folder_it_may_not_read_still_opens() -> Result<(), BlobError> {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir()?;
+        let locked = dir.path().join("locked");
+        let root = locked.join("blobs");
+        fs::create_dir_all(root.join("tmp"))?;
+        fs::create_dir_all(root.join("sha256"))?;
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o311))?;
+        // root reads any folder: nothing to check then
+        let unreadable = File::open(&locked).is_err();
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        let opened = BlobStore::new(root.clone());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755))?;
+        if !unreadable {
+            return Ok(());
+        }
+        opened?;
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        assert!(synced.contains(&root), "the root was not flushed: {synced:?}");
+        assert!(!synced.contains(&locked), "{synced:?}");
+        Ok(())
+    }
+
     /// Set in the child process of [`a_relative_root_flushes_the_folders_that_lead_to_it`].
     const RELATIVE_ROOT_CHILD: &str = "OWNHEALTH_TEST_RELATIVE_ROOT_CHILD";
 

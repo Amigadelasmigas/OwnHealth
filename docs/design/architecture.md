@@ -77,7 +77,7 @@ Rules that follow from the diagram:
 | MCP | rmcp's streamable HTTP service mounted at `/mcp`. Spec 2026-07-28 is stateless (no `initialize` handshake, no `Mcp-Session-Id`), so no session affinity is needed. We keep the 2025-11-25 fallback for older clients |
 | Job loop | `N` tokio tasks started with the server (default `N=2`). Each claims one job, runs it, commits. CPU-bound and file-bound steps (PDF text layer, Apple Health XML, rollups, export zips) run on tokio's blocking threads so they never stall requests |
 | OCR | Not in the default image. The `ocr` profile runs the same code from the image variant `drumsergio/ownhealth:<version>-ocr` (the engine, PaddleOCR PP-OCRv5 on ONNX Runtime, and its models) as `ownhealth worker` with `OWNHEALTH_QUEUES=ocr`: no HTTP server, only the job loop for the `ocr` queue |
-| Scheduler | A row in `job` with `run_after` is a timer. Recurring jobs (rollups, restore check, ClinVar diff in v0.3) re-enqueue themselves on completion. No cron daemon |
+| Scheduler | A row in `job` with `run_after` is a timer. Recurring jobs (rollups, ClinVar diff in v0.3) re-enqueue themselves on completion. The app runs no cron daemon. Backups and the weekly restore check are not jobs: the host's cron runs them (`deploy/restic/backup.sh`, `restore-test.sh`, section 14) |
 | Static UI | `adapter-static` output embedded in the release binary (`rust-embed`) at image build time. No Node at runtime |
 
 One process is enough for a family. A household has a few users and one or two agents, and the slow work goes through the queue. The stateless MCP spec means a second replica would work behind a load balancer later, but we do not plan for it.
