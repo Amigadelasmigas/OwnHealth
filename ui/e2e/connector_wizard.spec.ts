@@ -406,10 +406,11 @@ test('deleting a client lets a person hide its switched-off connection and keeps
 	});
 	expect(saved.status()).toBe(201);
 	const { client } = await saved.json();
-	const source = sql(`insert into source (household_id, profile_id, kind, label, enabled, connector_client_id)
-		select household_id, id, 'smart', '${label}', false, '${client.id}' from profile where slug = 'alex' returning id`);
-	sql(`insert into source_item (source_id, external_id) values ('${source}', 'previous-import')`);
+	let source: string | undefined;
 	try {
+		source = sql(`insert into source (household_id, profile_id, kind, label, enabled, connector_client_id)
+			select household_id, id, 'smart', '${label}', false, '${client.id}' from profile where slug = 'alex' returning id`);
+		sql(`insert into source_item (source_id, external_id) values ('${source}', 'previous-import')`);
 		await page.goto('/connections?lang=en');
 		const card = page.getByRole('article', { name: label });
 		await expect(card.getByRole('button', { name: 'Reconnect' })).toBeVisible();
@@ -419,12 +420,15 @@ test('deleting a client lets a person hide its switched-off connection and keeps
 		await expect(card.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
 		await card.getByRole('button', { name: 'Hide connection' }).click();
 		await expect(card).toHaveCount(0);
+		// the cards come with the health rows, after the heading: check once the server's rows are shown
+		const rows = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/inboxes/health' && r.request().method() === 'GET');
 		await page.reload();
-		await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
+		expect((await rows).ok()).toBe(true);
+		await expect(page.getByText('Loading…')).toHaveCount(0);
 		await expect(card).toHaveCount(0);
 		expect(sql(`select count(*) from source_item where source_id = '${source}' and external_id = 'previous-import'`)).toBe('1');
 	} finally {
-		sql(`delete from source where id = '${source}'`);
+		if (source) sql(`delete from source where id = '${source}'`);
 		sql(`delete from connector_client where id = '${client.id}'`);
 	}
 });
