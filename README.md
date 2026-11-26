@@ -38,7 +38,7 @@ In 1.0.0:
 - Family history as a pedigree with its cited patterns, exported as FHIR, and ClinVar changes to the variants you carry, checked every week
 - A two-page doctor summary and an International Patient Summary, in Spanish or English, where every value names its source; share it through a SMART Health Link with a PIN and revoke, or as an emergency card
 - An MCP server with 10 tools, scoped per person and per token, with a citation behind every answer; connect with a token or with OAuth 2.1 (claude.ai and Claude Code, no client registration)
-- Passkeys, a hash-chained audit log, each profile's files under its own key, emergency access after a delay the owner can cancel, a full export, and restic backups with a scripted restore test
+- Passkeys, a hash-chained audit log, each profile's files under its own key, emergency access that opens after a delay once the owner's calendar feed has shown the request (the owner can cancel it), a full export, and restic backups with a scripted restore test
 - Dark theme, Spanish and English, and German, French, Catalan, Italian and Portuguese as beta languages
 
 Limits in 1.0.0. Lab PDFs are read with generic table rules plus one template, for the fictional LabNorte lab. Real lab layouts come later as contributed templates. The LOINC set is a curated subset of 202 codes, so a test outside it waits in review. OCR rows go to review unless a vendor template matches. Only Polar wearable data reach agents; the other vendors stay withheld until their terms allow it ([docs/connectors](docs/connectors/README.md)). No US vendor is verified live yet.
