@@ -2531,7 +2531,12 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
         }
         fake.fail_from = Some(now - Duration::days(4));
     }
+    // the first poll moves over days whose rows do not read, then fails: its clock starts all the same
     let _ = poll(&env.ctx, &env.base, id).await;
+    assert!(
+        unreadable_since(&env, id, "whoop").await?.is_some(),
+        "a poll that then failed hid the days whose rows do not read"
+    );
     let since = Utc::now() - Duration::hours(37);
     set_clock(&env, id, "whoop", "unreadable_since", since).await?;
     let same = |kept: Option<DateTime<Utc>>| kept.is_some_and(|k| (k - since).num_milliseconds().abs() < 1);
