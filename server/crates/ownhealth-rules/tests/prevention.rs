@@ -1030,6 +1030,27 @@ fn ppsv23_and_live_zoster_count_in_no_language() -> R {
     Ok(())
 }
 
+/// The label columns of `vaccines.tsv` follow its header (de, fr, ca, it, pt): a row whose labels all
+/// differ pins each language to its own column, so a column order slip fails here.
+#[test]
+fn each_vaccine_label_column_is_its_own_language() -> R {
+    let pack = load_pack()?;
+    let p = load_dir(Path::new(DATA), &pack)?;
+    assert_eq!(
+        p.groups["td"].name,
+        json!({
+            "en": "Tetanus and diphtheria (Td)",
+            "es": "Tétanos y difteria (Td)",
+            "de": "Tetanus und Diphtherie (Td)",
+            "fr": "Tétanos et diphtérie (Td)",
+            "ca": "Tètanus i diftèria (Td)",
+            "it": "Tetano e difterite (Td)",
+            "pt": "Tétano e difteria (Td)"
+        })
+    );
+    Ok(())
+}
+
 /// The hysterectomy answer takes the cervical rows away, so it asks about any past cervical cancer or
 /// high-grade precancer, not only the reason for the surgery: a precancer treated years before a
 /// hysterectomy for another cause still calls for follow-up.
