@@ -257,3 +257,399 @@ async fn removing_a_released_upload_keeps_the_bytes_any_blob_column_names() -> R
     );
     Ok(())
 }
+
+async fn a_legacy_inbox_item_keeps_its_upload(linked_document: bool) -> R {
+    use ownhealth_core::blobs::BlobOwner;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let alex = f.profile("alex");
+    let inbox_profile = if linked_document { f.profile("sam") } else { alex };
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label)          values ($1, $2, 'folder', 'LabNorte inbox') returning id",
+    )
+    .bind(f.household_id)
+    .bind(inbox_profile)
+    .fetch_one(&mut *c)
+    .await?;
+    let document = if linked_document {
+        Some(bare_document(&mut c, f.household_id, alex).await?)
+    } else {
+        None
+    };
+    // The inbox item holds the raw file. The document, if linked, holds a different file.
+    let sha = blobs.put_bytes(BlobOwner::Profile(alex), b"LabNorte inbox arrival")?;
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, document_id)          values ($1, 'legacy-arrival', decode($2, 'hex'), $3)",
+    )
+    .bind(source)
+    .bind(&sha)
+    .bind(document)
+    .execute(&mut *c)
+    .await?;
+
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert!(
+        blobs.exists(BlobOwner::Profile(alex), &sha),
+        "the legacy inbox item lost its sealed upload"
+    );
+    if linked_document {
+        let other_sha = blobs.put_bytes(BlobOwner::Profile(inbox_profile), b"LabNorte inbox arrival")?;
+        assert_eq!(sha, other_sha);
+        remove_released_upload(&mut c, &blobs, inbox_profile, &sha).await?;
+        assert!(!blobs.exists(BlobOwner::Profile(inbox_profile), &sha));
+    }
+
+    sqlx::query("update source_item set raw_released_at = now() where source_id = $1")
+        .bind(source)
+        .execute(&mut *c)
+        .await?;
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert!(!blobs.exists(BlobOwner::Profile(alex), &sha));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_legacy_inbox_item_keeps_the_upload_for_its_document_profile() -> R {
+    a_legacy_inbox_item_keeps_its_upload(true).await
+}
+
+#[tokio::test]
+async fn a_legacy_inbox_item_keeps_the_upload_for_its_inbox_profile() -> R {
+    a_legacy_inbox_item_keeps_its_upload(false).await
+}
+
+async fn a_legacy_mail_upload_keeps_only_its_released_profile_copy(released: bool) -> R {
+    use ownhealth_core::blobs::BlobOwner;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let (hh, alex, sam) = (f.household_id, f.profile("alex"), f.profile("sam"));
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label) \
+         values ($1, $2, 'email', 'LabNorte mail') returning id",
+    )
+    .bind(hh)
+    .bind(sam)
+    .fetch_one(&mut *c)
+    .await?;
+    let documents = if released {
+        vec![
+            bare_document(&mut c, hh, alex).await?,
+            bare_document(&mut c, hh, alex).await?,
+        ]
+    } else {
+        Vec::new()
+    };
+    let raw = blobs.put_bytes(BlobOwner::Reference, b"LabNorte original email")?;
+    let quarantine: uuid::Uuid = sqlx::query_scalar(
+        "insert into quarantine_item (household_id, source_id, raw_blob, reason, status, released_document_ids) \
+         values ($1, $2, decode($3, 'hex'), 'sender_not_allowed', $4, $5) returning id",
+    )
+    .bind(hh)
+    .bind(source)
+    .bind(raw)
+    .bind(if released { "released" } else { "held" })
+    .bind(released.then_some(documents))
+    .fetch_one(&mut *c)
+    .await?;
+    let bytes = b"LabNorte mail attachment";
+    let sha = blobs.put_bytes(BlobOwner::Profile(sam), bytes)?;
+    assert_eq!(blobs.put_bytes(BlobOwner::Profile(alex), bytes)?, sha);
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, quarantine_id) \
+         values ($1, 'legacy-mail', decode($2, 'hex'), $3)",
+    )
+    .bind(source)
+    .bind(&sha)
+    .bind(quarantine)
+    .execute(&mut *c)
+    .await?;
+
+    remove_released_upload(&mut c, &blobs, sam, &sha).await?;
+    assert!(
+        !blobs.exists(BlobOwner::Profile(sam), &sha),
+        "the inbox profile has no claim to this copy"
+    );
+    remove_released_upload(&mut c, &blobs, alex, &sha).await?;
+    assert_eq!(blobs.exists(BlobOwner::Profile(alex), &sha), released);
+    Ok(())
+}
+
+#[tokio::test]
+async fn held_legacy_mail_does_not_hold_a_profile_copy_of_the_upload() -> R {
+    a_legacy_mail_upload_keeps_only_its_released_profile_copy(false).await
+}
+
+#[tokio::test]
+async fn released_legacy_mail_holds_the_upload_for_its_documents_profile() -> R {
+    a_legacy_mail_upload_keeps_only_its_released_profile_copy(true).await
+}
+
+/// How a legacy inbox item reaches the document that moves.
+#[derive(Clone, Copy, PartialEq)]
+enum LegacyLink {
+    /// The item links the document, which has a profile.
+    Linked,
+    /// The item links no document; its released mail released only this document.
+    ReleasedMail,
+    /// The item links the document, which has no profile yet: the item reads as its inbox's profile.
+    UnfiledDocument,
+}
+
+/// A legacy inbox item reads its raw file as the profile `blobs::HOLDERS` resolves for it. When the
+/// document it resolves through moves, the profile it resolves to after the move gets that file too,
+/// read from the profile it resolved to before. A later duplicate arrival for the profile it left
+/// releases that profile's copy, and the inbox item can still read its file.
+async fn a_moved_document_keeps_its_legacy_inbox_file(link: LegacyLink) -> R {
+    use ownhealth_core::blobs::BlobOwner;
+    use sqlx::Connection;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let (hh, alex, sam) = (f.household_id, f.profile("alex"), f.profile("sam"));
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, profile_id, kind, label) \
+         values ($1, $2, 'folder', 'LabNorte inbox') returning id",
+    )
+    .bind(hh)
+    .bind((link != LegacyLink::ReleasedMail).then_some(alex))
+    .fetch_one(&mut *c)
+    .await?;
+    let document = bare_document(&mut c, hh, alex).await?;
+    if link == LegacyLink::UnfiledDocument {
+        sqlx::query("update document set profile_id = null where id = $1")
+            .bind(document)
+            .execute(&mut *c)
+            .await?;
+    }
+    // The inbox item holds the raw file, sealed for alex. The document holds a different file.
+    let bytes = b"LabNorte inbox arrival before the move";
+    let raw = blobs.put_bytes(BlobOwner::Profile(alex), bytes)?;
+    let mail: Option<uuid::Uuid> = if link == LegacyLink::ReleasedMail {
+        let original = blobs.put_bytes(BlobOwner::Reference, b"LabNorte released original")?;
+        Some(
+            sqlx::query_scalar(
+                "insert into quarantine_item (household_id, source_id, raw_blob, reason, status, \
+                 released_document_ids) values ($1, $2, decode($3, 'hex'), 'sender_not_allowed', 'released', \
+                 array[$4]::uuid[]) returning id",
+            )
+            .bind(hh)
+            .bind(source)
+            .bind(original)
+            .bind(document)
+            .fetch_one(&mut *c)
+            .await?,
+        )
+    } else {
+        None
+    };
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, document_id, quarantine_id) \
+         values ($1, 'legacy-arrival', decode($2, 'hex'), $3, $4)",
+    )
+    .bind(source)
+    .bind(&raw)
+    .bind((link != LegacyLink::ReleasedMail).then_some(document))
+    .bind(mail)
+    .execute(&mut *c)
+    .await?;
+    // Rows that no profile reads through the document: mail still held, a row filed to its own
+    // profile, and a released raw file. Older rows keep their raw file in the plain layout.
+    let held_raw = blobs.put_bytes(BlobOwner::Reference, b"LabNorte held original")?;
+    let quarantine: uuid::Uuid = sqlx::query_scalar(
+        "insert into quarantine_item (household_id, source_id, raw_blob, reason, status) \
+         values ($1, $2, decode($3, 'hex'), 'sender_not_allowed', 'held') returning id",
+    )
+    .bind(hh)
+    .bind(source)
+    .bind(held_raw)
+    .fetch_one(&mut *c)
+    .await?;
+    let held = blobs.put_bytes(BlobOwner::Reference, b"LabNorte mail still held")?;
+    let filed = blobs.put_bytes(BlobOwner::Reference, b"LabNorte arrival filed to its profile")?;
+    let released = blobs.put_bytes(BlobOwner::Profile(alex), b"LabNorte arrival already released")?;
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, document_id, quarantine_id, profile_id, \
+         raw_released_at) \
+         values ($1, 'legacy-held', decode($2, 'hex'), $5, $6, null, null), \
+                ($1, 'filed', decode($3, 'hex'), $5, null, $7, null), \
+                ($1, 'legacy-released', decode($4, 'hex'), $5, null, null, now())",
+    )
+    .bind(source)
+    .bind(&held)
+    .bind(&filed)
+    .bind(&released)
+    .bind(document)
+    .bind(quarantine)
+    .bind(alex)
+    .execute(&mut *c)
+    .await?;
+
+    // the move, as assign_document runs it
+    let mut tx = c.begin().await?;
+    let from = ownhealth_core::documents::lock_owner(&mut tx, document).await?;
+    sqlx::query("update document set profile_id = $1 where id = $2")
+        .bind(sam)
+        .bind(document)
+        .execute(&mut *tx)
+        .await?;
+    ownhealth_core::documents::rekey_document(&mut tx, &blobs, document, from, Some(sam)).await?;
+    tx.commit().await?;
+
+    // a duplicate arrival of the same bytes for the profile the item resolved to before the move
+    assert_eq!(blobs.put_bytes(BlobOwner::Profile(alex), bytes)?, raw);
+    remove_released_upload(&mut c, &blobs, alex, &raw).await?;
+    assert_eq!(
+        blobs.get_bytes(BlobOwner::Profile(sam), &raw)?,
+        bytes,
+        "the moved document's legacy inbox item lost its raw file"
+    );
+    for (sha, what) in [
+        (&held, "held mail"),
+        (&filed, "a row filed to its own profile"),
+        (&released, "a released raw file"),
+    ] {
+        assert!(
+            !blobs.is_sealed(BlobOwner::Profile(sam), sha)?,
+            "the move copied {what} to the new profile"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_document_keeps_its_legacy_inbox_file_readable() -> R {
+    a_moved_document_keeps_its_legacy_inbox_file(LegacyLink::Linked).await
+}
+
+#[tokio::test]
+async fn a_moved_document_keeps_its_released_mail_inbox_file_readable() -> R {
+    a_moved_document_keeps_its_legacy_inbox_file(LegacyLink::ReleasedMail).await
+}
+
+#[tokio::test]
+async fn a_filed_document_keeps_its_legacy_inbox_file_readable() -> R {
+    a_moved_document_keeps_its_legacy_inbox_file(LegacyLink::UnfiledDocument).await
+}
+
+/// Two documents released from one legacy mail move to the same profile at the same time. The mail's
+/// inbox row resolves to that profile only once both moves commit, and that profile can still read
+/// its raw file after a duplicate arrival for the profile they left.
+#[tokio::test]
+async fn concurrent_moves_of_one_released_mail_keep_its_raw_file_readable() -> R {
+    use ownhealth_core::blobs::BlobOwner;
+    use ownhealth_core::documents::{lock_owner, rekey_document};
+    use sqlx::Connection;
+
+    let db = TestDb::new().await?;
+    let dir = tempfile::tempdir()?;
+    let blobs = BlobStore::for_settings(&db.settings(dir.path())?)?;
+    let mut c = db.pool.acquire().await?;
+    let f = family(&mut c).await?;
+    let (hh, alex, sam) = (f.household_id, f.profile("alex"), f.profile("sam"));
+    let source: uuid::Uuid = sqlx::query_scalar(
+        "insert into source (household_id, kind, label) values ($1, 'folder', 'LabNorte inbox') returning id",
+    )
+    .bind(hh)
+    .fetch_one(&mut *c)
+    .await?;
+    let documents = [
+        bare_document(&mut c, hh, alex).await?,
+        bare_document(&mut c, hh, alex).await?,
+    ];
+    let original = blobs.put_bytes(BlobOwner::Reference, b"LabNorte mail with two reports")?;
+    let mail: uuid::Uuid = sqlx::query_scalar(
+        "insert into quarantine_item (household_id, source_id, raw_blob, reason, status, released_document_ids) \
+         values ($1, $2, decode($3, 'hex'), 'sender_not_allowed', 'released', $4) returning id",
+    )
+    .bind(hh)
+    .bind(source)
+    .bind(original)
+    .bind(documents.to_vec())
+    .fetch_one(&mut *c)
+    .await?;
+    let bytes = b"LabNorte mail attachment before the moves";
+    let raw = blobs.put_bytes(BlobOwner::Profile(alex), bytes)?;
+    sqlx::query(
+        "insert into source_item (source_id, external_id, blob_sha256, quarantine_id) \
+         values ($1, 'legacy-mail', decode($2, 'hex'), $3)",
+    )
+    .bind(source)
+    .bind(&raw)
+    .bind(mail)
+    .execute(&mut *c)
+    .await?;
+
+    // the first move re-keys and stays open
+    let mut first = db.pool.acquire().await?;
+    let mut tx = first.begin().await?;
+    let from = lock_owner(&mut tx, documents[0]).await?;
+    sqlx::query("update document set profile_id = $1 where id = $2")
+        .bind(sam)
+        .bind(documents[0])
+        .execute(&mut *tx)
+        .await?;
+    rekey_document(&mut tx, &blobs, documents[0], from, Some(sam)).await?;
+    // the second move of the other document runs meanwhile
+    let (pool, store, other) = (db.pool.clone(), blobs.clone(), documents[1]);
+    let (send_pid, second_pid) = tokio::sync::oneshot::channel::<i32>();
+    let second = tokio::spawn(async move {
+        let mut c = pool.acquire().await?;
+        let mut tx = c.begin().await?;
+        let pid: i32 = sqlx::query_scalar("select pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await?;
+        let _ = send_pid.send(pid);
+        let from = lock_owner(&mut tx, other).await?;
+        sqlx::query("update document set profile_id = $1 where id = $2")
+            .bind(sam)
+            .bind(other)
+            .execute(&mut *tx)
+            .await?;
+        rekey_document(&mut tx, &store, other, from, Some(sam)).await?;
+        tx.commit().await?;
+        anyhow::Ok(())
+    });
+    // commit the first move only once the second waits for it
+    let pid = second_pid.await?;
+    let mut waiting = false;
+    for _ in 0..100 {
+        anyhow::ensure!(
+            !second.is_finished(),
+            "the second move finished without waiting for the first"
+        );
+        waiting = sqlx::query_scalar(
+            "select exists (select 1 from pg_locks where pid = $1 and locktype = 'advisory' and not granted)",
+        )
+        .bind(pid)
+        .fetch_one(&mut *c)
+        .await?;
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    anyhow::ensure!(waiting, "the second move never waited for the first");
+    tx.commit().await?;
+    second.await??;
+
+    // a duplicate arrival of the same bytes for the profile the documents left
+    assert_eq!(blobs.put_bytes(BlobOwner::Profile(alex), bytes)?, raw);
+    remove_released_upload(&mut c, &blobs, alex, &raw).await?;
+    assert_eq!(
+        blobs.get_bytes(BlobOwner::Profile(sam), &raw)?,
+        bytes,
+        "the released mail's inbox item lost its raw file"
+    );
+    Ok(())
+}

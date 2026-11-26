@@ -3,12 +3,32 @@
 //! goes out of scope. Never touches another database.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Connection, PgConnection, PgPool};
 
 use crate::config::Settings;
+
+/// How many times a call began to wait for each keyring lock file (`keyfile::lock`).
+static KEYRING_WAITS: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Mutex::default);
+
+/// Called by `keyfile::lock` when it finds `lock` held and starts to wait for it.
+pub(crate) fn note_keyring_wait(lock: &Path) {
+    if let Ok(mut waits) = KEYRING_WAITS.lock() {
+        *waits.entry(lock.to_path_buf()).or_default() += 1;
+    }
+}
+
+/// How many calls so far began to wait for the keyring lock file `lock`: a test that holds the lock
+/// learns when another call is blocked on it, without a timer.
+pub fn keyring_waits(lock: &Path) -> usize {
+    KEYRING_WAITS
+        .lock()
+        .map(|waits| waits.get(lock).copied().unwrap_or_default())
+        .unwrap_or_default()
+}
 
 pub const DEFAULT_ADMIN_URL: &str = "postgres://postgres:postgres@127.0.0.1:55432/postgres";
 

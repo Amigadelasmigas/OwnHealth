@@ -421,7 +421,9 @@ fn write_anchor(dir: &Path, a: &Anchor) -> Result<()> {
 /// One backup or restore at a time reads and replaces the anchor: a session advisory lock on the
 /// database, held from the anchor read to the anchor write. Without it a backup that started
 /// earlier, with an older head, could finish last and put its lower head over a newer one. Closing
-/// the connection releases it, so a backup that fails on the way leaves nothing locked.
+/// the connection releases it, so a backup that fails on the way leaves nothing locked. A backup
+/// reads the accepted restore losses under it and a restore records them under it, so no loss lands
+/// between a backup's read and its snapshot. Both take it before the keyring lock.
 async fn anchor_lock(url: &str) -> Result<PgConnection> {
     let mut conn = PgConnection::connect(url).await?;
     sqlx::query("select pg_catalog.pg_advisory_lock(pg_catalog.hashtext('ownhealth.audit_anchor'))")
@@ -623,6 +625,11 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     // stays (a held mail released, a profile deleted or a document moved meanwhile leaves its files
     // for later), so the copy has every one of them.
     blobs::hold_for_copy(&mut lock).await?;
+    // The accepted losses, read before the snapshot: a profile deleted after it is still in the dump,
+    // and the keyring rewrites below (its delete's and this backup's) drop its losses from the record.
+    // Only a restore adds losses, and it records them under the anchor lock this backup holds, so this
+    // read holds every loss of the snapshot's profiles.
+    let lost = blobs::read_restore_losses(settings)?;
     let anchored = read_anchor(&anchor_path)?;
     let mut conn = PgConnection::connect(&url).await?;
     let mut tx = conn.begin_with("begin isolation level repeatable read").await?;
@@ -719,10 +726,11 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     }
     // The dump holds no row of it, so a restore never has the same count.
     tables.remove("profile_key");
+    #[cfg(test)]
+    let _ = tests::AFTER_SNAPSHOT.try_with(|observe| observe());
     keyfile::rewrite(&mut lock, settings)
         .await
         .map_err(|e| ops_error(e.0))?;
-    let lost = blobs::read_restore_losses(settings)?;
 
     // Blobs are written before the rows that reference them commit, so every blob the snapshot can
     // see exists by now, and none of them went since (the copy lock above). Later blobs are harmless
@@ -744,17 +752,6 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         }
         !stray
     });
-    let mut bytes = 0u64;
-    let mut plain = Vec::new();
-    let mut sealed = Map::new();
-    for (key, p) in &files {
-        bytes += fs::metadata(p)?.len();
-        if key.contains('/') {
-            sealed.insert(key.clone(), Value::String(sha256_file(p)?));
-        } else {
-            plain.push(key);
-        }
-    }
     // Where each referenced blob sits in this backup: its owner's sealed copy, or the plain one. The
     // keys come from the snapshot and the files from the copy, never from the live store, where a
     // delete after the copy may already have shredded a key or removed a folder. A key that does not
@@ -763,6 +760,7 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
     let mut repaired = Vec::new();
     let mut profile_sealed = ProfileBlobs::new();
     let mut accepted_omissions = ProfileBlobs::new();
+    let mut damaged = BTreeSet::new();
     for (owner, sha) in &referenced {
         let slot = owner.slot();
         let accepted_loss = match owner {
@@ -774,13 +772,19 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         {
             let key = blobs::sealed_key(slot, dek, sha)?;
             if let Some(path) = files.get(&key) {
+                if let Some(id) = accepted_loss {
+                    // A copy that does not open repairs nothing: the loss stays, and the damaged copy
+                    // stays out of the backup, so no check takes it for the file.
+                    if !sealed_opens(path, id, dek, sha) {
+                        tracing::warn!(profile = %id, file = %key, "a copy of a file a restore accepted as lost does not open: the backup leaves it out and keeps the loss");
+                        damaged.insert(key);
+                        accepted_omissions.entry(id).or_default().insert(sha.clone());
+                        continue;
+                    }
+                    repaired.push((id, sha.as_str()));
+                }
                 if let keys::Slot::Profile(id) = slot {
                     profile_sealed.entry(id).or_default().insert(sha.clone());
-                }
-                if let Some(id) = accepted_loss
-                    && repaired_file(path, sha, Some((id, dek)))
-                {
-                    repaired.push((id, sha.as_str()));
                 }
                 required.push(key);
                 continue;
@@ -789,7 +793,7 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
         let plain = blobs::sha256_hex(sha)?;
         if let Some(path) = files.get(&plain) {
             if let Some(id) = accepted_loss
-                && repaired_file(path, &plain, None)
+                && repaired_file(path, &plain)
             {
                 repaired.push((id, sha.as_str()));
             }
@@ -798,6 +802,22 @@ pub async fn backup(settings: &Settings, dest: &Path) -> Result<PathBuf> {
             accepted_omissions.entry(id).or_default().insert(plain);
         } else {
             required.push(plain);
+        }
+    }
+    for key in &damaged {
+        if let Some(p) = files.remove(key) {
+            fs::remove_file(p)?;
+        }
+    }
+    let mut bytes = 0u64;
+    let mut plain = Vec::new();
+    let mut sealed = Map::new();
+    for (key, p) in &files {
+        bytes += fs::metadata(p)?.len();
+        if key.contains('/') {
+            sealed.insert(key.clone(), Value::String(sha256_file(p)?));
+        } else {
+            plain.push(key);
         }
     }
     #[cfg(test)]
@@ -989,16 +1009,19 @@ fn corrupt_file(key: &str, path: &Path, listed: &BTreeSet<String>, sealed: &BTre
 /// Every blob file a backup must hold: the plain and sealed files its manifest lists, and the ones the
 /// database references (older manifests have no "referenced").
 /// A copied file only clears an accepted loss once the matching copy can be read in full.
-fn repaired_file(path: &Path, sha: &str, sealed: Option<(Uuid, &keys::Dek)>) -> bool {
-    let Some((profile, dek)) = sealed else {
-        return sha256_file(path).is_ok_and(|hash| hash == sha);
-    };
+fn repaired_file(path: &Path, sha: &str) -> bool {
+    sha256_file(path).is_ok_and(|hash| hash == sha)
+}
+
+/// Whether the sealed file at `path` opens under `dek` as `owner`'s copy of `sha` and reads in full:
+/// every record authenticates, which a hash of its bytes on disk cannot show.
+fn sealed_opens(path: &Path, owner: Uuid, dek: &keys::Dek, sha: &str) -> bool {
     let mut expected = [0; 32];
     if hex::decode_to_slice(sha, &mut expected).is_err() {
         return false;
     }
     fs::File::open(path)
-        .and_then(|file| keys::SealedReader::open(file, dek, profile, &expected))
+        .and_then(|file| keys::SealedReader::open(file, dek, owner, &expected))
         .and_then(|mut reader| std::io::copy(&mut reader, &mut std::io::sink()))
         .is_ok()
 }
@@ -1357,6 +1380,30 @@ async fn record_lost(
     Ok(())
 }
 
+/// The sealed files of `files` that a referenced blob names and that do not open under the restored
+/// keys. Their bytes may match the manifest, which hashed them as they were at backup time: only
+/// opening a file shows that it was whole then.
+async fn unopened_sealed(conn: &mut PgConnection, kek: &Kek, files: &BTreeMap<String, PathBuf>) -> Result<Vec<String>> {
+    let mut deks = HashMap::new();
+    for (slot, wrapped, fingerprint) in keys::stored_all(&mut *conn).await? {
+        if let Ok(dek) = kek.unwrap_slot(slot, &fingerprint, &wrapped) {
+            deks.insert(slot, dek);
+        }
+    }
+    let mut unopened = BTreeSet::new();
+    for (owner, sha) in referenced_blobs(conn).await? {
+        let Some(slot) = owner.slot() else { continue };
+        let Some(dek) = deks.get(&slot) else { continue };
+        let key = blobs::sealed_key(slot, dek, &sha)?;
+        if let Some(path) = files.get(&key)
+            && !sealed_opens(path, slot.id(), dek, &sha)
+        {
+            unopened.insert(key);
+        }
+    }
+    Ok(unopened.into_iter().collect())
+}
+
 fn ids_text(ids: &[Uuid]) -> String {
     ids.iter().map(Uuid::to_string).collect::<Vec<_>>().join(", ")
 }
@@ -1410,6 +1457,10 @@ async fn compare(
             key_check["ok"] = Value::Bool(false);
         }
     }
+    let unopened = match kek.filter(|_| keyed) {
+        Some(k) => unopened_sealed(&mut tx, k, files).await?,
+        None => Vec::new(),
+    };
     let states = state_hashes(&mut tx, as_of).await?;
     tx.commit().await?;
     conn.close().await?;
@@ -1445,7 +1496,12 @@ async fn compare(
             profiles.insert(pid.clone(), json!({"expected": null, "actual": h, "ok": false}));
         }
     }
-    let blobs = check_blobs(manifest, files)?;
+    let mut blobs = check_blobs(manifest, files)?;
+    if let Some(corrupt) = blobs["corrupt"].as_array_mut() {
+        corrupt.extend(unopened.into_iter().map(Value::String));
+        corrupt.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+        corrupt.dedup();
+    }
     let ok = tables.is_empty()
         && profiles.values().all(|p| p["ok"] == json!(true))
         && blobs["missing"].as_array().is_some_and(Vec::is_empty)
@@ -1490,6 +1546,11 @@ pub async fn restore(settings: &Settings, archive: &Path) -> Result<Value> {
 pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_keys: bool) -> Result<Value> {
     let (manifest, archived_losses) = read_manifest(archive)?;
     let kek = backup_key(settings, &manifest)?;
+    let url = settings.sqlx_url();
+    // Held to the end, and taken before the keyring lock as a backup takes it: a backup of this
+    // database holds it from its read of the accepted losses until after its snapshot, so the losses
+    // this restore records never land between the two.
+    let lock = anchor_lock(&url).await?;
     let ring_lock = if manifest["keys"].get("keyring").is_some() {
         Some(keyfile::lock(settings).await.map_err(|e| ops_error(e.0))?)
     } else {
@@ -1517,7 +1578,6 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
         .filter(|_| !losses.is_empty())
         .map(|ring| loss_resume_id(archive, &manifest, ring))
         .transpose()?;
-    let url = settings.sqlx_url();
     let mut conn = PgConnection::connect(&url).await?;
     let tables: i64 = sqlx::query_scalar("select count(*) from pg_tables where schemaname = 'public'")
         .fetch_one(&mut conn)
@@ -1596,7 +1656,6 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
         conn.close().await?;
     }
     drop(resume_lock);
-    let lock = anchor_lock(&url).await?;
     let mut report = compare(&url, &manifest, &store.files()?, kek.as_ref(), ring.as_ref()).await?;
     let head = &manifest["audit_chain"];
     let hash = head["hash"]
@@ -1640,6 +1699,9 @@ pub async fn restore_with(settings: &Settings, archive: &Path, allow_missing_key
     Ok(report)
 }
 
+/// The comment verify-restore puts on its scratch database when it creates it.
+const SCRATCH_MARKER: &str = "ownhealth verify-restore scratch";
+
 fn database_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -1656,6 +1718,13 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     .execute(&mut *admin)
     .await?;
     let opened = async {
+        // The marker comes first, while no session can connect: only a database that carries it is
+        // ever dropped at the scratch name (`drop_scratch`).
+        sqlx::query(AssertSqlSafe(format!(
+            "comment on database {ident} is '{SCRATCH_MARKER}'"
+        )))
+        .execute(&mut *admin)
+        .await?;
         for sql in [
             format!("revoke connect, temporary on database {ident} from public"),
             format!("alter database {ident} with allow_connections true"),
@@ -1668,7 +1737,8 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     }
     .await;
     if let Err(error) = opened {
-        if let Err(cleanup) = drop_scratch(admin, scratch).await {
+        // This call made the database a moment ago, so it goes even when the marker step failed.
+        if let Err(cleanup) = force_drop(admin, scratch).await {
             tracing::warn!(%scratch, %cleanup, "could not drop the scratch database after a setup step failed");
         }
         return Err(error);
@@ -1676,12 +1746,36 @@ async fn create_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     Ok(())
 }
 
-async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
+async fn force_drop(admin: &mut PgConnection, scratch: &str) -> Result<()> {
     let ident = database_ident(scratch);
     sqlx::query(AssertSqlSafe(format!("drop database if exists {ident} with (force)")))
         .execute(admin)
         .await?;
     Ok(())
+}
+
+/// Drop the database at the scratch name only when verify-restore made it ([`SCRATCH_MARKER`]). Any
+/// other database there stops the check and stays as it is: an operator's database that happens to
+/// have this name is never dropped. A check stopped between `create database` and its comment leaves
+/// an unmarked one too: PostgreSQL cannot do both in one statement.
+async fn drop_scratch(admin: &mut PgConnection, scratch: &str) -> Result<()> {
+    let comment: Option<Option<String>> = sqlx::query_scalar(
+        "select pg_catalog.shobj_description(oid, 'pg_database') from pg_catalog.pg_database where datname = $1",
+    )
+    .bind(scratch)
+    .fetch_optional(&mut *admin)
+    .await?;
+    match comment {
+        None => Ok(()),
+        Some(Some(marker)) if marker == SCRATCH_MARKER => force_drop(admin, scratch).await,
+        Some(_) => Err(ops_error(format!(
+            "a database named {scratch:?} exists without the comment {SCRATCH_MARKER:?}: \
+             verify-restore did not make it, or a check stopped while it created it. The check stopped \
+             and left that database as it is. Rename or drop it, then run the check again. A scratch \
+             database left by a version before 1.0 has no comment either: drop it once you know it \
+             holds nothing else"
+        ))),
+    }
 }
 
 /// PostgreSQL advisory locks are local to the database where the session takes them.
@@ -1754,6 +1848,7 @@ mod tests {
         pub(super) static OBSERVE_PG_RESTORE: Box<dyn Fn(&str) -> Result<()> + Send>;
         pub(super) static BEFORE_CLEAR_REPAIRED: Box<dyn Fn() + Send>;
         pub(super) static BEFORE_SCRATCH_STEP: Box<dyn Fn() -> Result<()> + Send>;
+        pub(super) static AFTER_SNAPSHOT: Box<dyn Fn() + Send>;
     }
 
     async fn connect_outcome(url: &str) -> String {
@@ -2190,6 +2285,126 @@ mod tests {
             kept.is_empty(),
             "a failed step did not fail or kept the scratch (step, calls, left): {kept:?}"
         );
+        Ok(())
+    }
+
+    /// A database at the scratch name that verify-restore did not make (an operator's copy with that
+    /// name) is never dropped: the check stops, names it, and the database keeps its rows.
+    #[tokio::test]
+    async fn verification_keeps_a_database_it_did_not_make_at_the_scratch_name() -> anyhow::Result<()> {
+        let db = ownhealth_core::testing::TestDb::empty().await?;
+        let scratch = format!("{}_restore_check", db.name);
+        let ident = database_ident(&scratch);
+        let mut admin = PgConnection::connect(&db.url).await?;
+        sqlx::query(AssertSqlSafe(format!("create database {ident}")))
+            .execute(&mut admin)
+            .await?;
+        let mut other = PgConnection::connect(&with_db(&db.url, &scratch)).await?;
+        sqlx::raw_sql("create table kept (note text); insert into kept values ('operator copy')")
+            .execute(&mut other)
+            .await?;
+        other.close().await?;
+        let dir = tempfile::tempdir()?;
+        let settings = settings_for(&db.url, dir.path())?;
+        let result = verify_restore(&settings, &dir.path().join("no-backup")).await;
+        let kept: Option<String> = match PgConnection::connect(&with_db(&db.url, &scratch)).await {
+            Ok(mut conn) => {
+                let note = sqlx::query_scalar("select note from kept")
+                    .fetch_optional(&mut conn)
+                    .await?;
+                conn.close().await?;
+                note
+            }
+            Err(_) => None,
+        };
+        sqlx::query(AssertSqlSafe(format!("drop database if exists {ident} with (force)")))
+            .execute(&mut admin)
+            .await?;
+        admin.close().await?;
+        assert_eq!(
+            kept.as_deref(),
+            Some("operator copy"),
+            "the check dropped a database it did not make"
+        );
+        let error = result.expect_err("the check must stop at a database it did not make");
+        let error = error.to_string();
+        assert!(
+            error.contains(&format!("{scratch:?}"))
+                && error.contains("verify-restore did not make it")
+                && error.contains("a check stopped while it created it"),
+            "{error}"
+        );
+        Ok(())
+    }
+
+    /// Delete `profile` through the household delete, on its own thread and runtime, for a
+    /// synchronous hook.
+    fn delete_profile_blocking(url: &str, profile: Uuid) {
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime for the delete")
+                .block_on(async {
+                    let mut conn = PgConnection::connect(&url).await.expect("connect for the delete");
+                    ownhealth_auth::household::delete_profile(&mut conn, profile)
+                        .await
+                        .expect("delete the profile");
+                    conn.close().await.expect("close the delete's connection");
+                });
+        })
+        .join()
+        .expect("the delete thread panicked");
+    }
+
+    /// A profile whose files a restore accepted as lost is deleted while a backup runs, after its
+    /// snapshot. The snapshot still holds the profile's rows, so the manifest must still list those
+    /// files as accepted omissions, or no restore of that archive can succeed.
+    #[tokio::test]
+    async fn a_profile_deleted_during_a_backup_keeps_its_accepted_losses_in_the_manifest() -> anyhow::Result<()> {
+        use ownhealth_core::{demo::seed_demo, testing::TestDb};
+
+        crate::register();
+        let live = TestDb::new().await?;
+        let dir = tempfile::tempdir()?;
+        let settings = live.settings(&dir.path().join("live"))?;
+        let store = BlobStore::for_settings(&settings)?;
+        assert!(seed_demo(&live.pool, &settings, &store, false).await?);
+        let alex: Uuid = sqlx::query_scalar("select id from profile where slug = 'alex'")
+            .fetch_one(&live.pool)
+            .await?;
+        let first = backup(&settings, &dir.path().join("first")).await?;
+        // A keyring copy without Alex's key: the restore loads his records and accepts his files as lost.
+        let mut ring = keyfile::read_for_install(&settings)?.expect("the backup wrote the keyring");
+        assert!(ring.profiles.remove(&alex).is_some());
+        let stale = dir.path().join("stale-keyring");
+        keyfile::write(&stale, &ring)?;
+        let restored_db = TestDb::empty().await?;
+        let mut restored = restored_db.settings(&dir.path().join("restored"))?;
+        restored.secrets_key = settings.secrets_key.clone();
+        restored.keyring_dir = Some(stale.clone());
+        restore_with(&restored, &first, true).await?;
+        let lost = blobs::read_restore_losses(&restored)?;
+        assert!(lost.get(&alex).is_some_and(|files| !files.is_empty()), "{lost:?}");
+
+        let url = restored_db.url.clone();
+        let second = AFTER_SNAPSHOT
+            .scope(
+                Box::new(move || delete_profile_blocking(&url, alex)),
+                backup(&restored, &dir.path().join("second")),
+            )
+            .await?;
+        let (m, _) = read_manifest(&second)?;
+        let omitted = m["blobs"]["accepted_omissions"][alex.to_string()].clone();
+        assert!(omitted.as_array().is_some_and(|files| !files.is_empty()), "{m:#}");
+
+        let target_db = TestDb::empty().await?;
+        let mut target = target_db.settings(&dir.path().join("target"))?;
+        target.secrets_key = settings.secrets_key.clone();
+        target.keyring_dir = Some(stale);
+        let report = restore_with(&target, &second, true).await?;
+        assert_eq!(report["blobs"]["missing"], json!([]), "{report:#}");
         Ok(())
     }
 

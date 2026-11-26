@@ -11,6 +11,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::NaiveDate;
+use ownhealth_auth::household::can_manage;
 use ownhealth_core::access::{
     Permission, Principal, accessible_profiles, effective_permission, env_majority, majority,
 };
@@ -56,6 +57,7 @@ pub fn profile_summary(perm: &Permission, principal: &Principal, on: NaiveDate, 
         "display_name": p.display_name,
         "initials": initials,
         "role": perm.role,
+        "can_manage": principal.household_id == Some(p.household_id) && can_manage(perm),
         "relationship": p.relationship,
         "age": p.age_on(on),
         "sex_at_birth": p.sex_at_birth,

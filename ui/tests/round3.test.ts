@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'svelte/compiler';
+import { dict } from '../src/lib/i18n/dict.ts';
 import { auditActionKey, auditDetail, auditResult } from '../src/lib/logic/people.ts';
 import { afterColon, sameNumber } from '../src/lib/logic/format.ts';
 
@@ -148,4 +149,12 @@ test('audit: a replayed app code reads as its action and in words, never as a ro
 	assert.equal(auditActionKey({ via: 'mcp', tool: 'POST /oauth/token', action: 'oauth_reuse_revoked' }), 'i2_act_oauth_reuse_revoked');
 	assert.equal(auditDetail({ action: 'oauth_reuse_revoked', args_summary: 'replayed=authorization_code' }, w), 'i2_ad_replayed_authorization_code');
 	assert.equal(auditDetail({ action: 'oauth_reuse_revoked', args_summary: 'replayed=refresh_token' }, w), 'i2_ad_replayed_refresh_token');
+});
+
+test('saved client changes have access log labels in English and Spanish', () => {
+	for (const action of ['connector.client', 'connector.client.delete']) {
+		const key = auditActionKey({ via: 'ui', tool: 'connectors', action }) as keyof typeof dict.en;
+		assert.ok(dict.en[key], key);
+		assert.ok(dict.es[key], key);
+	}
 });

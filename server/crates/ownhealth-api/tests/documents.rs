@@ -1030,6 +1030,43 @@ async fn removing_an_old_copy_waits_for_an_upload_of_the_same_bytes() -> R {
     Ok(())
 }
 
+/// A move back to the profile a document just left reuses that profile's copies. The removal the
+/// first move queued for them runs while the move back is still open: it waits for the move back to
+/// commit, then sees the document on that profile again and keeps the copies.
+#[tokio::test]
+async fn a_move_back_keeps_the_copies_the_first_move_queued_for_removal() -> R {
+    let a = app().await?;
+    let doc = imported(&a).await?;
+    let (alex, lucia) = (a.fam.profile("alex"), a.fam.profile("lucia"));
+    let before = sealed_of(&a, alex)?;
+    let r = post(
+        &a,
+        "alex",
+        &format!("/documents/{doc}/assign"),
+        json!({"profile": "lucia"}),
+    )
+    .await?;
+    assert_eq!(r.status, StatusCode::OK, "{}", r.json());
+    // the move back finds Alex's copies still there, and has not committed when the removal runs
+    let mut back = a.rt.pool.begin().await?;
+    ownhealth_ingest_pdf::assign_document(&mut back, &a.rt.blobs, doc, alex, a.fam.user("alex"), None).await?;
+    let (dropped, committed) = tokio::join!(drop_moved(&a), async {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        back.commit().await
+    });
+    committed?;
+    dropped?;
+    drop_moved(&a).await?;
+    assert_eq!(
+        (sealed_of(&a, alex)?, sealed_of(&a, lucia)?),
+        (before, 0),
+        "the move back lost the copies it reused"
+    );
+    let f = get(&a, "alex", &format!("/documents/{doc}/file")).await?;
+    assert_eq!(f.status, StatusCode::OK);
+    Ok(())
+}
+
 /// A document with no profile that waits more than a day keeps its key and its file through the
 /// sweep: only an item that no longer waits loses its key after a day.
 #[tokio::test]

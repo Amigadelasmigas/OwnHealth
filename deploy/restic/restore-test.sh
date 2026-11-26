@@ -13,11 +13,27 @@ set -eu
 . "$(dirname "$0")/common.sh"
 RUN=${OWNHEALTH_RUN-docker compose run --rm -T admin}
 
-$RUN rm -rf "$SCRATCH"
+# Each run restores into a folder of its own, so a run never deletes the archive that another run's
+# check is still reading. A folder whose run started a day ago or more is one a stopped run left.
+# Anything else there is a leftover too: versions before 1.0 restored straight into the folder.
+HERE="$SCRATCH/run-$(date +%s)-$$"
+# shellcheck disable=SC2016 # expanded by the inner shell
+$RUN sh -c 'now=$(date +%s); for d in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+  [ -e "$d" ] || [ -L "$d" ] || continue
+  case ${d##*/} in
+    run-*)
+      t=${d##*/run-}; t=${t%%-*}
+      case $t in "" | *[!0-9]*) ;; *) [ $((now - t)) -ge 86400 ] || continue ;; esac
+      ;;
+  esac
+  rm -rf "$d"
+done' sweep "$SCRATCH"
+# Remove this run's folder however the run ends: a restore that fails part way would leave its partial
+# copy for a day, and a retry meanwhile would restore a second copy beside it.
+trap '$RUN rm -rf "$HERE" || true' EXIT
 log "restic restore $SNAPSHOT"
-$RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$SCRATCH" >&2
+$RUN restic restore --quiet --host ownhealth --tag ownhealth "$SNAPSHOT:$STAGING" --target "$HERE" >&2
 status=0
-$RUN ownhealth verify-restore "$SCRATCH" || status=$?
-$RUN rm -rf "$SCRATCH"
+$RUN ownhealth verify-restore "$HERE" || status=$?
 if [ "$status" -eq 0 ]; then log "restore test passed"; else log "restore test FAILED"; fi
 exit "$status"

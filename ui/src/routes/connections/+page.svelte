@@ -9,7 +9,7 @@
 	import { page } from '$app/state';
 	import { ApiError } from '#lib/api/core';
 	import { getMe } from '#lib/api';
-	import { disconnectConnector, listSourceHealth, reconnectConnector, type DisconnectOut } from '#lib/api/connections';
+	import { disconnectConnector, hideConnection, listSourceHealth, reconnectConnector, type DisconnectOut } from '#lib/api/connections';
 	import ConfirmRow from '#lib/components/ConfirmRow.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import PhaseChip from '#lib/components/PhaseChip.svelte';
@@ -22,6 +22,7 @@
 	import { afterColon } from '#lib/logic/format';
 	import {
 		callbackOutcome,
+		OAUTH_KINDS,
 		canReconnect,
 		cardTitle,
 		connectionState,
@@ -166,6 +167,21 @@
 		(document.getElementById('con-' + r.id) ?? document.getElementById('con-orphan'))?.focus();
 	}
 
+	async function hide(r: ConnectionRow) {
+		busy = r.id;
+		card = null;
+		try {
+			await hideConnection(r.id);
+			await load();
+			await tick();
+			document.getElementById('con-add')?.focus();
+		} catch (e) {
+			card = { id: r.id, label: r.label, error: failure(e) };
+		} finally {
+			busy = null;
+		}
+	}
+
 	async function dismissOutcome() {
 		outcome = null;
 		await tick();
@@ -200,6 +216,7 @@
 			case 'grant_soon':
 				return { text: tp('con_st_grant_soon', n, { date: day(r.grant_expires_at) }), tone: 'var(--watch)' };
 			case 'off':
+				if (r.has_client === false) return { text: codeText('connector_client_deleted'), tone: 'var(--dim)' };
 				return canReconnect(r) ? { text: t('con_st_off'), tone: 'var(--dim)' } : null;
 			case 'stale':
 				return { text: t('fu_stale_d'), tone: 'var(--stale)' };
@@ -214,7 +231,7 @@
 		<PhaseChip phase="v1.0" />
 		{#if mayManageConnections(app.me?.profiles)}<a class="btn" href="/connections/wearables">{t('ow_setup_index')}</a>{/if}
 		<a class="btn" href="/inbox">{t('fu_inbox')}</a>
-		{#if manageable(app.me?.profiles ?? []).length}<a class="btn pri" href="/connections/add">{t('con_add')}</a>{/if}
+		{#if manageable(app.me?.profiles ?? []).length}<a class="btn pri" id="con-add" href="/connections/add">{t('con_add')}</a>{/if}
 	{/snippet}
 </PageHeader>
 
@@ -292,12 +309,18 @@
 				{#if r.open_gaps}
 					<div class="note gaps" role="status">{tp('con_gaps', r.open_gaps)} <a href="/import-review" onclick={() => reviewOf(r)}>{t('con_gaps_go')} →</a></div>
 				{/if}
-				{#if canReconnect(r)}
+				{#if canReconnect(r) || (r.enabled && OAUTH_KINDS.includes(r.kind))}
 					<div class="acts">
-						<button class="btn sm" class:pri={wantsReconnect(s) || s === 'off'} disabled={busy != null} onclick={() => reconnect(r)}>{t('con_reconnect')}</button>
+						{#if canReconnect(r)}
+							<button class="btn sm" class:pri={wantsReconnect(s) || s === 'off'} disabled={busy != null} onclick={() => reconnect(r)}>{t('con_reconnect')}</button>
+						{/if}
 						{#if r.enabled}
 							<button class="btn sm no del" disabled={busy != null} aria-expanded={confirming === r.id} onclick={() => (confirming = confirming === r.id ? null : r.id)}>{t('con_disconnect')}</button>
 						{/if}
+					</div>
+				{:else if !r.enabled && r.has_client === false}
+					<div class="acts">
+						<button class="btn sm" disabled={busy != null} onclick={() => hide(r)}>{t('con_hide')}</button>
 					</div>
 				{/if}
 				{#if confirming === r.id}

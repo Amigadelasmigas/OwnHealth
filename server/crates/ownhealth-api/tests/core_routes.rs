@@ -62,6 +62,9 @@ async fn test_me_profiles_and_roles() -> R {
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
+    for (i, can_manage) in [true, false, true, false].into_iter().enumerate() {
+        assert_eq!(me["profiles"][i]["can_manage"], can_manage);
+    }
     let lucia = &me["profiles"][2];
     assert_eq!(lucia["is_minor"], json!(true));
     assert_eq!(lucia["initials"], "LR");
@@ -83,6 +86,7 @@ async fn test_me_profiles_and_roles() -> R {
             "display_name",
             "initials",
             "role",
+            "can_manage",
             "relationship",
             "age",
             "sex_at_birth",

@@ -462,9 +462,9 @@ export function othersGrouped<T extends { kind: string; document_id: string | nu
 	return out;
 }
 
-/** Profiles whose sources a person may set up: the ones they own or are guardian of. */
-export function manageable<T extends { role: string }>(profiles: T[]): T[] {
-	return profiles.filter((p) => p.role === 'owner' || p.role === 'guardian');
+/** Profiles whose sources the signed-in person may set up. */
+export function manageable<T extends { can_manage: boolean }>(profiles: T[]): T[] {
+	return profiles.filter((p) => p.can_manage);
 }
 
 /** The one Inbox tile of Import & review: how many sources, how many failing, held mail. Null until loaded. */
