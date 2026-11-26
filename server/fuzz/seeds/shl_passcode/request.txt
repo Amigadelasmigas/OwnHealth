@@ -1,0 +1,2 @@
+AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+{"recipient": "Dr. Carmen Ortega, LabNorte", "passcode": "1234"}
