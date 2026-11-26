@@ -2127,6 +2127,48 @@ async fn emergency_scopes_show_a_source_with_a_use_and_no_sensitive_flags_alone(
     Ok(())
 }
 
+/// A mailbox source shows with read:labs or read:records. When the reader's ordinary read:labs already
+/// shows it, an emergency read:records adds nothing, so the read records no use. Without the ordinary
+/// read:labs, the emergency read:records is what shows it, and the read records one use.
+#[tokio::test]
+async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() -> R {
+    let mut b = setup().await?;
+    let mailbox = {
+        let mut c = b.env.pool().acquire().await?;
+        ownhealth_core::sources::create_source(
+            &mut c,
+            &ownhealth_core::sources::NewSource {
+                profile_id: Some(b.alex_id()),
+                poll_seconds: Some(900),
+                ..ownhealth_core::sources::NewSource::new(b.env.fam().household_id, "email", "Buzón de LabNorte")
+            },
+        )
+        .await?
+    };
+    b.grant_sam("viewer", &["read:summary", "read:labs"]).await?;
+    let mut sam = b.sam().await?;
+    let shows = |r: &Resp| {
+        r.json
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["id"] == json!(mailbox))
+    };
+    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:records"])).await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through the ordinary read:labs: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "the emergency read:records was not needed");
+
+    b.grant_sam("viewer", &["read:summary"]).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through the emergency read:records: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+    Ok(())
+}
+
 async fn record_uses(b: &Bg, id: Uuid) -> anyhow::Result<(i64, i64)> {
     Ok((
         b.uses(id).await?,

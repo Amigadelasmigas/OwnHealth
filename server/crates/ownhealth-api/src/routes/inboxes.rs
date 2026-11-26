@@ -672,9 +672,11 @@ async fn visible(conn: &mut PgConnection, caller: &Caller) -> Result<Vec<(Source
         .filter(|h| {
             h.profile_id.map_or(manager, |p| {
                 profiles.get(&p).is_some_and(|perm| {
-                    let reads: Vec<&str> = data_scopes(&h.kind).iter().copied().filter(|s| perm.has(s)).collect();
+                    let scopes = data_scopes(&h.kind);
+                    let reads: Vec<&str> = scopes.iter().copied().filter(|s| perm.has(s)).collect();
                     let shown = !reads.is_empty() || managed.contains(&p);
-                    if shown {
+                    // emergency access is used only when the person's own grant does not show the source
+                    if shown && !scopes.iter().any(|s| perm.own_scopes.contains(*s)) {
                         perm.record_read(&reads);
                     }
                     shown
