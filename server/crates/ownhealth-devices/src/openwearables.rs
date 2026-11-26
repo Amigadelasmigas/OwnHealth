@@ -725,7 +725,11 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
     let mut failed = Vec::new();
     // A failed re-read of days a vendor already stored: named, and the vendor goes on after its cursor.
     let mut skipped = Vec::new();
+    // A vendor whose reads went through but none of whose rows read: nothing of it arrives.
+    let mut unreadable = Vec::new();
+    let unreadable_rows = |out: &RunOutcome| out.skipped.get("unreadable_row").copied().unwrap_or(0);
     'vendors: for &provider in &active {
+        let (seen_before, unreadable_before) = (out.seen, unreadable_rows(&out));
         let stored_until = mark(cursor.as_ref(), provider).map(|t| t.min(now));
         let mut from = stored_until.map_or(now - Duration::days(BACKFILL_DAYS), |t| {
             t - Duration::days(OVERLAP_DAYS)
@@ -767,6 +771,10 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
             cursor = Some(next);
             from = to;
         }
+        let bad = unreadable_rows(&out) - unreadable_before;
+        if bad > 0 && i64::from(out.seen - seen_before) == bad {
+            unreadable.push(provider);
+        }
     }
     // The connection report is useful even if every data endpoint failed. Save it under the
     // same binding guard as the data, without changing any vendor's data cursor.
@@ -803,6 +811,10 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                         let moved = mark(cursor.as_ref(), vendor) != mark(binding.cursor.as_ref(), vendor);
                         health.failing_since =
                             Some(known.and_then(|p| p.failing_since).filter(|_| !moved).unwrap_or(now));
+                    } else if unreadable.contains(&vendor.as_str()) {
+                        // Its cursor moves over the days it read, though none of their rows read: the
+                        // clock goes on until a row of it reads.
+                        health.failing_since = Some(known.and_then(|p| p.failing_since).unwrap_or(now));
                     }
                 }
                 Status::Expired | Status::Revoked => health.failing_since = known.and_then(|p| p.failing_since),

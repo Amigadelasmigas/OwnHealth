@@ -2197,6 +2197,37 @@ async fn a_vendor_removed_just_before_its_window_passes_raises_no_alert() -> any
     Ok(())
 }
 
+/// One field of the source's cursor, by path.
+async fn cursor_at(env: &Env, source: Uuid, path: &[&str]) -> anyhow::Result<Option<Value>> {
+    Ok(sqlx::query_scalar("select cursor #> $2 from source where id = $1")
+        .bind(source)
+        .bind(path.iter().map(|p| p.to_string()).collect::<Vec<_>>())
+        .fetch_one(&env.ctx.pool)
+        .await?)
+}
+
+/// When a vendor's failure clock started, as the cursor holds it.
+async fn failing_since(env: &Env, source: Uuid, vendor: &str) -> anyhow::Result<Option<DateTime<Utc>>> {
+    Ok(cursor_at(env, source, &["connections", vendor, "failing_since"])
+        .await?
+        .map(serde_json::from_value)
+        .transpose()?)
+}
+
+async fn set_failing_since(env: &Env, source: Uuid, vendor: &str, at: DateTime<Utc>) -> anyhow::Result<()> {
+    sqlx::query("update source set cursor = jsonb_set(cursor, $2, to_jsonb($3::timestamptz)) where id = $1")
+        .bind(source)
+        .bind(vec![
+            gaps::CURSOR_KEY.to_string(),
+            vendor.to_string(),
+            "failing_since".to_string(),
+        ])
+        .bind(at)
+        .execute(&env.ctx.pool)
+        .await?;
+    Ok(())
+}
+
 /// A pass whose clock ran far ahead (a box clock set a year ahead, then put right) stamped its alert in
 /// the future. A stamp more than a day ahead of a pass is ignored, so the next passes still judge the
 /// source, and the alert closes once sync is back instead of waiting a year.
@@ -2232,6 +2263,116 @@ async fn a_far_future_clock_stamp_does_not_freeze_the_gap_check() -> anyhow::Res
         alert_reason(&env, item).await?,
         ("dismissed".into(), Some("sync_recovered".into()), true),
         "a stamp a year ahead froze the gap check"
+    );
+    Ok(())
+}
+
+/// A Dexcom pull whose every item fails reached Dexcom but stored nothing. Dexcom has no clock per part,
+/// so such a run is a failed pull: two of them across its interval open its alert.
+#[tokio::test]
+async fn a_dexcom_pull_whose_every_item_fails_alerts() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let household: Uuid = sqlx::query_scalar("select household_id from profile where id = $1")
+        .bind(env.profile)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    let mut conn = env.ctx.pool.acquire().await?;
+    let dexcom = sources::create_source(
+        &mut conn,
+        &NewSource {
+            profile_id: Some(env.profile),
+            poll_seconds: Some(900),
+            ..NewSource::new(household, "dexcom", "Dexcom")
+        },
+    )
+    .await?;
+    let t0 = instant("2026-01-01T00:00:00Z");
+    for at in [t0, t0 + Duration::minutes(16)] {
+        let run = sources::begin_run(&mut conn, dexcom, "poll", None).await?;
+        let every_item_failed = RunOutcome {
+            seen: 3,
+            problems: vec![RunProblem {
+                code: "unreadable_reading".into(),
+                message: "a reading had no value".into(),
+            }],
+            ..RunOutcome::default()
+        };
+        sources::finish_run(&mut conn, run, Ok(&every_item_failed)).await?;
+        let status: String = sqlx::query_scalar(
+            "update source_run set started_at = $2, finished_at = $2 where id = $1 returning status",
+        )
+        .bind(run)
+        .bind(at)
+        .fetch_one(&mut *conn)
+        .await?;
+        assert_eq!(status, "error");
+    }
+    drop(conn);
+    sources::scheduler_tick_at(&env.ctx, t0 + Duration::minutes(17)).await?;
+    let open = open_gaps(&env, dexcom).await?;
+    assert_eq!(open.len(), 1, "a Dexcom pull whose every item failed raised no alert");
+    Ok(())
+}
+
+/// Open Wearables reports a recent WHOOP sync, but no WHOOP row reads, poll after poll, while Polar
+/// syncs. Nothing of WHOOP arrives, so WHOOP is on its own failure clock: it alerts once that passes
+/// its window, and the alert closes when a WHOOP row reads again.
+#[tokio::test]
+async fn a_vendor_whose_rows_never_read_alerts_while_the_others_sync() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let readable_whoop = {
+        let mut fake = env.fake();
+        let now = Utc::now();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        let readable = fake
+            .rows
+            .iter()
+            .position(|r| r["source"]["provider"] == "whoop")
+            .map(|i| fake.rows.remove(i))
+            .expect("the fake holds a WHOOP row");
+        let mut unreadable = readable.clone();
+        unreadable["value"] = json!("n/a");
+        fake.rows.push(unreadable);
+        readable
+    };
+    let before = Utc::now();
+    poll(&env.ctx, &env.base, id).await?;
+    assert!(
+        failing_since(&env, id, "whoop").await? >= Some(before),
+        "rows that never read started no clock"
+    );
+    assert_eq!(failing_since(&env, id, "polar").await?, None);
+    let since = Utc::now() - Duration::hours(37);
+    set_failing_since(&env, id, "whoop", since).await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    let kept = failing_since(&env, id, "whoop").await?.expect("the clock goes on");
+    assert!((kept - since).num_milliseconds().abs() < 1, "{kept} {since}");
+    sources::scheduler_tick(&env.ctx).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    let message: String = sqlx::query_scalar("select payload #>> '{message,en}' from review_item where id = $1")
+        .bind(item)
+        .fetch_one(&env.ctx.pool)
+        .await?;
+    assert!(message.contains("WHOOP") && !message.contains("Polar"), "{message}");
+
+    {
+        let mut fake = env.fake();
+        fake.rows.retain(|r| r["source"]["provider"] != "whoop");
+        fake.rows.push(readable_whoop);
+    }
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(failing_since(&env, id, "whoop").await?, None);
+    sources::scheduler_tick(&env.ctx).await?;
+    assert_eq!(
+        alert_reason(&env, item).await?,
+        ("dismissed".into(), Some("sync_recovered".into()), true)
     );
     Ok(())
 }
