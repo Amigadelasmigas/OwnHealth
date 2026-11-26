@@ -55,6 +55,38 @@ test('plural rules follow the language, not a fixed es/en switch', () => {
 	assert.equal(pluralKey('es', 2, 'k', has), 'k');
 	// French says "one" for 0 too; the old switch read every other language as English.
 	assert.equal(pluralKey('fr', 0, 'k', has), 'k_one');
+	// European Portuguese (pt-PT) says "other" for 0; the bare code would take the Brazilian rules.
+	assert.equal(pluralKey('pt', 0, 'k', has), 'k');
+});
+
+const names = (s: string) => [...new Set([...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort();
+
+test('a count of zero never reads as one: a language whose zero takes the singular counts it with {n}', () => {
+	const wrong: string[] = [];
+	for (const l of LANGS) {
+		const tb = l.table as Record<string, string>;
+		for (const k of enKeys.filter((k) => k.endsWith('_one'))) {
+			const base = k.slice(0, -4);
+			if (!(base in tb) || pluralKey(l.code, 0, base, (x) => x in tb) !== k) continue;
+			// a 0 shown through the singular must print the count, not a written 1
+			if (names(tb[base]).includes('n') && !names(tb[k]).includes('n')) wrong.push(`${l.code} ${k}: ${tb[k]}`);
+		}
+	}
+	assert.deepEqual(wrong, []);
+});
+
+test('every language fills the placeholders English has, and no other', () => {
+	const wrong: string[] = [];
+	for (const l of LANGS) {
+		const tb = l.table as Record<string, string>;
+		for (const k of enKeys) {
+			// a singular may print its count as a word or a digit instead of {n}
+			const drop = (xs: string[]) => (k.endsWith('_one') ? xs.filter((x) => x !== 'n') : xs);
+			const want = drop(names((dict.en as Record<string, string>)[k]));
+			if (k in tb && JSON.stringify(drop(names(tb[k]))) !== JSON.stringify(want)) wrong.push(`${l.code} ${k}: ${tb[k]}`);
+		}
+	}
+	assert.deepEqual(wrong, []);
 });
 
 // A pick of es or en written into a component: a comparison with the code either way round and in

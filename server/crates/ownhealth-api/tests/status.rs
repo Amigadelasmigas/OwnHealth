@@ -226,7 +226,7 @@ async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_defau
         "dashboard?as_of=2026-11-07&",
         "drug-check?drug=clopidogrel&",
     ] {
-        for bad in ["fr", "en-US"] {
+        for bad in ["xx", "en-US"] {
             let (code, b) = e.get(&format!("/api/profiles/alex/{route}lang={bad}")).await?;
             assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY, "{route}{bad}: {b}");
             assert_eq!(b["detail"][0]["type"], "literal_error", "{b}");

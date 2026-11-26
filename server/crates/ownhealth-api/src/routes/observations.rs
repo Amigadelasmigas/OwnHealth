@@ -555,6 +555,126 @@ const LIMITS: &[(&str, &Limits)] = &[
             ],
         },
     ),
+    (
+        "de",
+        &Limits {
+            point: [
+                "1 Punkt ist {what} (LOINC {bare}).",
+                "{n} Punkte sind {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", berechnet"),
+                ("direct", ", direkt gemessen"),
+                ("fasting", ", nüchtern"),
+            ],
+            ranges: "Die Labore verwenden unterschiedliche Referenzbereiche.",
+            switched: "Die letzten beiden Ergebnisse stammen von einer anderen Methode oder einem anderen Labor, daher wird die Änderung nicht mit dem Referenzwert der Änderung verglichen.",
+            converted: "Werte, die in {from} gedruckt sind, werden in {to} umgerechnet angezeigt{how}.",
+            molar: ", mit der molaren Masse von {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 Wert in einer Einheit, die sich nicht in {t} umrechnen lässt, wird nicht gezeichnet.",
+                "{n} Werte in einer Einheit, die sich nicht in {t} umrechnen lässt, werden nicht gezeichnet.",
+            ],
+        },
+    ),
+    (
+        "fr",
+        &Limits {
+            point: [
+                "1 point correspond à {what} (LOINC {bare}).",
+                "{n} points correspondent à {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", calculé"),
+                ("direct", ", mesure directe"),
+                ("fasting", ", à jeun"),
+            ],
+            ranges: "Les laboratoires utilisent des intervalles de référence différents.",
+            switched: "Les deux derniers résultats viennent d'une autre méthode ou d'un autre laboratoire, donc la variation n'est pas comparée à la valeur de référence de la variation.",
+            converted: "Les valeurs imprimées en {from} sont affichées converties en {to}{how}.",
+            molar: " avec la masse molaire de {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 valeur dans une unité non convertible en {t} n'est pas tracée.",
+                "{n} valeurs dans une unité non convertible en {t} ne sont pas tracées.",
+            ],
+        },
+    ),
+    (
+        "ca",
+        &Limits {
+            point: [
+                "1 punt és {what} (LOINC {bare}).",
+                "{n} punts són {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", calculat"),
+                ("direct", ", mesura directa"),
+                ("fasting", ", en dejú"),
+            ],
+            ranges: "Els laboratoris fan servir intervals de referència diferents.",
+            switched: "Els dos últims resultats són d'un altre mètode o laboratori, així que el canvi no es compara amb el valor de referència del canvi.",
+            converted: "Els valors impresos en {from} es mostren convertits a {to}{how}.",
+            molar: " amb la massa molar de {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 valor en una unitat que no es converteix a {t} no es dibuixa.",
+                "{n} valors en una unitat que no es converteix a {t} no es dibuixen.",
+            ],
+        },
+    ),
+    (
+        "it",
+        &Limits {
+            point: [
+                "1 punto è {what} (LOINC {bare}).",
+                "{n} punti sono {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", calcolato"),
+                ("direct", ", misura diretta"),
+                ("fasting", ", a digiuno"),
+            ],
+            ranges: "I laboratori usano intervalli di riferimento diversi.",
+            switched: "Gli ultimi due risultati provengono da un altro metodo o laboratorio, quindi la variazione non viene confrontata con il valore di riferimento della variazione.",
+            converted: "I valori stampati in {from} sono mostrati convertiti in {to}{how}.",
+            molar: " con la massa molare di {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 valore in un'unità non convertibile in {t} non viene tracciato.",
+                "{n} valori in un'unità non convertibile in {t} non vengono tracciati.",
+            ],
+        },
+    ),
+    (
+        "pt",
+        &Limits {
+            point: [
+                "1 ponto é {what} (LOINC {bare}).",
+                "{n} pontos são {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", calculado"),
+                ("direct", ", medição direta"),
+                ("fasting", ", em jejum"),
+            ],
+            ranges: "Os laboratórios usam intervalos de referência diferentes.",
+            switched: "Os dois últimos resultados são de outro método ou laboratório, por isso a mudança não é comparada com o valor de referência da mudança.",
+            converted: "Os valores impressos em {from} são mostrados convertidos para {to}{how}.",
+            molar: " com a massa molar de {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 valor numa unidade que não se converte para {t} não é desenhado.",
+                "{n} valores numa unidade que não se converte para {t} não são desenhados.",
+            ],
+        },
+    ),
 ];
 
 /// The registry languages the trend's limitation lines lack (`tests/langs.rs`).

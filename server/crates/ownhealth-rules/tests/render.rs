@@ -191,7 +191,12 @@ async fn a_pack_defined_lab_reason_renders() -> R {
         t.insert(
             "LAB_CRITICAL_HIGH".into(),
             json!({"en": "{name} {value} {unit} (critical, lab range {ref}) {when}.",
-                   "es": "{name} {value} {unit} (crítico, rango del laboratorio {ref}) {when}."}),
+                   "es": "{name} {value} {unit} (crítico, rango del laboratorio {ref}) {when}.",
+                   "de": "{name} {value} {unit} (kritisch, Laborbereich {ref}) {when}.",
+                   "fr": "{name} {value} {unit} (critique, plage du laboratoire {ref}) {when}.",
+                   "ca": "{name} {value} {unit} (crític, interval del laboratori {ref}) {when}.",
+                   "it": "{name} {value} {unit} (critico, intervallo del laboratorio {ref}) {when}.",
+                   "pt": "{name} {value} {unit} (crítico, intervalo do laboratório {ref}) {when}."}),
         );
     }
     let pack = build_pack(&files, true)?;

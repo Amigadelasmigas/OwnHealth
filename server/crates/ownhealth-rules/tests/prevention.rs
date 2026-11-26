@@ -971,6 +971,86 @@ fn every_group_name_matches_its_own_aliases() -> R {
     Ok(())
 }
 
+/// The schedules count the conjugate pneumococcal vaccine and the recombinant zoster vaccine only. A
+/// record with no code that names the polysaccharide PPSV23 or the live zoster vaccine stays out of
+/// its group in every registry language, so it never marks the row done.
+#[test]
+fn ppsv23_and_live_zoster_count_in_no_language() -> R {
+    let pack = load_pack()?;
+    let p = load_dir(Path::new(DATA), &pack)?;
+    let counts = |group: &str, name: &str| {
+        let g = &p.groups[group];
+        let w = prevention::words(name);
+        let any = |list: &Vec<Vec<String>>| list.iter().any(|a| !a.is_empty() && w.windows(a.len()).any(|x| x == a));
+        any(&g.aliases) && !any(&g.aliases_not)
+    };
+    let mut wrong = Vec::new();
+    for (lang, name) in [
+        ("en", "Pneumococcal polysaccharide vaccine 23-valent"),
+        ("es", "Vacuna neumocócica polisacárida 23-valente"),
+        ("de", "Pneumokokken-Polysaccharid-Impfstoff"),
+        ("de", "Pneumokokken Polysaccharidimpfstoff 23-valent"),
+        ("fr", "Pneumocoque polyosidique 23-valent"),
+        ("fr", "Pneumocoque polysaccharidique"),
+        ("ca", "Pneumococ polisacàrid 23-valent"),
+        ("it", "Pneumococco polisaccaridico"),
+        ("pt", "Pneumococo polissacarídico"),
+        ("all", "Pneumokokken (Pneumovax 23)"),
+    ] {
+        if counts("pneumococcal", name) {
+            wrong.push(format!("pneumococcal {lang}: {name}"));
+        }
+    }
+    for (lang, name) in [
+        ("en", "Zoster vaccine live"),
+        ("es", "Vacuna de herpes zóster viva atenuada"),
+        ("de", "Herpes-Zoster-Lebendimpfstoff"),
+        ("de", "Zoster lebend"),
+        ("fr", "Herpès zoster vivant atténué"),
+        ("ca", "Herpes zòster viu atenuat"),
+        ("it", "Herpes zoster vivo attenuato"),
+        ("pt", "Herpes zóster vivo atenuado"),
+    ] {
+        if counts("zoster", name) {
+            wrong.push(format!("zoster {lang}: {name}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+    // the conjugate and recombinant vaccines still count by name
+    for name in [
+        "Pneumokokken-Konjugatimpfstoff (PCV20)",
+        "Pneumocoque conjugué",
+        "Pneumococco PCV20",
+    ] {
+        assert!(counts("pneumococcal", name), "{name}");
+    }
+    for name in ["Shingrix", "Herpes zoster ricombinante", "Zona (herpès zoster)"] {
+        assert!(counts("zoster", name), "{name}");
+    }
+    Ok(())
+}
+
+/// The label columns of `vaccines.tsv` follow its header (de, fr, ca, it, pt): a row whose labels all
+/// differ pins each language to its own column, so a column order slip fails here.
+#[test]
+fn each_vaccine_label_column_is_its_own_language() -> R {
+    let pack = load_pack()?;
+    let p = load_dir(Path::new(DATA), &pack)?;
+    assert_eq!(
+        p.groups["td"].name,
+        json!({
+            "en": "Tetanus and diphtheria (Td)",
+            "es": "Tétanos y difteria (Td)",
+            "de": "Tetanus und Diphtherie (Td)",
+            "fr": "Tétanos et diphtérie (Td)",
+            "ca": "Tètanus i diftèria (Td)",
+            "it": "Tetano e difterite (Td)",
+            "pt": "Tétano e difteria (Td)"
+        })
+    );
+    Ok(())
+}
+
 /// The hysterectomy answer takes the cervical rows away, so it asks about any past cervical cancer or
 /// high-grade precancer, not only the reason for the surgery: a precancer treated years before a
 /// hysterectomy for another cause still calls for follow-up.

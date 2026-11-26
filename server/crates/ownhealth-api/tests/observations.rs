@@ -601,7 +601,7 @@ async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_defau
         "/profiles/alex/observations?",
         "/profiles/alex/trend?code=LOINC:13457-7&window=P5Y&",
     ] {
-        for bad in ["fr", "en-US"] {
+        for bad in ["xx", "en-US"] {
             let (s, out) = get(&a, "alex", &format!("{route}lang={bad}")).await?;
             assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{route}{bad}: {out}");
             assert_eq!(

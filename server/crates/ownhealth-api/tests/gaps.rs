@@ -75,7 +75,7 @@ async fn a_visit_without_a_report_is_a_gap_with_its_words_and_src() -> R {
     assert_eq!(it["letter"], "spain");
     assert!(it["src"][0].as_str().is_some_and(|s| s.starts_with("src_")), "{it}");
     assert_eq!(it["cite"], "https://eur-lex.europa.eu/eli/reg/2016/679/oj#art_15");
-    let (s, v) = a.get("alex", "/profiles/alex/gaps?lang=fr").await?;
+    let (s, v) = a.get("alex", "/profiles/alex/gaps?lang=xx").await?;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{v}");
     // the audit row names the document's hash, never a provider
     let n = a

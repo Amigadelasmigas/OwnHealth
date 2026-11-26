@@ -466,7 +466,7 @@ async fn another_finding_in_the_gene_is_never_read_as_not_detected() -> R {
 async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_default() -> R {
     let env = env().await?;
     env.share_sam_genome().await?;
-    for bad in ["fr", "en-US"] {
+    for bad in ["xx", "en-US"] {
         let (s, body) = env.get("alex", &format!("{URI}&lang={bad}")).await?;
         assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {body}");
         assert_eq!(

@@ -162,7 +162,7 @@ async fn a_caregiver_without_read_records_sees_only_the_lab_range_lines() -> R {
 async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_default() -> R {
     let (_s, _dir, _rt, app) = env().await?;
     for route in ["next-draw", "next-draw.pdf"] {
-        for bad in ["fr", "en-US"] {
+        for bad in ["xx", "en-US"] {
             let (st, body) = json(&app, &format!("/api/profiles/alex/{route}?as_of=2026-11-07&lang={bad}")).await?;
             assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "{route} {bad}: {body}");
             assert_eq!(body["detail"][0]["type"], "literal_error", "{body}");

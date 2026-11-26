@@ -701,7 +701,15 @@ fn group_name(data: &Data, group: &str, lang: &str) -> String {
 }
 
 /// The word that joins the last two names of a list ("a, b and c"), per registry language.
-const AND: &[(&str, &str)] = &[("es", " y "), ("en", " and ")];
+const AND: &[(&str, &str)] = &[
+    ("es", " y "),
+    ("en", " and "),
+    ("de", " und "),
+    ("fr", " et "),
+    ("ca", " i "),
+    ("it", " e "),
+    ("pt", " e "),
+];
 
 /// The registry languages the list word lacks.
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {

@@ -4,44 +4,84 @@
  "templates": {
   "named": {
    "en": "ClinVar's classification of a variant you carry in {gene} is now: {new} ({stars}). Before: {old}.",
-   "es": "La clasificación en ClinVar de una variante que tienes en {gene} es ahora: {new} ({stars}). Antes: {old}."
+   "es": "La clasificación en ClinVar de una variante que tienes en {gene} es ahora: {new} ({stars}). Antes: {old}.",
+   "de": "Die ClinVar-Einstufung einer Variante, die du in {gene} trägst, lautet jetzt: {new} ({stars}). Vorher: {old}.",
+   "fr": "La classification ClinVar d'un variant que vous portez dans {gene} est désormais : {new} ({stars}). Avant : {old}.",
+   "ca": "La classificació a ClinVar d'una variant que tens a {gene} ara és: {new} ({stars}). Abans: {old}.",
+   "it": "La classificazione ClinVar di una variante che porti in {gene} ora è: {new} ({stars}). Prima: {old}.",
+   "pt": "A classificação no ClinVar de uma variante que tens em {gene} é agora: {new} ({stars}). Antes: {old}."
   },
   "named_no_gene": {
    "en": "ClinVar's classification of a variant you carry is now: {new} ({stars}). Before: {old}.",
-   "es": "La clasificación en ClinVar de una variante que tienes es ahora: {new} ({stars}). Antes: {old}."
+   "es": "La clasificación en ClinVar de una variante que tienes es ahora: {new} ({stars}). Antes: {old}.",
+   "de": "Die ClinVar-Einstufung einer Variante, die du trägst, lautet jetzt: {new} ({stars}). Vorher: {old}.",
+   "fr": "La classification ClinVar d'un variant que vous portez est désormais : {new} ({stars}). Avant : {old}.",
+   "ca": "La classificació a ClinVar d'una variant que tens ara és: {new} ({stars}). Abans: {old}.",
+   "it": "La classificazione ClinVar di una variante che porti ora è: {new} ({stars}). Prima: {old}.",
+   "pt": "A classificação no ClinVar de uma variante que tens é agora: {new} ({stars}). Antes: {old}."
   },
   "named_same_class": {
    "en": "ClinVar changed its classification of a variant you carry in {gene} within the same group. It is now: {new} ({stars}).",
-   "es": "ClinVar ha cambiado su clasificación de una variante que tienes en {gene} dentro del mismo grupo. Es ahora: {new} ({stars})."
+   "es": "ClinVar ha cambiado su clasificación de una variante que tienes en {gene} dentro del mismo grupo. Es ahora: {new} ({stars}).",
+   "de": "ClinVar hat die Einstufung einer Variante, die du in {gene} trägst, innerhalb derselben Gruppe geändert. Sie lautet jetzt: {new} ({stars}).",
+   "fr": "ClinVar a modifié sa classification d'un variant que vous portez dans {gene} au sein du même groupe. Elle est désormais : {new} ({stars}).",
+   "ca": "ClinVar ha canviat la classificació d'una variant que tens a {gene} dins del mateix grup. Ara és: {new} ({stars}).",
+   "it": "ClinVar ha cambiato la classificazione di una variante che porti in {gene} all'interno dello stesso gruppo. Ora è: {new} ({stars}).",
+   "pt": "O ClinVar mudou a classificação de uma variante que tens em {gene} dentro do mesmo grupo. É agora: {new} ({stars})."
   },
   "named_same_class_no_gene": {
    "en": "ClinVar changed its classification of a variant you carry within the same group. It is now: {new} ({stars}).",
-   "es": "ClinVar ha cambiado su clasificación de una variante que tienes dentro del mismo grupo. Es ahora: {new} ({stars})."
+   "es": "ClinVar ha cambiado su clasificación de una variante que tienes dentro del mismo grupo. Es ahora: {new} ({stars}).",
+   "de": "ClinVar hat die Einstufung einer Variante, die du trägst, innerhalb derselben Gruppe geändert. Sie lautet jetzt: {new} ({stars}).",
+   "fr": "ClinVar a modifié sa classification d'un variant que vous portez au sein du même groupe. Elle est désormais : {new} ({stars}).",
+   "ca": "ClinVar ha canviat la classificació d'una variant que tens dins del mateix grup. Ara és: {new} ({stars}).",
+   "it": "ClinVar ha cambiato la classificazione di una variante che porti all'interno dello stesso gruppo. Ora è: {new} ({stars}).",
+   "pt": "O ClinVar mudou a classificação de uma variante que tens dentro do mesmo grupo. É agora: {new} ({stars})."
   },
   "changed": {
    "en": "A result you carry changed in ClinVar.",
-   "es": "Ha cambiado en ClinVar un resultado que tienes."
+   "es": "Ha cambiado en ClinVar un resultado que tienes.",
+   "de": "Ein Ergebnis, das du trägst, hat sich in ClinVar geändert.",
+   "fr": "Un résultat que vous portez a changé dans ClinVar.",
+   "ca": "Ha canviat a ClinVar un resultat que tens.",
+   "it": "Un risultato che porti è cambiato in ClinVar.",
+   "pt": "Mudou no ClinVar um resultado que tens."
   },
   "withheld": {
    "en": "A withheld result changed in ClinVar.",
-   "es": "Ha cambiado en ClinVar un resultado que está oculto."
+   "es": "Ha cambiado en ClinVar un resultado que está oculto.",
+   "de": "Ein zurückgehaltenes Ergebnis hat sich in ClinVar geändert.",
+   "fr": "Un résultat masqué a changé dans ClinVar.",
+   "ca": "Ha canviat a ClinVar un resultat que està ocult.",
+   "it": "Un risultato nascosto è cambiato in ClinVar.",
+   "pt": "Mudou no ClinVar um resultado que está oculto."
   },
   "rerun": {
    "en": "OwnGenome makes the call again with bin/og recheck --sample <name> --rerun.",
-   "es": "OwnGenome lo obtiene de nuevo con bin/og recheck --sample <name> --rerun."
+   "es": "OwnGenome lo obtiene de nuevo con bin/og recheck --sample <name> --rerun.",
+   "de": "OwnGenome bestimmt es erneut mit bin/og recheck --sample <name> --rerun.",
+   "fr": "OwnGenome refait l'appel avec bin/og recheck --sample <name> --rerun.",
+   "ca": "OwnGenome el torna a obtenir amb bin/og recheck --sample <name> --rerun.",
+   "it": "OwnGenome lo ricalcola con bin/og recheck --sample <name> --rerun.",
+   "pt": "O OwnGenome volta a obtê-lo com bin/og recheck --sample <name> --rerun."
   },
   "chip": {
    "en": "It comes from a chip and is unconfirmed: worth a clinical test.",
-   "es": "Viene de un chip y no está confirmado: merece una prueba clínica."
+   "es": "Viene de un chip y no está confirmado: merece una prueba clínica.",
+   "de": "Es stammt von einem Chip und ist unbestätigt: Ein klinischer Test lohnt sich.",
+   "fr": "Il vient d'une puce et n'est pas confirmé : un test clinique en vaut la peine.",
+   "ca": "Ve d'un xip i no està confirmat: val la pena una prova clínica.",
+   "it": "Viene da un chip e non è confermato: vale la pena un test clinico.",
+   "pt": "Vem de um chip e não está confirmado: vale a pena um teste clínico."
   },
-  "stars_one": {"en": "1 star", "es": "1 estrella"},
-  "stars_many": {"en": "{n} stars", "es": "{n} estrellas"},
-  "class_plp": {"en": "pathogenic or likely pathogenic", "es": "patogénica o probablemente patogénica"},
-  "class_vus": {"en": "uncertain significance", "es": "significado incierto"},
-  "class_conflicting": {"en": "conflicting classifications", "es": "clasificaciones contradictorias"},
-  "class_blb": {"en": "benign or likely benign", "es": "benigna o probablemente benigna"},
-  "class_other": {"en": "another kind of classification", "es": "otro tipo de clasificación"},
-  "class_not_reported": {"en": "not reported in your genome file", "es": "sin informar en tu archivo genómico"},
-  "class_not_in_clinvar": {"en": "not in the previous ClinVar release", "es": "sin registro en la versión anterior de ClinVar"}
+  "stars_one": {"en": "1 star", "es": "1 estrella", "de": "1 Stern", "fr": "1 étoile", "ca": "1 estrella", "it": "1 stella", "pt": "1 estrela"},
+  "stars_many": {"en": "{n} stars", "es": "{n} estrellas", "de": "{n} Sterne", "fr": "{n} étoiles", "ca": "{n} estrelles", "it": "{n} stelle", "pt": "{n} estrelas"},
+  "class_plp": {"en": "pathogenic or likely pathogenic", "es": "patogénica o probablemente patogénica", "de": "pathogen oder wahrscheinlich pathogen", "fr": "pathogène ou probablement pathogène", "ca": "patogènica o probablement patogènica", "it": "patogenetica o probabilmente patogenetica", "pt": "patogénica ou provavelmente patogénica"},
+  "class_vus": {"en": "uncertain significance", "es": "significado incierto", "de": "unklare Bedeutung", "fr": "signification incertaine", "ca": "significat incert", "it": "significato incerto", "pt": "significado incerto"},
+  "class_conflicting": {"en": "conflicting classifications", "es": "clasificaciones contradictorias", "de": "widersprüchliche Einstufungen", "fr": "classifications contradictoires", "ca": "classificacions contradictòries", "it": "classificazioni contrastanti", "pt": "classificações contraditórias"},
+  "class_blb": {"en": "benign or likely benign", "es": "benigna o probablemente benigna", "de": "benigne oder wahrscheinlich benigne", "fr": "bénin ou probablement bénin", "ca": "benigna o probablement benigna", "it": "benigna o probabilmente benigna", "pt": "benigna ou provavelmente benigna"},
+  "class_other": {"en": "another kind of classification", "es": "otro tipo de clasificación", "de": "eine andere Art der Einstufung", "fr": "un autre type de classification", "ca": "un altre tipus de classificació", "it": "un altro tipo di classificazione", "pt": "outro tipo de classificação"},
+  "class_not_reported": {"en": "not reported in your genome file", "es": "sin informar en tu archivo genómico", "de": "in deiner Genomdatei nicht berichtet", "fr": "non rapporté dans votre fichier génomique", "ca": "sense informar al teu fitxer genòmic", "it": "non riportato nel tuo file genomico", "pt": "não indicado no teu ficheiro genómico"},
+  "class_not_in_clinvar": {"en": "not in the previous ClinVar release", "es": "sin registro en la versión anterior de ClinVar", "de": "nicht in der vorigen ClinVar-Version", "fr": "absent de la version précédente de ClinVar", "ca": "sense registre a la versió anterior de ClinVar", "it": "assente dalla versione precedente di ClinVar", "pt": "sem registo na versão anterior do ClinVar"}
  }
 }

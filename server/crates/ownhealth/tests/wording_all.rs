@@ -80,9 +80,20 @@ const SOURCES: &[(&str, Source)] = &[
     }),
 ];
 
+/// The UI string files the gate reads: dict.ts (en, es) and one file per other registry language.
+const UI_TABLES: &[&str] = &[
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/dict.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/de.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/fr.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/ca.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/it.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/pt.ts")),
+];
+
 fn fitbit_takeout_words() -> anyhow::Result<Vec<Value>> {
-    let dict = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/dict.ts"));
-    dict.lines()
+    UI_TABLES
+        .iter()
+        .flat_map(|t| t.lines())
         .filter_map(|line| {
             let (key, value) = line.trim_start().split_once(':')?;
             (["i2_ik_fitbit_takeout", "fu_k_fitbit_takeout"].contains(&key)
@@ -100,9 +111,12 @@ fn session_report_words() -> anyhow::Result<Vec<Value>> {
 }
 
 fn dict_words(prefix: &str) -> anyhow::Result<Vec<Value>> {
-    let dict = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/dict.ts"));
     let mut words = Vec::new();
-    for line in dict.lines().filter(|line| line.trim_start().starts_with(prefix)) {
+    for line in UI_TABLES
+        .iter()
+        .flat_map(|t| t.lines())
+        .filter(|line| line.trim_start().starts_with(prefix))
+    {
         let (_, text) = line
             .split_once(':')
             .ok_or_else(|| anyhow::anyhow!("Bad UI string: {line}"))?;
@@ -394,7 +408,8 @@ rows:
   - id: example.one
     cite: https://www.ncbi.nlm.nih.gov/books/NBK000000/
 templates:
-  example.one: {en: "Last measured {when}.", es: "Última medida {when}."}
+  example.one: {en: "Last measured {when}.", es: "Última medida {when}.", de: "Zuletzt gemessen {when}.",
+    fr: "Dernière mesure {when}.", ca: "Última mesura {when}.", it: "Ultima misura {when}.", pt: "Última medição {when}."}
 "#;
 
 #[test]

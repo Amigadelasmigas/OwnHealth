@@ -65,6 +65,11 @@ const OPEN: [&str; 3] = ["overdue", "due", "upcoming"];
 const GENERIC_TITLE: &[(&str, &str)] = &[
     ("es", "OwnHealth: 1 elemento pendiente"),
     ("en", "OwnHealth: 1 item due"),
+    ("de", "OwnHealth: 1 Eintrag fällig"),
+    ("fr", "OwnHealth : 1 élément en attente"),
+    ("ca", "OwnHealth: 1 element pendent"),
+    ("it", "OwnHealth: 1 elemento in sospeso"),
+    ("pt", "OwnHealth: 1 item pendente"),
 ];
 
 fn generic_title(lang: &str) -> &'static str {
@@ -75,6 +80,11 @@ fn generic_title(lang: &str) -> &'static str {
 const BG_TITLE: &[(&str, &str)] = &[
     ("es", "OwnHealth: solicitud de acceso de emergencia"),
     ("en", "OwnHealth: emergency access requested"),
+    ("de", "OwnHealth: Notfallzugriff angefragt"),
+    ("fr", "OwnHealth : accès d'urgence demandé"),
+    ("ca", "OwnHealth: sol·licitud d'accés d'emergència"),
+    ("it", "OwnHealth: richiesta di accesso di emergenza"),
+    ("pt", "OwnHealth: pedido de acesso de emergência"),
 ];
 /// When access would open; `{at}` is a UTC time.
 const BG_OPENS: &[(&str, &str)] = &[
@@ -86,13 +96,46 @@ const BG_OPENS: &[(&str, &str)] = &[
         "en",
         "Emergency access to this profile opens on {at} unless the request is cancelled first.",
     ),
+    (
+        "de",
+        "Der Notfallzugriff auf dieses Profil öffnet sich am {at}, sofern die Anfrage nicht vorher abgebrochen wird.",
+    ),
+    (
+        "fr",
+        "L'accès d'urgence à ce profil s'ouvre le {at}, sauf si la demande est annulée avant.",
+    ),
+    (
+        "ca",
+        "L'accés d'emergència a aquest perfil s'obre el {at} si ningú no cancel·la abans la sol·licitud.",
+    ),
+    (
+        "it",
+        "L'accesso di emergenza a questo profilo si apre il {at}, a meno che la richiesta non venga annullata prima.",
+    ),
+    (
+        "pt",
+        "O acesso de emergência a este perfil abre em {at}, a não ser que o pedido seja cancelado antes.",
+    ),
 ];
 /// Who asked, in a named feed only.
 const BG_WHO: &[(&str, &str)] = &[
     ("es", "{contact} ha pedido acceso de emergencia a {profile}."),
     ("en", "{contact} asked for emergency access to {profile}."),
+    ("de", "{contact} hat Notfallzugriff auf {profile} angefragt."),
+    ("fr", "{contact} a demandé un accès d'urgence à {profile}."),
+    ("ca", "{contact} ha demanat accés d'emergència a {profile}."),
+    ("it", "{contact} ha chiesto l'accesso di emergenza a {profile}."),
+    ("pt", "{contact} pediu acesso de emergência a {profile}."),
 ];
-const BG_CANCEL: &[(&str, &str)] = &[("es", "Para cancelarla: {link}"), ("en", "To cancel it: {link}")];
+const BG_CANCEL: &[(&str, &str)] = &[
+    ("es", "Para cancelarla: {link}"),
+    ("en", "To cancel it: {link}"),
+    ("de", "Zum Abbrechen: {link}"),
+    ("fr", "Pour l'annuler : {link}"),
+    ("ca", "Per cancel·lar-la: {link}"),
+    ("it", "Per annullarla: {link}"),
+    ("pt", "Para o cancelar: {link}"),
+];
 
 /// The page that cancels one request: the UI's, behind the owner's login.
 pub fn cancel_link(base_url: &str, request: Uuid) -> String {

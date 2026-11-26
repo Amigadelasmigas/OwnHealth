@@ -2,161 +2,401 @@
 # "avoid" in our own words (tests/state/test_wording.py lints every rendered string). CPIC text is
 # quoted verbatim in check_drug and is the only exception, always attributed.
 templates:
-  status.ok:            {en: In range, es: En rango}
-  status.watch:         {en: Borderline, es: Límite}
-  status.out:           {en: Out of range, es: Fuera de rango}
-  status.stale:         {en: Stale, es: Desactualizado}
-  status.nodata:        {en: No data, es: Sin datos}
+  status.ok:            {en: In range, es: En rango, de: "Im Bereich", fr: "Dans la plage", ca: "Dins del rang", it: "Nei limiti", pt: "Dentro do intervalo"}
+  status.watch:         {en: Borderline, es: Límite, de: "Grenzwertig", fr: "Limite", ca: "Límit", it: "Al limite", pt: "Limítrofe"}
+  status.out:           {en: Out of range, es: Fuera de rango, de: "Außerhalb des Bereichs", fr: "Hors plage", ca: "Fora de rang", it: "Fuori dai limiti", pt: "Fora do intervalo"}
+  status.stale:         {en: Stale, es: Desactualizado, de: "Veraltet", fr: "Pas à jour", ca: "Desactualitzat", it: "Non aggiornato", pt: "Desatualizado"}
+  status.nodata:        {en: No data, es: Sin datos, de: "Keine Daten", fr: "Pas de données", ca: "Sense dades", it: "Nessun dato", pt: "Sem dados"}
   LAB_HIGH:
     en: "{name} {value} {unit} (H, lab range {ref}) {when}."
     es: "{name} {value} {unit} (H, rango lab. {ref}) {when}."
+    de: "{name} {value} {unit} (H, Laborbereich {ref}) {when}."
+    fr: "{name} {value} {unit} (H, plage du labo {ref}) {when}."
+    ca: "{name} {value} {unit} (H, rang lab. {ref}) {when}."
+    it: "{name} {value} {unit} (H, intervallo lab. {ref}) {when}."
+    pt: "{name} {value} {unit} (H, intervalo lab. {ref}) {when}."
   LAB_LOW:
     en: "{name} {value} {unit} (L, lab range {ref}) {when}."
     es: "{name} {value} {unit} (L, rango lab. {ref}) {when}."
+    de: "{name} {value} {unit} (L, Laborbereich {ref}) {when}."
+    fr: "{name} {value} {unit} (L, plage du labo {ref}) {when}."
+    ca: "{name} {value} {unit} (L, rang lab. {ref}) {when}."
+    it: "{name} {value} {unit} (L, intervallo lab. {ref}) {when}."
+    pt: "{name} {value} {unit} (L, intervalo lab. {ref}) {when}."
   LAB_ABNORMAL:
     en: "{name} {value} {unit} flagged {flag} by the lab {when}."
     es: "{name} {value} {unit} marcado {flag} por el laboratorio {when}."
+    de: "{name} {value} {unit}, vom Labor als {flag} markiert {when}."
+    fr: "{name} {value} {unit} signalé {flag} par le laboratoire {when}."
+    ca: "{name} {value} {unit} marcat {flag} pel laboratori {when}."
+    it: "{name} {value} {unit} segnalato {flag} dal laboratorio {when}."
+    pt: "{name} {value} {unit} assinalado {flag} pelo laboratório {when}."
   RCV_CHANGE:
     en: "{name} went from {prev} to {value} {unit} ({change_pct}%) since {prev_date}, more than the reference change value of {rcv_pct}%."
     es: "{name} pasó de {prev} a {value} {unit} ({change_pct} %) desde el {prev_date}, más que el valor de referencia del cambio ({rcv_pct} %)."
+    de: "{name} ging seit dem {prev_date} von {prev} auf {value} {unit} ({change_pct} %), mehr als der Referenzänderungswert von {rcv_pct} %."
+    fr: "{name} est passé de {prev} à {value} {unit} ({change_pct} %) depuis le {prev_date}, plus que la valeur de référence du changement de {rcv_pct} %."
+    ca: "{name} va passar de {prev} a {value} {unit} ({change_pct} %) des del {prev_date}, més que el valor de referència del canvi ({rcv_pct} %)."
+    it: "{name} è passato da {prev} a {value} {unit} ({change_pct}%) dal {prev_date}, più del valore di riferimento della variazione del {rcv_pct}%."
+    pt: "{name} passou de {prev} para {value} {unit} ({change_pct} %) desde {prev_date}, mais do que o valor de referência da mudança ({rcv_pct} %)."
   BASELINE_OUT:
     en: "{name} {value} {unit} {when} is outside this person's usual level of {low} to {high} {unit}, set by the mean of {n} earlier results from the same lab and method."
     es: "{name} {value} {unit} {when} queda fuera de su nivel habitual, de {low} a {high} {unit}, según la media de {n} resultados anteriores del mismo laboratorio y método."
+    de: "{name} {value} {unit} {when} liegt außerhalb des üblichen Niveaus dieser Person von {low} bis {high} {unit}, bestimmt aus dem Mittelwert von {n} früheren Ergebnissen desselben Labors und derselben Methode."
+    fr: "{name} {value} {unit} {when} est hors du niveau habituel de cette personne, de {low} à {high} {unit}, fixé par la moyenne de {n} résultats antérieurs du même laboratoire et de la même méthode."
+    ca: "{name} {value} {unit} {when} queda fora del seu nivell habitual, de {low} a {high} {unit}, segons la mitjana de {n} resultats anteriors del mateix laboratori i mètode."
+    it: "{name} {value} {unit} {when} è fuori dal livello abituale di questa persona, da {low} a {high} {unit}, stabilito dalla media di {n} risultati precedenti dello stesso laboratorio e metodo."
+    pt: "{name} {value} {unit} {when} fica fora do nível habitual desta pessoa, de {low} a {high} {unit}, segundo a média de {n} resultados anteriores do mesmo laboratório e método."
   TREND_UP:
     en: "{name} rose over the last {n} results ({slope} {unit} per year) to {value} {unit} {when}."
     es: "{name} subió en los últimos {n} resultados ({slope} {unit} al año) hasta {value} {unit} {when}."
+    de: "{name} stieg über die letzten {n} Ergebnisse ({slope} {unit} pro Jahr) auf {value} {unit} {when}."
+    fr: "{name} a augmenté sur les {n} derniers résultats ({slope} {unit} par an) jusqu'à {value} {unit} {when}."
+    ca: "{name} va pujar en els últims {n} resultats ({slope} {unit} l'any) fins a {value} {unit} {when}."
+    it: "{name} è salito negli ultimi {n} risultati ({slope} {unit} all'anno) fino a {value} {unit} {when}."
+    pt: "{name} subiu nos últimos {n} resultados ({slope} {unit} por ano) até {value} {unit} {when}."
   TREND_DOWN:
     en: "{name} fell over the last {n} results ({slope} {unit} per year) to {value} {unit} {when}."
     es: "{name} bajó en los últimos {n} resultados ({slope} {unit} al año) hasta {value} {unit} {when}."
+    de: "{name} sank über die letzten {n} Ergebnisse ({slope} {unit} pro Jahr) auf {value} {unit} {when}."
+    fr: "{name} a baissé sur les {n} derniers résultats ({slope} {unit} par an) jusqu'à {value} {unit} {when}."
+    ca: "{name} va baixar en els últims {n} resultats ({slope} {unit} l'any) fins a {value} {unit} {when}."
+    it: "{name} è sceso negli ultimi {n} risultati ({slope} {unit} all'anno) fino a {value} {unit} {when}."
+    pt: "{name} desceu nos últimos {n} resultados ({slope} {unit} por ano) até {value} {unit} {when}."
   STALE:
     en: "{name}: last result {last}, older than the {window_months}-month window."
     es: "{name}: último resultado {last}, fuera de la ventana de {window_months} meses."
+    de: "{name}: letztes Ergebnis {last}, älter als das Fenster von {window_months} Monaten."
+    fr: "{name} : dernier résultat {last}, plus ancien que la fenêtre de {window_months} mois."
+    ca: "{name}: últim resultat {last}, fora de la finestra de {window_months} mesos."
+    it: "{name}: ultimo risultato {last}, più vecchio della finestra di {window_months} mesi."
+    pt: "{name}: último resultado {last}, fora da janela de {window_months} meses."
   NEVER_MEASURED:
     en: "{name}: no result on record (rule {rule})."
     es: "{name}: ningún resultado registrado (regla {rule})."
+    de: "{name}: kein Ergebnis in der Akte (Regel {rule})."
+    fr: "{name} : aucun résultat dans le dossier (règle {rule})."
+    ca: "{name}: cap resultat registrat (regla {rule})."
+    it: "{name}: nessun risultato registrato (regola {rule})."
+    pt: "{name}: nenhum resultado registado (regra {rule})."
   GENE_DRUG:
     en: "Current {drug} with {gene} {phenotype}: CPIC lists this pair as actionable. To discuss with your prescriber."
     es: "{drug} actual con {gene} {phenotype}: CPIC considera accionable esta combinación. Para comentar con quien lo prescribe."
+    de: "Aktuell {drug} bei {gene} {phenotype}: CPIC führt diese Kombination als handlungsrelevant. Zur Besprechung mit der verordnenden Person."
+    fr: "{drug} actuel avec {gene} {phenotype} : le CPIC considère cette paire comme exploitable. À discuter avec la personne qui le prescrit."
+    ca: "{drug} actual amb {gene} {phenotype}: CPIC considera accionable aquesta combinació. Per comentar amb qui t'ho prescriu."
+    it: "{drug} attuale con {gene} {phenotype}: il CPIC considera questa coppia come rilevante per la terapia. Da discutere con chi lo prescrive."
+    pt: "{drug} atual com {gene} {phenotype}: o CPIC considera esta combinação acionável. Para falar com quem o prescreve."
   GENE_LAB_NEVER:
     en: "{gene} finding linked to {name}; no {name} result on record (rule {rule})."
     es: "Hallazgo en {gene} ligado a {name}; ningún resultado de {name} registrado (regla {rule})."
+    de: "Befund in {gene} mit Bezug zu {name}; kein Ergebnis für {name} in der Akte (Regel {rule})."
+    fr: "Résultat dans {gene} lié à {name} ; aucun résultat de {name} dans le dossier (règle {rule})."
+    ca: "Troballa a {gene} lligada a {name}; cap resultat de {name} registrat (regla {rule})."
+    it: "Risultato in {gene} legato a {name}; nessun risultato di {name} registrato (regola {rule})."
+    pt: "Achado em {gene} ligado a {name}; nenhum resultado de {name} registado (regra {rule})."
   GENE_LAB_STALE:
     en: "{gene} finding linked to {name}; last result {last}, older than {window_days} days (rule {rule})."
     es: "Hallazgo en {gene} ligado a {name}; último resultado {last}, de hace más de {window_days} días (regla {rule})."
+    de: "Befund in {gene} mit Bezug zu {name}; letztes Ergebnis {last}, älter als {window_days} Tage (Regel {rule})."
+    fr: "Résultat dans {gene} lié à {name} ; dernier résultat {last}, plus ancien que {window_days} jours (règle {rule})."
+    ca: "Troballa a {gene} lligada a {name}; últim resultat {last}, de fa més de {window_days} dies (regla {rule})."
+    it: "Risultato in {gene} legato a {name}; ultimo risultato {last}, più vecchio di {window_days} giorni (regola {rule})."
+    pt: "Achado em {gene} ligado a {name}; último resultado {last}, de há mais de {window_days} dias (regra {rule})."
   notice:
     en: Information from your records, not a diagnosis.
     es: Información de tus registros, no un diagnóstico.
+    de: "Informationen aus deinen Akten, keine Diagnose."
+    fr: "Informations issues de vos dossiers, pas un diagnostic."
+    ca: "Informació dels teus registres, no un diagnòstic."
+    it: "Informazioni dalle tue cartelle, non una diagnosi."
+    pt: "Informação dos teus registos, não um diagnóstico."
   FLAGS_USE_LAB_RANGE:
     en: Flags use each lab's own printed range.
     es: Los avisos usan el rango impreso por cada laboratorio.
+    de: "Die Hinweise nutzen den gedruckten Bereich des jeweiligen Labors."
+    fr: "Les alertes utilisent la plage imprimée par chaque laboratoire."
+    ca: "Els avisos fan servir el rang imprès per cada laboratori."
+    it: "Gli avvisi usano l'intervallo stampato da ciascun laboratorio."
+    pt: "Os alertas usam o intervalo impresso por cada laboratório."
   GENOME_RESEARCH_GRADE:
     en: Genome findings are research-grade unless a clinical lab confirmed them.
     es: Los hallazgos genómicos son de investigación salvo que un laboratorio clínico los haya confirmado.
+    de: "Genombefunde haben Forschungsqualität, sofern kein klinisches Labor sie bestätigt hat."
+    fr: "Les résultats génomiques sont de qualité recherche, sauf confirmation par un laboratoire clinique."
+    ca: "Les troballes genòmiques són de recerca llevat que un laboratori clínic les hagi confirmades."
+    it: "I risultati genomici sono di livello di ricerca, salvo conferma di un laboratorio clinico."
+    pt: "Os achados genómicos são de investigação, a não ser que um laboratório clínico os tenha confirmado."
   SENSITIVE_EXCLUDED:
     en: "{n} facts in sensitive categories are not part of this summary."
     es: "{n} datos de categorías sensibles no forman parte de este resumen."
+    de: "{n} Angaben in sensiblen Kategorien sind nicht Teil dieser Zusammenfassung."
+    fr: "{n} données de catégories sensibles ne font pas partie de ce résumé."
+    ca: "{n} dades de categories sensibles no formen part d'aquest resum."
+    it: "{n} dati di categorie sensibili non fanno parte di questo riepilogo."
+    pt: "{n} dados de categorias sensíveis não fazem parte deste resumo."
   on_date:
     en: "on {date}"
     es: "el {date}"
+    de: "am {date}"
+    fr: "le {date}"
+    ca: "el {date}"
+    it: "il {date}"
+    pt: "em {date}"
   days_ago:
     en: "{n} days ago"
     es: "hace {n} días"
+    de: "vor {n} Tagen"
+    fr: "il y a {n} jours"
+    ca: "fa {n} dies"
+    it: "{n} giorni fa"
+    pt: "há {n} dias"
   days_ago.one:
     en: "{n} day ago"
     es: "hace {n} día"
+    de: "vor {n} Tag"
+    fr: "il y a {n} jour"
+    ca: "fa {n} dia"
+    it: "{n} giorno fa"
+    pt: "há {n} dia"
   # dashboard
   subtitle.lab:
     en: "latest lab {n} days ago"
     es: "última analítica hace {n} días"
+    de: "letzte Laborwerte vor {n} Tagen"
+    fr: "dernier bilan il y a {n} jours"
+    ca: "última analítica fa {n} dies"
+    it: "ultimi esami {n} giorni fa"
+    pt: "últimas análises há {n} dias"
   subtitle.lab.one:
     en: "latest lab {n} day ago"
     es: "última analítica hace {n} día"
+    de: "letzte Laborwerte vor {n} Tag"
+    fr: "dernier bilan il y a {n} jour"
+    ca: "última analítica fa {n} dia"
+    it: "ultimi esami {n} giorno fa"
+    pt: "últimas análises há {n} dia"
   subtitle.wearables:
     en: "wearables synced {n} days ago"
     es: "wearables sincronizados hace {n} días"
+    de: "Wearables vor {n} Tagen synchronisiert"
+    fr: "objets connectés synchronisés il y a {n} jours"
+    ca: "wearables sincronitzats fa {n} dies"
+    it: "dispositivi indossabili sincronizzati {n} giorni fa"
+    pt: "wearables sincronizados há {n} dias"
   subtitle.wearables.one:
     en: "wearables synced {n} day ago"
     es: "wearables sincronizados hace {n} día"
-  sex.female:           {en: Female, es: Mujer}
-  sex.male:             {en: Male, es: Hombre}
+    de: "Wearables vor {n} Tag synchronisiert"
+    fr: "objets connectés synchronisés il y a {n} jour"
+    ca: "wearables sincronitzats fa {n} dia"
+    it: "dispositivi indossabili sincronizzati {n} giorno fa"
+    pt: "wearables sincronizados há {n} dia"
+  sex.female:           {en: Female, es: Mujer, de: "Weiblich", fr: "Femme", ca: "Dona", it: "Femmina", pt: "Mulher"}
+  sex.male:             {en: Male, es: Hombre, de: "Männlich", fr: "Homme", ca: "Home", it: "Maschio", pt: "Homem"}
   due.stale:
     en: "overdue · rule {rule} ({window_months} months)"
     es: "pendiente · regla {rule} ({window_months} meses)"
+    de: "überfällig · Regel {rule} ({window_months} Monate)"
+    fr: "en retard · règle {rule} ({window_months} mois)"
+    ca: "pendent · regla {rule} ({window_months} mesos)"
+    it: "in ritardo · regola {rule} ({window_months} mesi)"
+    pt: "em atraso · regra {rule} ({window_months} meses)"
   due.never:
     en: "never measured · rule {rule}"
     es: "nunca medido · regla {rule}"
+    de: "nie gemessen · Regel {rule}"
+    fr: "jamais mesuré · règle {rule}"
+    ca: "mai mesurat · regla {rule}"
+    it: "mai misurato · regola {rule}"
+    pt: "nunca medido · regra {rule}"
   due.retest:
     en: "{name} retest"
     es: "Control de {name}"
+    de: "Kontrolle von {name}"
+    fr: "Contrôle de {name}"
+    ca: "Control de {name}"
+    it: "Controllo di {name}"
+    pt: "Controlo de {name}"
   # the genome summary is three counts joined with " · "; `.one` is the singular
   genome.summary.pgx:
     en: "{n} actionable PGx"
     es: "{n} PGx accionables"
+    de: "{n} handlungsrelevante PGx"
+    fr: "{n} PGx exploitables"
+    ca: "{n} PGx accionables"
+    it: "{n} PGx rilevanti"
+    pt: "{n} PGx acionáveis"
   genome.summary.pgx.one:
     en: "{n} actionable PGx"
     es: "{n} PGx accionable"
+    de: "{n} handlungsrelevante PGx"
+    fr: "{n} PGx exploitable"
+    ca: "{n} PGx accionable"
+    it: "{n} PGx rilevante"
+    pt: "{n} PGx acionável"
   genome.summary.carrier:
     en: "{n} carrier findings"
     es: "{n} hallazgos de portador"
+    de: "{n} Trägerbefunde"
+    fr: "{n} résultats de porteur"
+    ca: "{n} troballes de portador"
+    it: "{n} risultati di portatore"
+    pt: "{n} achados de portador"
   genome.summary.carrier.one:
     en: "{n} carrier finding"
     es: "{n} hallazgo de portador"
+    de: "{n} Trägerbefund"
+    fr: "{n} résultat de porteur"
+    ca: "{n} troballa de portador"
+    it: "{n} risultato di portatore"
+    pt: "{n} achado de portador"
   genome.summary.hidden:
     en: "{n} sensitive hidden"
     es: "{n} sensibles ocultos"
+    de: "{n} sensible verborgen"
+    fr: "{n} sensibles masqués"
+    ca: "{n} sensibles ocults"
+    it: "{n} sensibili nascosti"
+    pt: "{n} sensíveis ocultos"
   genome.summary.hidden.one:
     en: "{n} sensitive hidden"
     es: "{n} sensible oculto"
+    de: "{n} sensibler verborgen"
+    fr: "{n} sensible masqué"
+    ca: "{n} sensible ocult"
+    it: "{n} sensibile nascosto"
+    pt: "{n} sensível oculto"
   pgx.badge:
     en: "{gene} {phenotype} · CPIC {level} · to discuss with your prescriber"
     es: "{gene} {phenotype} · CPIC {level} · para comentar con quien lo prescribe"
+    de: "{gene} {phenotype} · CPIC {level} · zur Besprechung mit der verordnenden Person"
+    fr: "{gene} {phenotype} · CPIC {level} · à discuter avec la personne qui le prescrit"
+    ca: "{gene} {phenotype} · CPIC {level} · per comentar amb qui t'ho prescriu"
+    it: "{gene} {phenotype} · CPIC {level} · da discutere con chi lo prescrive"
+    pt: "{gene} {phenotype} · CPIC {level} · para falar com quem o prescreve"
   # check_drug
   drug.notice:
     en: Information from your records, not medical advice. To discuss with your prescriber.
     es: Información de tus registros, no un consejo médico. Para comentar con quien lo prescribe.
+    de: "Informationen aus deinen Akten, kein medizinischer Rat. Zur Besprechung mit der verordnenden Person."
+    fr: "Informations issues de vos dossiers, pas un avis médical. À discuter avec la personne qui le prescrit."
+    ca: "Informació dels teus registres, no un consell mèdic. Per comentar amb qui t'ho prescriu."
+    it: "Informazioni dalle tue cartelle, non un consiglio medico. Da discutere con chi lo prescrive."
+    pt: "Informação dos teus registos, não um conselho médico. Para falar com quem o prescreve."
   drug.applies.genotype:
     en: "{phenotype} (genotype)"
     es: "{phenotype} (genotipo)"
+    de: "{phenotype} (Genotyp)"
+    fr: "{phenotype} (génotype)"
+    ca: "{phenotype} (genotip)"
+    it: "{phenotype} (genotipo)"
+    pt: "{phenotype} (genótipo)"
   drug.applies.functional:
     en: "{phenotype} (functional, via phenoconversion)"
     es: "{phenotype} (funcional, por fenoconversión)"
+    de: "{phenotype} (funktionell, durch Phänokonversion)"
+    fr: "{phenotype} (fonctionnel, par phénoconversion)"
+    ca: "{phenotype} (funcional, per fenoconversió)"
+    it: "{phenotype} (funzionale, per fenoconversione)"
+    pt: "{phenotype} (funcional, por fenoconversão)"
   drug.pheno.computed:
     en: "{by} is a {strength} CYP2D6 inhibitor: activity score {score} becomes {score_functional}, {functional_phenotype} (functional). The genotype phenotype stays {phenotype}."
     es: "{by} es un inhibidor {strength} de CYP2D6: la puntuación de actividad {score} pasa a {score_functional}, {functional_phenotype} (funcional). El fenotipo por genotipo sigue siendo {phenotype}."
+    de: "{by} ist ein CYP2D6-Hemmer (Stärke: {strength}): Aktivitätswert {score} wird zu {score_functional}, {functional_phenotype} (funktionell). Der Genotyp-Phänotyp bleibt {phenotype}."
+    fr: "{by} est un inhibiteur {strength} du CYP2D6 : le score d'activité {score} devient {score_functional}, {functional_phenotype} (fonctionnel). Le phénotype par génotype reste {phenotype}."
+    ca: "{by} és un inhibidor {strength} de CYP2D6: la puntuació d'activitat {score} passa a {score_functional}, {functional_phenotype} (funcional). El fenotip per genotip continua sent {phenotype}."
+    it: "{by} è un inibitore {strength} del CYP2D6: il punteggio di attività {score} diventa {score_functional}, {functional_phenotype} (funzionale). Il fenotipo da genotipo resta {phenotype}."
+    pt: "{by} é um inibidor {strength} do CYP2D6: a pontuação de atividade {score} passa a {score_functional}, {functional_phenotype} (funcional). O fenótipo por genótipo continua a ser {phenotype}."
   drug.pheno.no_score:
     en: "{by} is a {strength} CYP2D6 inhibitor. The finding has no activity score, so the effect is not computed."
     es: "{by} es un inhibidor {strength} de CYP2D6. El hallazgo no trae puntuación de actividad, así que el efecto no se calcula."
+    de: "{by} ist ein CYP2D6-Hemmer (Stärke: {strength}). Der Befund hat keinen Aktivitätswert, daher wird die Wirkung nicht berechnet."
+    fr: "{by} est un inhibiteur {strength} du CYP2D6. Le résultat n'a pas de score d'activité, l'effet n'est donc pas calculé."
+    ca: "{by} és un inhibidor {strength} de CYP2D6. La troballa no porta puntuació d'activitat, així que l'efecte no es calcula."
+    it: "{by} è un inibitore {strength} del CYP2D6. Il risultato non ha un punteggio di attività, quindi l'effetto non viene calcolato."
+    pt: "{by} é um inibidor {strength} do CYP2D6. O achado não traz pontuação de atividade, por isso o efeito não é calculado."
   drug.pheno.not_computed:
     en: "{by} is a {strength} {gene} inhibitor. CPIC publishes no conversion rule for {gene}, so the effect on the phenotype is not computed; the genotype phenotype stays as called."
     es: "{by} es un inhibidor {strength} de {gene}. CPIC no publica una regla de conversión para {gene}, así que el efecto sobre el fenotipo no se calcula; el fenotipo por genotipo se mantiene."
-  strength.strong:      {en: strong, es: potente}
-  strength.moderate:    {en: moderate, es: moderado}
-  drug.relation.same:   {en: this drug, es: este fármaco}
+    de: "{by} ist ein {gene}-Hemmer (Stärke: {strength}). CPIC veröffentlicht keine Umrechnungsregel für {gene}, daher wird die Wirkung auf den Phänotyp nicht berechnet; der Genotyp-Phänotyp bleibt wie bestimmt."
+    fr: "{by} est un inhibiteur {strength} de {gene}. Le CPIC ne publie aucune règle de conversion pour {gene}, l'effet sur le phénotype n'est donc pas calculé ; le phénotype par génotype reste tel qu'appelé."
+    ca: "{by} és un inhibidor {strength} de {gene}. CPIC no publica cap regla de conversió per a {gene}, així que l'efecte sobre el fenotip no es calcula; el fenotip per genotip es manté."
+    it: "{by} è un inibitore {strength} di {gene}. Il CPIC non pubblica una regola di conversione per {gene}, quindi l'effetto sul fenotipo non viene calcolato; il fenotipo da genotipo resta quello determinato."
+    pt: "{by} é um inibidor {strength} de {gene}. O CPIC não publica uma regra de conversão para {gene}, por isso o efeito sobre o fenótipo não é calculado; o fenótipo por genótipo mantém-se."
+  strength.strong:      {en: strong, es: potente, de: "stark", fr: "fort", ca: "potent", it: "potente", pt: "potente"}
+  strength.moderate:    {en: moderate, es: moderado, de: "mäßig", fr: "modéré", ca: "moderat", it: "moderato", pt: "moderado"}
+  drug.relation.same:   {en: this drug, es: este fármaco, de: "dieses Arzneimittel", fr: "ce médicament", ca: "aquest fàrmac", it: "questo farmaco", pt: "este fármaco"}
   drug.relation.inhibitor:
     en: "{gene} inhibitor ({strength})"
     es: "inhibidor de {gene} ({strength})"
-  drug.relation.not_assessed: {en: Not assessed, es: No evaluado}
+    de: "{gene}-Hemmer ({strength})"
+    fr: "inhibiteur de {gene} ({strength})"
+    ca: "inhibidor de {gene} ({strength})"
+    it: "inibitore di {gene} ({strength})"
+    pt: "inibidor de {gene} ({strength})"
+  drug.relation.not_assessed: {en: Not assessed, es: No evaluado, de: "Nicht untersucht", fr: "Non évalué", ca: "No avaluat", it: "Non valutato", pt: "Não avaliado"}
   drug.na.ddi:
     en: drug-drug interactions (no open-licence source configured)
     es: interacciones entre fármacos (sin fuente de licencia abierta configurada)
+    de: "Arzneimittelwechselwirkungen (keine Quelle mit offener Lizenz eingerichtet)"
+    fr: "interactions médicamenteuses (aucune source sous licence ouverte configurée)"
+    ca: "interaccions entre fàrmacs (sense font de llicència oberta configurada)"
+    it: "interazioni tra farmaci (nessuna fonte con licenza aperta configurata)"
+    pt: "interações entre fármacos (sem fonte de licença aberta configurada)"
   drug.na.no_pair:
     en: "no CPIC level A gene pair for {drug} in the bundled table"
     es: "ningún par gen-fármaco de nivel A de CPIC para {drug} en la tabla incluida"
+    de: "kein CPIC-Genpaar der Stufe A für {drug} in der mitgelieferten Tabelle"
+    fr: "aucune paire gène-médicament de niveau A du CPIC pour {drug} dans la table fournie"
+    ca: "cap parell gen-fàrmac de nivell A de CPIC per a {drug} a la taula inclosa"
+    it: "nessuna coppia gene-farmaco di livello A del CPIC per {drug} nella tabella inclusa"
+    pt: "nenhum par gene-fármaco de nível A do CPIC para {drug} na tabela incluída"
   drug.na.gene:
     en: "{gene}: no genome finding on record"
     es: "{gene}: ningún hallazgo genómico registrado"
+    de: "{gene}: kein Genombefund in der Akte"
+    fr: "{gene} : aucun résultat génomique dans le dossier"
+    ca: "{gene}: cap troballa genòmica registrada"
+    it: "{gene}: nessun risultato genomico registrato"
+    pt: "{gene}: nenhum achado genómico registado"
   drug.na.no_rec:
     en: "{gene}: no CPIC recommendation text in the snapshot matches {phenotype}"
     es: "{gene}: ningún texto de recomendación de CPIC en la instantánea corresponde a {phenotype}"
+    de: "{gene}: kein CPIC-Empfehlungstext im Snapshot passt zu {phenotype}"
+    fr: "{gene} : aucun texte de recommandation du CPIC dans l'instantané ne correspond à {phenotype}"
+    ca: "{gene}: cap text de recomanació de CPIC a la instantània correspon a {phenotype}"
+    it: "{gene}: nessun testo di raccomandazione del CPIC nello snapshot corrisponde a {phenotype}"
+    pt: "{gene}: nenhum texto de recomendação do CPIC no instantâneo corresponde a {phenotype}"
   drug.na.warfarin:
     en: CPIC gives warfarin dosing as an algorithm, not as text per phenotype; the bundled snapshot quotes none
     es: CPIC da la dosis de warfarina como un algoritmo, no como texto por fenotipo; la instantánea incluida no cita ninguno
+    de: "CPIC gibt die Warfarin-Dosierung als Algorithmus an, nicht als Text je Phänotyp; der mitgelieferte Snapshot zitiert keinen"
+    fr: "Le CPIC donne la posologie de la warfarine sous forme d'algorithme, non de texte par phénotype ; l'instantané fourni n'en cite aucun"
+    ca: "CPIC dona la dosi de warfarina com un algorisme, no com a text per fenotip; la instantània inclosa no en cita cap"
+    it: "Il CPIC fornisce il dosaggio del warfarin come algoritmo, non come testo per fenotipo; lo snapshot incluso non ne cita alcuno"
+    pt: "O CPIC dá a dose de varfarina como um algoritmo, não como texto por fenótipo; o instantâneo incluído não cita nenhum"
   drug.lim.phenoconversion:
     en: Phenoconversion is derived from the medication list as recorded; CPIC tables are written for genotype.
     es: La fenoconversión se deriva de la lista de medicación registrada; las tablas de CPIC se escriben para el genotipo.
+    de: "Die Phänokonversion wird aus der erfassten Medikamentenliste abgeleitet; die CPIC-Tabellen sind für den Genotyp geschrieben."
+    fr: "La phénoconversion est déduite de la liste de médicaments telle qu'enregistrée ; les tables du CPIC sont écrites pour le génotype."
+    ca: "La fenoconversió es deriva de la llista de medicació registrada; les taules de CPIC s'escriuen per al genotip."
+    it: "La fenoconversione deriva dall'elenco dei farmaci così come registrato; le tabelle del CPIC sono scritte per il genotipo."
+    pt: "A fenoconversão é derivada da lista de medicação registada; as tabelas do CPIC são escritas para o genótipo."
   drug.lim.snapshot:
     en: "Guidance is quoted verbatim from the CPIC snapshot of {date} (CC0)."
     es: "Las recomendaciones se citan literalmente de la instantánea de CPIC del {date} (CC0)."
+    de: "Die Empfehlungen werden wörtlich aus dem CPIC-Snapshot vom {date} zitiert (CC0)."
+    fr: "Les recommandations sont citées mot pour mot depuis l'instantané du CPIC du {date} (CC0)."
+    ca: "Les recomanacions se citen literalment de la instantània de CPIC del {date} (CC0)."
+    it: "Le raccomandazioni sono citate alla lettera dallo snapshot del CPIC del {date} (CC0)."
+    pt: "As recomendações são citadas textualmente do instantâneo do CPIC de {date} (CC0)."
   drug.lim.indication:
     en: The indication decides which recommendation applies; the record does not hold it, so every matching population is shown.
     es: La indicación decide qué recomendación aplica; el registro no la recoge, así que se muestran todas las poblaciones que coinciden.
+    de: "Welche Empfehlung gilt, hängt von der Indikation ab; die Akte enthält sie nicht, daher werden alle passenden Gruppen gezeigt."
+    fr: "L'indication détermine quelle recommandation s'applique ; le dossier ne la contient pas, toutes les populations correspondantes sont donc affichées."
+    ca: "La indicació decideix quina recomanació s'aplica; el registre no la recull, així que es mostren totes les poblacions que coincideixen."
+    it: "L'indicazione decide quale raccomandazione si applica; la cartella non la contiene, quindi vengono mostrate tutte le popolazioni corrispondenti."
+    pt: "A indicação decide que recomendação se aplica; o registo não a contém, por isso são mostradas todas as populações correspondentes."

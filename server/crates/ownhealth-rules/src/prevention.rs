@@ -163,6 +163,10 @@ fn date_field(doc: &Value, key: &str) -> Option<NaiveDate> {
         .and_then(|s| NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok())
 }
 
+/// The label columns of `vaccines.tsv` after `label_es`, in this order: the registry languages beyond
+/// es and en. A row holds the ones the file has so far.
+const MORE_LABELS: [&str; 5] = ["de", "fr", "ca", "it", "pt"];
+
 fn parse_vaccines(file: &str, tsv: &str) -> std::result::Result<Vec<Group>, CitedError> {
     let mut out = Vec::new();
     for (i, line) in tsv.lines().enumerate() {
@@ -170,9 +174,12 @@ fn parse_vaccines(file: &str, tsv: &str) -> std::result::Result<Vec<Group>, Cite
             continue;
         }
         let cols: Vec<&str> = line.split('\t').collect();
-        let [id, cvx, en, es, label_en, label_es] = cols[..] else {
+        let [id, cvx, en, es, label_en, label_es, ref more @ ..] = cols[..] else {
             return Err(err(file, format!("line {}: 6 tab-separated columns expected", i + 1)));
         };
+        if more.len() > MORE_LABELS.len() {
+            return Err(err(file, format!("line {}: more label columns than languages", i + 1)));
+        }
         let split = |s: &str| -> Vec<String> {
             s.split('|')
                 .map(str::trim)
@@ -180,10 +187,14 @@ fn parse_vaccines(file: &str, tsv: &str) -> std::result::Result<Vec<Group>, Cite
                 .map(str::to_string)
                 .collect()
         };
-        if label_en.trim().is_empty() || label_es.trim().is_empty() {
+        if [label_en, label_es].iter().chain(more).any(|l| l.trim().is_empty()) {
             return Err(err(file, format!("line {}: a label is empty", i + 1)));
         }
         let names: Vec<String> = split(en).into_iter().chain(split(es)).collect();
+        let mut name = json!({"en": label_en.trim(), "es": label_es.trim()});
+        for (l, label) in MORE_LABELS.iter().zip(more) {
+            name[*l] = json!(label.trim());
+        }
         out.push(Group {
             id: id.trim().to_string(),
             vaccine: true,
@@ -195,7 +206,7 @@ fn parse_vaccines(file: &str, tsv: &str) -> std::result::Result<Vec<Group>, Cite
                 .filter_map(|c| c.strip_prefix('!'))
                 .map(str::to_string)
                 .collect(),
-            name: json!({"en": label_en.trim(), "es": label_es.trim()}),
+            name,
             ..Group::default()
         });
     }
@@ -513,8 +524,9 @@ pub fn load_dir(dir: &Path, pack: &Pack) -> std::result::Result<Prevention, Cite
 }
 
 /// The shipped files, read once.
-/// The registry languages a vaccine name lacks: `vaccines.tsv` has the columns `label_en` and
-/// `label_es`, so a registry language beyond them is named here (`tests/langs.rs`). The YAML files
+/// The registry languages a vaccine name lacks: `vaccines.tsv` has one label column per language
+/// (`label_en`, `label_es`, then [`MORE_LABELS`]), so a registry language without its column is named
+/// here (`tests/langs.rs`). The YAML files
 /// are checked with the rest of `data/`.
 pub fn missing_langs(pack: &Pack, langs: &[&str]) -> Result<Vec<String>> {
     let mut out = Vec::new();

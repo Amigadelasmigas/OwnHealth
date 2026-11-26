@@ -40,23 +40,33 @@ pub struct Metric {
     pub daily: bool,
     pub label_en: String,
     pub label_es: String,
+    /// The label in the registry languages beyond es and en ([`LABELS`]).
+    pub more: &'static [(&'static str, &'static str)],
 }
 
 impl Metric {
-    /// The label in each language [`METRICS`] carries, for `langs::pick`.
-    pub fn labels(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.label_es), ("en", &self.label_en)]
+    /// The label in each language [`METRICS`] and [`LABELS`] carry, for `langs::pick`.
+    pub fn labels(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.label_es), ("en", &self.label_en)];
+        es_en
+            .into_iter()
+            .map(|(l, t)| (l, t.as_str()))
+            .chain(self.more.iter().copied())
+            .collect()
     }
 }
 
-/// The registry languages the metric labels and the left-out line lack: [`METRICS`] carries es and
-/// en, so a registry language beyond them is named here (`tests/langs.rs`).
+/// The registry languages a metric label or the left-out line lacks: [`METRICS`] carries es and en,
+/// [`LABELS`] the rest, so a registry language without its label is named here (`tests/langs.rs`).
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {
-    let mut out: Vec<String> =
-        ownhealth_core::langs::missing(&ownhealth_core::langs::codes(&metric("steps").labels()), langs)
-            .into_iter()
-            .map(|l| format!("wearable metric labels have no `{l}` text"))
-            .collect();
+    let mut out: Vec<String> = METRICS
+        .iter()
+        .flat_map(|m| {
+            ownhealth_core::langs::missing(&ownhealth_core::langs::codes(&metric(m.0).labels()), langs)
+                .into_iter()
+                .map(move |l| format!("wearable metric {} has no `{l}` label", m.0))
+        })
+        .collect();
     out.extend(
         ownhealth_core::langs::missing(&ownhealth_core::langs::codes(LEFT_OUT), langs)
             .into_iter()
@@ -135,6 +145,170 @@ pub const METRICS: [Spec; 16] = [
     ("glucose_cgm", "mg/dL", "mean", false, "Glucose (CGM)", "Glucosa (MCG)"),
 ];
 
+/// The label of each metric of [`METRICS`] in the registry languages beyond es and en.
+const LABELS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "steps",
+        &[
+            ("de", "Schritte"),
+            ("fr", "Pas"),
+            ("ca", "Passos"),
+            ("it", "Passi"),
+            ("pt", "Passos"),
+        ],
+    ),
+    (
+        "hr",
+        &[
+            ("de", "Herzfrequenz"),
+            ("fr", "Fréquence cardiaque"),
+            ("ca", "Freqüència cardíaca"),
+            ("it", "Frequenza cardiaca"),
+            ("pt", "Frequência cardíaca"),
+        ],
+    ),
+    (
+        "hr_resting",
+        &[
+            ("de", "Ruheherzfrequenz"),
+            ("fr", "Fréquence cardiaque au repos"),
+            ("ca", "Freqüència cardíaca en repòs"),
+            ("it", "Frequenza cardiaca a riposo"),
+            ("pt", "Frequência cardíaca em repouso"),
+        ],
+    ),
+    (
+        "hrv_sdnn",
+        &[
+            ("de", "HRV (SDNN)"),
+            ("fr", "VFC (SDNN)"),
+            ("ca", "VFC (SDNN)"),
+            ("it", "HRV (SDNN)"),
+            ("pt", "VFC (SDNN)"),
+        ],
+    ),
+    (
+        "hrv_rmssd",
+        &[
+            ("de", "HRV (RMSSD)"),
+            ("fr", "VFC (RMSSD)"),
+            ("ca", "VFC (RMSSD)"),
+            ("it", "HRV (RMSSD)"),
+            ("pt", "VFC (RMSSD)"),
+        ],
+    ),
+    (
+        "vo2max",
+        &[
+            ("de", "VO₂max-Schätzung"),
+            ("fr", "VO₂max estimée"),
+            ("ca", "VO₂màx estimat"),
+            ("it", "VO₂max stimato"),
+            ("pt", "VO₂máx estimado"),
+        ],
+    ),
+    (
+        "spo2",
+        &[
+            ("de", "Blutsauerstoff"),
+            ("fr", "Oxygène sanguin"),
+            ("ca", "Oxigen en sang"),
+            ("it", "Ossigeno nel sangue"),
+            ("pt", "Oxigénio no sangue"),
+        ],
+    ),
+    (
+        "resp_rate",
+        &[
+            ("de", "Atemfrequenz"),
+            ("fr", "Fréquence respiratoire"),
+            ("ca", "Freqüència respiratòria"),
+            ("it", "Frequenza respiratoria"),
+            ("pt", "Frequência respiratória"),
+        ],
+    ),
+    (
+        "weight",
+        &[
+            ("de", "Gewicht"),
+            ("fr", "Poids"),
+            ("ca", "Pes"),
+            ("it", "Peso"),
+            ("pt", "Peso"),
+        ],
+    ),
+    (
+        "bp_systolic",
+        &[
+            ("de", "Blutdruck, systolisch"),
+            ("fr", "Pression artérielle systolique"),
+            ("ca", "Pressió arterial sistòlica"),
+            ("it", "Pressione arteriosa sistolica"),
+            ("pt", "Pressão arterial sistólica"),
+        ],
+    ),
+    (
+        "bp_diastolic",
+        &[
+            ("de", "Blutdruck, diastolisch"),
+            ("fr", "Pression artérielle diastolique"),
+            ("ca", "Pressió arterial diastòlica"),
+            ("it", "Pressione arteriosa diastolica"),
+            ("pt", "Pressão arterial diastólica"),
+        ],
+    ),
+    (
+        "active_energy",
+        &[
+            ("de", "Aktivitätsenergie"),
+            ("fr", "Énergie active"),
+            ("ca", "Energia activa"),
+            ("it", "Energia attiva"),
+            ("pt", "Energia ativa"),
+        ],
+    ),
+    (
+        "distance",
+        &[
+            ("de", "Distanz beim Gehen und Laufen"),
+            ("fr", "Distance de marche et de course"),
+            ("ca", "Distància caminant i corrent"),
+            ("it", "Distanza camminata e corsa"),
+            ("pt", "Distância a caminhar e a correr"),
+        ],
+    ),
+    (
+        "sleep_asleep",
+        &[
+            ("de", "Schlafdauer"),
+            ("fr", "Durée du sommeil"),
+            ("ca", "Durada del son"),
+            ("it", "Durata del sonno"),
+            ("pt", "Duração do sono"),
+        ],
+    ),
+    (
+        "sleep_in_bed",
+        &[
+            ("de", "Zeit im Bett"),
+            ("fr", "Temps au lit"),
+            ("ca", "Temps al llit"),
+            ("it", "Tempo a letto"),
+            ("pt", "Tempo na cama"),
+        ],
+    ),
+    (
+        "glucose_cgm",
+        &[
+            ("de", "Glukose (CGM)"),
+            ("fr", "Glucose (MCG)"),
+            ("ca", "Glucosa (MCG)"),
+            ("it", "Glucosio (CGM)"),
+            ("pt", "Glicose (MCG)"),
+        ],
+    ),
+];
+
 pub const SLEEP_METRICS: [&str; 2] = ["sleep_asleep", "sleep_in_bed"];
 
 pub fn daily_metrics() -> Vec<String> {
@@ -151,6 +325,7 @@ pub fn metric(key: &str) -> Metric {
             daily,
             label_en: en.into(),
             label_es: es.into(),
+            more: LABELS.iter().find(|(k, _)| *k == key).map_or(&[], |(_, l)| *l),
         },
         None => Metric {
             key: key.into(),
@@ -159,6 +334,7 @@ pub fn metric(key: &str) -> Metric {
             daily: false,
             label_en: key.into(),
             label_es: key.into(),
+            more: &[],
         },
     }
 }
@@ -681,6 +857,26 @@ const LEFT_OUT: &[(&str, &str)] = &[
     (
         "en",
         "HRV from one source only: {shown}. Not mixed with HRV from other sources in this window{rest}.",
+    ),
+    (
+        "de",
+        "HRV aus nur einer Quelle: {shown}. Nicht mit HRV aus anderen Quellen in diesem Zeitraum gemischt{rest}.",
+    ),
+    (
+        "fr",
+        "VFC d'une seule source : {shown}. Non mélangée avec la VFC d'autres sources sur cette période{rest}.",
+    ),
+    (
+        "ca",
+        "VFC d'una sola font: {shown}. No es barreja amb la VFC d'altres fonts en aquest període{rest}.",
+    ),
+    (
+        "it",
+        "HRV da una sola fonte: {shown}. Non mescolata con l'HRV di altre fonti in questo periodo{rest}.",
+    ),
+    (
+        "pt",
+        "VFC de uma só fonte: {shown}. Não é misturada com a VFC de outras fontes neste período{rest}.",
     ),
 ];
 

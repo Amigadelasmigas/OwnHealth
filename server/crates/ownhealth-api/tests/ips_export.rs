@@ -421,7 +421,7 @@ async fn the_ips_export_needs_a_fresh_step_up_and_writes_an_audit_row() -> R {
     assert_eq!((r.status, r.code()), (StatusCode::FORBIDDEN, "step_up_required"));
     let mut alex = env.as_user(env.user("alex")).await?;
     let r = alex
-        .post("/api/profiles/alex/export", &json!({"fmt": "ips", "lang": "fr"}))
+        .post("/api/profiles/alex/export", &json!({"fmt": "ips", "lang": "xx"}))
         .await?;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", r.json);
     let n = env

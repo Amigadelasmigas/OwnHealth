@@ -597,7 +597,7 @@ async fn only_an_owner_invites_a_member() -> R {
     let r = alex
         .post(
             "/api/household/invites",
-            &json!({"display_name": "Pilar Ortega", "locale": "fr"}),
+            &json!({"display_name": "Pilar Ortega", "locale": "xx"}),
         )
         .await?;
     assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);

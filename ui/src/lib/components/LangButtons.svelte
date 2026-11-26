@@ -6,5 +6,5 @@
 </script>
 
 {#each LANGS as l (l.code)}
-	<button lang={l.code} class:on={i18n.lang === l.code} aria-pressed={i18n.lang === l.code} title={l.beta ? `${l.name} (beta)` : l.name} onclick={() => setLang(l.code)}>{l.label}{#if l.beta}<small> beta</small>{/if}</button>
+	<button lang={l.code} class:on={i18n.lang === l.code} aria-pressed={i18n.lang === l.code} title={l.beta ? `${l.name} (beta)` : l.name} onclick={() => setLang(l.code)}>{l.label}{#if l.beta}{' '}<small>beta</small>{/if}</button>
 {/each}
