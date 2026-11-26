@@ -149,6 +149,10 @@
 		pageNo = Number(page.url.searchParams.get('page')) || 1;
 		doc.run(() => getDocument(id), id);
 	});
+	function reloadDoc() {
+		const id = docId;
+		if (id) doc.run(() => getDocument(id), id);
+	}
 	const rows = $derived(items.filter((i) => i.kind === 'candidate_row' && i.document_id === docId));
 	const docProposals = $derived(items.filter((i) => isObsProposal(i) && i.document_id === docId).map((i) => ({ item: i, rows: proposalRows(i) ?? [] })));
 	// v0.2: "probably the same as document X" (dedup level 2) is a banner over that document's rows.
@@ -239,9 +243,11 @@
 				await tick();
 				refocus(plan);
 			});
-			// A card document's note counts its rows that wait for this reader (open_review).
+			// A card document's note counts its rows that wait for this reader (open_review). While the
+			// document's first load is still out it may be a card too, and that answer may predate this
+			// decision: the reload supersedes it (Loader ignores answers older than its newest call).
 			const id = docId;
-			if (id && shcDoc) doc.run(() => getDocument(id), id);
+			if (id && (shcDoc || doc.data?.id !== id)) reloadDoc();
 		}
 	}
 	// Focus after a decision (Accept, Dismiss, Reject…). The pressed button is disabled while the request
@@ -488,7 +494,7 @@
 				{/if}
 			</div>
 			{#if doc.error}
-				<NotReady error={doc.error} />
+				<NotReady error={doc.error} onretry={reloadDoc} />
 			{:else if doc.data && docFailed}
 				<div class="empty">{t('i2_doc_failed')}</div>
 			{:else if doc.data && docId && doc.data.id === docId && cgm}
