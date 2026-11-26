@@ -444,14 +444,19 @@
 		.duerow {
 			flex-wrap: wrap;
 		}
+		/* status, date and buttons share a line while they fit, and the buttons wrap below when not */
 		.st {
-			justify-items: start;
+			display: flex;
+			flex-wrap: wrap;
+			gap: 4px 8px;
 			text-align: left;
 			width: 100%;
 			padding-left: 36px;
-			grid-auto-flow: column;
 			justify-content: start;
 			align-items: center;
+		}
+		.acts {
+			justify-content: flex-start;
 		}
 		.recform {
 			margin-left: 0;

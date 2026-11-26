@@ -114,7 +114,8 @@ table.t{width:100%;border-collapse:collapse;font-size:12.5px}
 .pgx{font-size:10.5px;font-weight:600;padding:0 6px;border-radius:5px;border:1px solid}
 .sys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-content:start}
 .sc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 13px 9px;display:flex;flex-direction:column}
-.sc .hd{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+/* A long status word (German "Außerhalb des Bereichs") moves under the card name instead of out of the card. */
+.sc .hd{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-bottom:6px}
 .sc .hd b{font-size:13px;font-weight:620}
 .sc .hd .pill{margin-left:auto}
 .mk{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"n v" "s g";align-items:center;column-gap:8px;padding:5px 0 4px;border-top:1px solid #1c2632}
@@ -305,6 +306,11 @@ nav.menu a{white-space:nowrap}
 .main{height:auto;min-width:0}
 .top{height:auto;flex-wrap:wrap;gap:8px;padding:8px 10px}
 .top .search{order:9;flex:1 1 100%;max-width:none}
+/* Seven language buttons share the phone header's first row with the review count and the avatar: the
+   beta tag and the "To review" word are left to the tooltip and to screen readers, so the row fits in
+   every language. */
+.top .seg button{padding:5px 7px}
+.top .seg button small,.top .iconbtn>span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .view{padding:12px}
 .ph .right{margin-left:0}
 .sys,.wg,.devs{grid-template-columns:minmax(0,1fr)}

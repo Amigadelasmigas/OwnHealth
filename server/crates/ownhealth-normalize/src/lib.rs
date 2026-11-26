@@ -23,6 +23,20 @@ use serde_json::Value;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+/// SNOMED CT answers to LOINC 72166-2 (tobacco smoking status), and what each means: the calculators
+/// read them, manual entry accepts only them, and an import stores them as values.
+pub const SMOKING: [(&str, &str); 8] = [
+    ("77176002", "current"),
+    ("449868002", "current"),
+    ("428041000124106", "current"),
+    ("428061000124105", "current"),
+    ("428071000124103", "current"),
+    ("65568007", "current"),
+    ("8517006", "former"),
+    ("266919005", "never"),
+];
+pub const SMOKING_LOINC: &str = "72166-2";
+
 pub mod resolve;
 mod store;
 pub mod tables;

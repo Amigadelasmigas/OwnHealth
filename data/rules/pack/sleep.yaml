@@ -3,10 +3,10 @@
 system: sleep
 order: 8
 source: wearables
-names: {en: Sleep, es: Sueño}
+names: {en: Sleep, es: Sueño, de: "Schlaf", fr: "Sommeil", ca: "Son", it: "Sonno", pt: "Sono"}
 markers:
-  - {metric: sleep_asleep, en: "Sleep, 30-day avg", es: "Sueño, media 30 días", unit: h, agg: sum30, format: hm}
-  - {metric: hrv_rmssd, en: HRV (RMSSD), es: VFC (RMSSD), unit: ms, agg: avg30}
+  - {metric: sleep_asleep, en: "Sleep, 30-day avg", es: "Sueño, media 30 días", de: "Schlaf, 30-Tage-Mittel", fr: "Sommeil, moyenne sur 30 jours", ca: "Son, mitjana de 30 dies", it: "Sonno, media 30 giorni", pt: "Sono, média de 30 dias", unit: h, agg: sum30, format: hm}
+  - {metric: hrv_rmssd, en: HRV (RMSSD), es: VFC (RMSSD), de: "HRV (RMSSD)", fr: "VFC (RMSSD)", ca: "VFC (RMSSD)", it: "HRV (RMSSD)", pt: "VFC (RMSSD)", unit: ms, agg: avg30}
 rules:
   - id: recency.sleep
     kind: recency

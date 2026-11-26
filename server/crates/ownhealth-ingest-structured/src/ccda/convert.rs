@@ -169,6 +169,16 @@ impl Section {
             Section::SocialHistory => "social_history",
         }
     }
+
+    /// Whether a `nullFlavor` on the section means its words only say there is no information. The
+    /// sections read since C-CDA part 2 (encounters, procedures, notes, social history) were held with
+    /// their words before it, and a nullFlavor does not change that.
+    fn null_flavor_means_no_information(self) -> bool {
+        !matches!(
+            self,
+            Section::Encounters | Section::Procedures | Section::Notes | Section::SocialHistory
+        )
+    }
 }
 
 /// What the converter did with one section of the document.
@@ -191,7 +201,7 @@ pub struct SectionReport {
     /// One line per entry, or part of an entry, that was not read (`observation 2.16.840...`).
     pub not_read: Vec<String>,
     /// The section has narrative text of its own and does not say it has no information (no
-    /// `nullFlavor`).
+    /// `nullFlavor`, which encounters, procedures, notes and social history ignore).
     pub narrative: bool,
 }
 
@@ -525,15 +535,42 @@ fn coded(system: &str, code: &str) -> Value {
     json!({"coding": [{"system": system, "code": code}]})
 }
 
+/// Sentence punctuation, quotes and brackets: at either end of a word they do not change the text.
+/// Question and exclamation marks are not among them: "?Pneumonia" is shorthand for a suspected one.
+const EDGE_PUNCTUATION: [char; 19] = [
+    '.', ',', ';', ':', '…', '"', '\'', '«', '»', '“', '”', '‘', '’', '(', ')', '[', ']', '{', '}',
+];
+
+/// Text as compared: lower case, one space between words, and the [`EDGE_PUNCTUATION`] at either end of
+/// a word dropped, so "Nonreactive." and "nonreactive" are one text. Punctuation inside a word ("1.5",
+/// "HIV-1"), a decimal point or comma that starts a number (".5", ",5") and signs that carry meaning
+/// ("<", "-", "+", "%", "?", "!") stay.
 fn normalized_text(text: &str) -> String {
     let mut normalized = String::new();
-    for word in text.split_whitespace() {
+    for word in text
+        .split_whitespace()
+        .map(trim_edge_punctuation)
+        .filter(|word| !word.is_empty())
+    {
         if !normalized.is_empty() {
             normalized.push(' ');
         }
         normalized.push_str(&word.to_lowercase());
     }
     normalized
+}
+
+/// `word` without the [`EDGE_PUNCTUATION`] at its ends, keeping a decimal point or comma before a digit.
+fn trim_edge_punctuation(word: &str) -> &str {
+    let mut word = word.trim_end_matches(&EDGE_PUNCTUATION[..]);
+    while let Some(c) = word.chars().next().filter(|c| EDGE_PUNCTUATION.contains(c)) {
+        let rest = &word[c.len_utf8()..];
+        if matches!(c, '.' | ',') && rest.starts_with(|d: char| d.is_ascii_digit()) {
+            break;
+        }
+        word = rest;
+    }
+    word
 }
 
 fn status_of<'a>(n: Node<'a, '_>) -> Option<&'a str> {
@@ -969,6 +1006,38 @@ impl<'a, 'i> Conv<'a, 'i> {
         }
     }
 
+    /// Holds a negated entry whose concept has an original text (its own or a translation's) the scan
+    /// cut: the unread words may name what the entry says is absent, so it is neither "no known ..."
+    /// nor a named exclusion. True when it held `el`.
+    fn held_for_a_cut_name(
+        &mut self,
+        el: Node<'_, '_>,
+        concept: Option<Node<'_, '_>>,
+        rep: &mut SectionReport,
+    ) -> bool {
+        let Some(concept) = concept.filter(|_| is_true(el, "negationInd")) else {
+            return false;
+        };
+        // reading the originals collects the labels of the text they point at
+        let labels_before = self.narrative_labels.clone();
+        let originals: Vec<_> = std::iter::once(concept)
+            .chain(children(concept, "translation"))
+            .filter_map(|code| child(code, "originalText"))
+            .collect();
+        let cut = originals
+            .into_iter()
+            .any(|original| self.narrative_of(original).truncated);
+        // this is a probe: the entry may still be held later, before any push, and the concept readers
+        // collect the labels of the text they use, so the next resource must not get these
+        self.narrative_labels = labels_before;
+        if !cut {
+            return false;
+        }
+        let line = format!("{} (text scan limit reached)", self.hold(el));
+        rep.not_read.push(line);
+        true
+    }
+
     // ------------------------------------------------------------- header ----
 
     fn header(&mut self, root: Node<'_, '_>) {
@@ -1070,14 +1139,17 @@ impl<'a, 'i> Conv<'a, 'i> {
     /// the section's own labels are returned with them, for its subsections.
     fn section(&mut self, sec: Node<'_, '_>, pointer: String, inherited: &[Value]) -> (SectionReport, Vec<Value>) {
         let entries: Vec<Node<'_, '_>> = children(sec, "entry").collect();
+        let kind = Section::of(sec);
+        let no_information =
+            attr(sec, "nullFlavor").is_some() && kind.is_none_or(Section::null_flavor_means_no_information);
         let mut rep = SectionReport {
             title: child(sec, "title").and_then(xml::text).unwrap_or_default(),
             templates: templates(sec).into_iter().map(String::from).collect(),
             code: child(sec, "code").and_then(|c| attr(c, "code")).map(String::from),
-            kind: Section::of(sec),
+            kind,
             entries: entries.len(),
             // A text cut before its first word still holds narrative the converter did not read.
-            narrative: attr(sec, "nullFlavor").is_none()
+            narrative: !no_information
                 && child(sec, "text").is_some_and(|t| {
                     let text = xml::read_text(t);
                     text.value.is_some() || text.truncated
@@ -1226,6 +1298,9 @@ impl<'a, 'i> Conv<'a, 'i> {
             .find(|p| attr(*p, "typeCode") == Some("CSM"))
             .or_else(|| child(obs, "participant"));
         let allergen = participant.and_then(|p| path(p, &["participantRole", "playingEntity", "code"]));
+        if self.held_for_a_cut_name(obs, allergen, rep) {
+            return;
+        }
         let id = self.new_id("AllergyIntolerance", &[obs, act.unwrap_or(obs)], obs);
         let mut r = Map::new();
         r.insert("resourceType".into(), json!("AllergyIntolerance"));
@@ -1331,6 +1406,9 @@ impl<'a, 'i> Conv<'a, 'i> {
     ) -> Option<String> {
         let negated = is_true(obs, "negationInd");
         let value = child(obs, "value");
+        if self.held_for_a_cut_name(obs, value, rep) {
+            return None;
+        }
         let nodes: Vec<Node<'_, '_>> = act.into_iter().chain([obs]).collect();
         let nullified = nodes.iter().any(|n| status_of(*n) == Some("nullified"));
         let effective = child(obs, "effectiveTime");
@@ -1409,6 +1487,9 @@ impl<'a, 'i> Conv<'a, 'i> {
     fn medication(&mut self, sa: Node<'_, '_>, at: &str, rep: &mut SectionReport) {
         let negated = is_true(sa, "negationInd");
         let code = Self::material(sa).and_then(|m| child(m, "code"));
+        if self.held_for_a_cut_name(sa, code, rep) {
+            return;
+        }
         let request = !negated && matches!(attr(sa, "moodCode"), Some("INT" | "RQO" | "PRMS" | "PRP"));
         let rtype = if request {
             "MedicationRequest"

@@ -1357,7 +1357,7 @@ async fn a_dicomweb_answer_never_runs_as_a_page_of_the_app() -> R {
 /// A refusal page speaks the person's language (the browser's, as the app picks it) and links back to
 /// the app, where the study opens again.
 #[tokio::test]
-async fn a_refusal_page_speaks_spanish_or_english_and_leads_back() -> R {
+async fn a_refusal_page_speaks_the_browser_language_and_leads_back() -> R {
     let w = World::new().await?;
     let dead = "/ohif/t/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/viewer";
     for (accept, lang, words) in [
@@ -1367,7 +1367,8 @@ async fn a_refusal_page_speaks_spanish_or_english_and_leads_back() -> R {
             "Este enlace del visor ya no sirve",
         ),
         (Some("en-GB,en;q=0.9"), "en", "This viewer link is not valid any more"),
-        (Some("fr-FR"), "en", "This viewer link is not valid any more"),
+        (Some("fr-FR"), "fr", "Ce lien de la visionneuse n&#39;est plus valable"),
+        (Some("ja-JP"), "en", "This viewer link is not valid any more"),
         (None, "es", "Este enlace del visor ya no sirve"), // OWNHEALTH_DEFAULT_LOCALE (es)
     ] {
         let mut b = Request::get(dead).header(header::HOST, "health.test");

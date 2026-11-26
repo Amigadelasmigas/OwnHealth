@@ -579,13 +579,16 @@
 		margin-right: 4px;
 		opacity: 0.6;
 	}
+	/* A longer language's names and status words would push the Source column out of the card: the
+	   name and the printed name wrap instead, at any width. */
+	.bml td:first-child,
+	.bml td:nth-child(4) {
+		white-space: normal;
+		min-width: 7em;
+	}
 	@media (max-width: 760px) {
 		.ph-hide {
 			display: none;
-		}
-		.bml td:first-child {
-			white-space: normal;
-			min-width: 7em;
 		}
 		.bml td:nth-child(2) {
 			white-space: normal;

@@ -56,6 +56,11 @@ pub struct Relationship {
     pub code: String,
     pub en: String,
     pub es: String,
+    pub de: String,
+    pub fr: String,
+    pub ca: String,
+    pub it: String,
+    pub pt: String,
     pub generation: i32,
     pub side: String,
     pub degree: i32,
@@ -73,8 +78,18 @@ pub struct ConditionKind {
     pub kind: String,
     pub en: String,
     pub es: String,
+    pub de: String,
+    pub fr: String,
+    pub ca: String,
+    pub it: String,
+    pub pt: String,
     pub short_en: String,
     pub short_es: String,
+    pub short_de: String,
+    pub short_fr: String,
+    pub short_ca: String,
+    pub short_it: String,
+    pub short_pt: String,
     pub group: String,
     pub code: Option<String>,
     pub cite: String,
@@ -95,10 +110,28 @@ pub struct Catalog {
     pub conditions: Vec<ConditionKind>,
 }
 
+/// `(code, text)` rows for `langs::pick`: es and en, then the other languages the catalog carries.
+fn rows<'a>(
+    es_en: [(&'static str, &'a String); 2],
+    more: &[(&'static str, &'a String)],
+) -> Vec<(&'static str, &'a str)> {
+    es_en.iter().chain(more).map(|(l, t)| (*l, t.as_str())).collect()
+}
+
 impl Relationship {
     /// The name in each language the catalog carries, for `langs::pick`.
-    pub fn names(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.es), ("en", &self.en)]
+    pub fn names(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.es), ("en", &self.en)];
+        rows(
+            es_en,
+            &[
+                ("de", &self.de),
+                ("fr", &self.fr),
+                ("ca", &self.ca),
+                ("it", &self.it),
+                ("pt", &self.pt),
+            ],
+        )
     }
 
     /// The `text` of the FHIR relationship we store: English, whatever language the person reads.
@@ -109,13 +142,33 @@ impl Relationship {
 
 impl ConditionKind {
     /// The name in each language the catalog carries, for `langs::pick`.
-    pub fn names(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.es), ("en", &self.en)]
+    pub fn names(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.es), ("en", &self.en)];
+        rows(
+            es_en,
+            &[
+                ("de", &self.de),
+                ("fr", &self.fr),
+                ("ca", &self.ca),
+                ("it", &self.it),
+                ("pt", &self.pt),
+            ],
+        )
     }
 
     /// The short name (the pedigree's label) in each language, for `langs::pick`.
-    pub fn shorts(&self) -> [(&'static str, &str); 2] {
-        [("es", &self.short_es), ("en", &self.short_en)]
+    pub fn shorts(&self) -> Vec<(&'static str, &str)> {
+        let es_en = [("es", &self.short_es), ("en", &self.short_en)];
+        rows(
+            es_en,
+            &[
+                ("de", &self.short_de),
+                ("fr", &self.short_fr),
+                ("ca", &self.short_ca),
+                ("it", &self.short_it),
+                ("pt", &self.short_pt),
+            ],
+        )
     }
 
     /// The `text` of the FHIR condition we store: English, whatever language the person reads.
@@ -671,10 +724,10 @@ mod tests {
 
     #[test]
     fn the_loader_refuses_a_row_without_https_cite_or_a_language() {
-        let cond = "version: 0.1.0\nrows:\n  - {kind: other, en: other, es: otra, short_en: o, short_es: o, group: other, code: null, cite: \"https://x.example\"}\n";
+        let cond = "version: 0.1.0\nrows:\n  - {kind: other, en: other, es: otra, de: andere, fr: autre, ca: altra, it: altra, pt: outra, short_en: o, short_es: o, short_de: o, short_fr: o, short_ca: o, short_it: o, short_pt: o, group: other, code: null, cite: \"https://x.example\"}\n";
         let row = |cite: &str, es: &str| {
             format!(
-                "version: 0.1.0\nrows:\n  - {{code: FTH, en: father, es: \"{es}\", generation: -1, side: paternal, degree: 1, sex: male, slot: 1, union: parents, child_of: null, cite: \"{cite}\"}}\n"
+                "version: 0.1.0\nrows:\n  - {{code: FTH, en: father, es: \"{es}\", de: Vater, fr: père, ca: pare, it: padre, pt: pai, generation: -1, side: paternal, degree: 1, sex: male, slot: 1, union: parents, child_of: null, cite: \"{cite}\"}}\n"
             )
         };
         assert!(load(&row("https://a.example", "padre"), cond).is_ok());

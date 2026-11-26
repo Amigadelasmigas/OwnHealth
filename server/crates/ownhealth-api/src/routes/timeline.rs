@@ -135,8 +135,181 @@ const ES: Words = Words {
     ],
 };
 
+const DE: Words = Words {
+    draw: "Laborbefund · {n} Ergebnisse",
+    draw1: "Laborbefund · 1 Ergebnis",
+    flagged: "{n} vom Labor markiert",
+    flagged1: "1 vom Labor markiert",
+    started: "Beginn von {name}",
+    stopped: "Ende von {name}",
+    genome: "Genomdaten importiert",
+    visit: "Arztbesuch",
+    imaging: "Bildgebende Untersuchung",
+    doc_types: &[
+        ("discharge", "Entlassungsbericht"),
+        ("imaging_report", "Befundbericht der Bildgebung"),
+        ("prescription", "Rezept"),
+        ("ecg", "EKG"),
+    ],
+    document: "Dokument",
+    enums: &[
+        ("confirmed", "bestätigt"),
+        ("provisional", "vorläufig"),
+        ("unconfirmed", "unbestätigt"),
+        ("differential", "Differenzialdiagnose"),
+        ("refuted", "ausgeschlossen"),
+        ("entered-in-error", "irrtümlich erfasst"),
+        ("active", "aktiv"),
+        ("paused", "pausiert"),
+        ("on-hold", "pausiert"),
+        ("stopped", "abgesetzt"),
+        ("completed", "abgeschlossen"),
+        ("intended", "geplant"),
+    ],
+};
+
+const FR: Words = Words {
+    draw: "Analyses · {n} résultats",
+    draw1: "Analyses · 1 résultat",
+    flagged: "{n} signalés par le laboratoire",
+    flagged1: "1 signalé par le laboratoire",
+    started: "Début de {name}",
+    stopped: "Fin de {name}",
+    genome: "Données génomiques importées",
+    visit: "Consultation médicale",
+    imaging: "Examen d'imagerie",
+    doc_types: &[
+        ("discharge", "Compte rendu de sortie"),
+        ("imaging_report", "Compte rendu d'imagerie"),
+        ("prescription", "Ordonnance"),
+        ("ecg", "ECG"),
+    ],
+    document: "Document",
+    enums: &[
+        ("confirmed", "confirmé"),
+        ("provisional", "provisoire"),
+        ("unconfirmed", "non confirmé"),
+        ("differential", "différentiel"),
+        ("refuted", "écarté"),
+        ("entered-in-error", "saisi par erreur"),
+        ("active", "actif"),
+        ("paused", "en pause"),
+        ("on-hold", "en pause"),
+        ("stopped", "arrêté"),
+        ("completed", "terminé"),
+        ("intended", "prévu"),
+    ],
+};
+
+const CA: Words = Words {
+    draw: "Analítica · {n} resultats",
+    draw1: "Analítica · 1 resultat",
+    flagged: "{n} marcats pel laboratori",
+    flagged1: "1 marcat pel laboratori",
+    started: "Inici de {name}",
+    stopped: "Fi de {name}",
+    genome: "Dades genòmiques importades",
+    visit: "Visita mèdica",
+    imaging: "Estudi d'imatge",
+    doc_types: &[
+        ("discharge", "Informe d'alta"),
+        ("imaging_report", "Informe d'imatge"),
+        ("prescription", "Recepta"),
+        ("ecg", "Electrocardiograma"),
+    ],
+    document: "Document",
+    enums: &[
+        ("confirmed", "confirmat"),
+        ("provisional", "provisional"),
+        ("unconfirmed", "sense confirmar"),
+        ("differential", "diferencial"),
+        ("refuted", "descartat"),
+        ("entered-in-error", "registrat per error"),
+        ("active", "actiu"),
+        ("paused", "en pausa"),
+        ("on-hold", "en pausa"),
+        ("stopped", "suspès"),
+        ("completed", "completat"),
+        ("intended", "previst"),
+    ],
+};
+
+const IT: Words = Words {
+    draw: "Esami di laboratorio · {n} risultati",
+    draw1: "Esami di laboratorio · 1 risultato",
+    flagged: "{n} segnalati dal laboratorio",
+    flagged1: "1 segnalato dal laboratorio",
+    started: "Inizio di {name}",
+    stopped: "Fine di {name}",
+    genome: "Dati genomici importati",
+    visit: "Visita medica",
+    imaging: "Esame di diagnostica per immagini",
+    doc_types: &[
+        ("discharge", "Lettera di dimissione"),
+        ("imaging_report", "Referto di diagnostica per immagini"),
+        ("prescription", "Ricetta"),
+        ("ecg", "ECG"),
+    ],
+    document: "Documento",
+    enums: &[
+        ("confirmed", "confermato"),
+        ("provisional", "provvisorio"),
+        ("unconfirmed", "non confermato"),
+        ("differential", "differenziale"),
+        ("refuted", "escluso"),
+        ("entered-in-error", "inserito per errore"),
+        ("active", "attivo"),
+        ("paused", "in pausa"),
+        ("on-hold", "in pausa"),
+        ("stopped", "sospeso"),
+        ("completed", "completato"),
+        ("intended", "previsto"),
+    ],
+};
+
+const PT: Words = Words {
+    draw: "Análises · {n} resultados",
+    draw1: "Análises · 1 resultado",
+    flagged: "{n} assinalados pelo laboratório",
+    flagged1: "1 assinalado pelo laboratório",
+    started: "Início de {name}",
+    stopped: "Fim de {name}",
+    genome: "Dados genómicos importados",
+    visit: "Visita médica",
+    imaging: "Exame de imagem",
+    doc_types: &[
+        ("discharge", "Relatório de alta"),
+        ("imaging_report", "Relatório de imagem"),
+        ("prescription", "Receita"),
+        ("ecg", "Eletrocardiograma"),
+    ],
+    document: "Documento",
+    enums: &[
+        ("confirmed", "confirmado"),
+        ("provisional", "provisório"),
+        ("unconfirmed", "não confirmado"),
+        ("differential", "diferencial"),
+        ("refuted", "excluído"),
+        ("entered-in-error", "registado por erro"),
+        ("active", "ativo"),
+        ("paused", "em pausa"),
+        ("on-hold", "em pausa"),
+        ("stopped", "suspenso"),
+        ("completed", "concluído"),
+        ("intended", "previsto"),
+    ],
+};
+
 /// The words of every registry language, read with `langs::pick`.
-const WORDS: &[(&str, &Words)] = &[("es", &ES), ("en", &EN)];
+const WORDS: &[(&str, &Words)] = &[
+    ("es", &ES),
+    ("en", &EN),
+    ("de", &DE),
+    ("fr", &FR),
+    ("ca", &CA),
+    ("it", &IT),
+    ("pt", &PT),
+];
 
 /// The registry languages the timeline's words lack (`tests/langs.rs`).
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {
@@ -824,4 +997,33 @@ async fn timeline(
     Ok(Json(
         json!({"events": events, "spans": spans, "withheld": {"by_scope": withheld}}),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(table: &[(&'static str, &'static str)]) -> BTreeSet<&'static str> {
+        table.iter().map(|(k, _)| *k).collect()
+    }
+
+    /// Every language but English translates each stored status word and document type the Spanish
+    /// table does, so no timeline shows a raw code; English keeps a code as it reads and translates
+    /// only the ones Spanish has too.
+    #[test]
+    fn every_language_names_every_status_word_and_document_type() {
+        for (lang, w) in WORDS {
+            let (enums, docs) = (keys(w.enums), keys(w.doc_types));
+            if *lang == "en" {
+                assert!(enums.is_subset(&keys(ES.enums)), "en enums");
+            } else {
+                assert_eq!(enums, keys(ES.enums), "{lang} enums");
+            }
+            assert_eq!(docs, keys(ES.doc_types), "{lang} doc_types");
+        }
+        assert_eq!(
+            DE.word(Some("entered-in-error".into())).as_deref(),
+            Some("irrtümlich erfasst")
+        );
+    }
 }

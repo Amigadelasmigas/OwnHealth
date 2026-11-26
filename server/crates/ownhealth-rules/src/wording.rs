@@ -21,7 +21,7 @@ pub struct Patterns {
 
 /// The per-language table. A language joins `ownhealth_core::langs::LANGS` only with its own entry
 /// here (`missing_patterns`, tested in `tests/langs.rs`).
-pub const PATTERNS: [Patterns; 2] = [
+pub const PATTERNS: [Patterns; 7] = [
     Patterns {
         lang: "en",
         anywhere: &[
@@ -128,6 +128,168 @@ pub const PATTERNS: [Patterns; 2] = [
             "aumentar",
         ],
     },
+    Patterns {
+        lang: "de",
+        anywhere: &[
+            r"\b(?:sollte|sollten|solltest|sollst)\b",
+            r"\b(?:muss|musst|müssen|müsst)\b",
+            r"\bnicht (?:einnehmen|nehmen|absetzen|anwenden)\b",
+            r"\bwenden sie sich\b",
+            r"\bbitte\b",
+        ],
+        start_verbs: &[
+            "nimm",
+            "nehmen sie",
+            "setz",
+            "setze",
+            "setzen sie",
+            "vermeide",
+            "vermeiden sie",
+            "beginne",
+            "beginnen sie",
+            "erhöhe",
+            "erhöhen sie",
+            "senke",
+            "senken sie",
+            "reduziere",
+            "reduzieren sie",
+            "frag",
+            "fragen sie",
+            "sprich",
+            "sprechen sie",
+            "ruf",
+            "rufen sie",
+            "geh",
+            "gehen sie",
+            "iss",
+            "essen sie",
+            "trink",
+            "trinken sie",
+            "messen sie",
+            "wiederhole",
+            "wiederholen sie",
+            "lass",
+            "lassen sie",
+            "vereinbare",
+            "vereinbaren sie",
+            "kontaktiere",
+            "kontaktieren sie",
+            "verwende",
+            "verwenden sie",
+            "achte",
+            "achten sie",
+        ],
+    },
+    Patterns {
+        lang: "fr",
+        anywhere: &[
+            r"\bvous (?:devez|devriez)\b",
+            r"\b(?:devez|devriez|devrait|devraient|doit|doivent)\b",
+            r"\bil (?:faut|faudrait)\b",
+            r"\bne (?:prenez|prends|arrêtez|arrête|utilisez) pas\b",
+            r"\bn['’](?:arrêtez|arrête|utilisez|augmentez|interrompez)\b",
+        ],
+        start_verbs: &[
+            "prenez",
+            "prends",
+            "arrêtez",
+            "arrête",
+            "évitez",
+            "évite",
+            "commencez",
+            "augmentez",
+            "réduisez",
+            "diminuez",
+            "consultez",
+            "demandez",
+            "parlez",
+            "appelez",
+            "allez",
+            "mangez",
+            "buvez",
+            "mesurez",
+            "répétez",
+            "contactez",
+            "utilisez",
+            "essayez",
+            "faites",
+            "gardez",
+            "limitez",
+        ],
+    },
+    Patterns {
+        lang: "ca",
+        anywhere: &[
+            r"\b(?:has|heu) de\b",
+            r"\bcal que\b",
+            r"\bhauries de\b",
+            r"\bhauríeu de\b",
+            r"\bno (?:prenguis|prengueu|deixis|deixeu)\b",
+        ],
+        start_verbs: &[
+            "pren",
+            "preneu",
+            "deixa",
+            "deixeu",
+            "evita",
+            "eviteu",
+            "suspèn",
+            "suspeneu",
+            "comença",
+            "comenceu",
+            "augmenta",
+            "augmenteu",
+            "redueix",
+            "reduïu",
+            "consulteu",
+            "pregunteu",
+            "parla",
+            "parleu",
+            "truca",
+            "truqueu",
+            "menja",
+            "mengeu",
+            "beu",
+            "beveu",
+            "mesura",
+            "mesureu",
+            "repeteix",
+            "repetiu",
+            "demana",
+            "demaneu",
+            "aneu",
+        ],
+    },
+    Patterns {
+        lang: "it",
+        anywhere: &[
+            r"\b(?:devi|dovete|dovresti|dovreste|dovrebbe|dovrebbero)\b",
+            r"\bbisogna\b",
+            r"\bnon (?:prendere|assumere|sospendere|usare)\b",
+            r"\bnon (?:prenda|assuma|sospenda|usi)\b",
+            r"\bsmettere di\b",
+        ],
+        start_verbs: &[
+            "prendi", "prenda", "assumi", "assuma", "smetti", "smetta", "sospendi", "sospenda", "evita", "eviti",
+            "inizia", "cominci", "aumenta", "aumenti", "riduci", "riduca", "chiedi", "chieda", "parla", "parli",
+            "chiama", "chiami", "vai", "vada", "mangia", "mangi", "bevi", "beva", "misuri", "ripeti", "ripeta",
+            "consulta", "consulti", "contatta",
+        ],
+    },
+    Patterns {
+        lang: "pt",
+        anywhere: &[
+            r"\b(?:deve|deves|devem|deveria|deverias|deveriam)\b",
+            r"\b(?:tem|tens|têm) (?:de|que)\b",
+            r"\bé preciso\b",
+            r"\bnão (?:tome|tomes|deixe|deixes|use|uses)\b",
+        ],
+        start_verbs: &[
+            "toma", "tome", "deixe", "deixa", "pare de", "deixe de", "evite", "suspenda", "comece", "começa",
+            "aumente", "reduza", "reduz", "pergunte", "fale", "fala", "ligue", "liga", "coma", "beba", "bebe", "meça",
+            "mede", "repita", "peça", "pede", "vá", "marque", "contacte", "consulte",
+        ],
+    },
 ];
 
 /// The languages of `langs` with no patterns of their own.
@@ -220,6 +382,121 @@ mod tests {
             .iter()
             .map(|p| (p.lang, p.anywhere.len(), p.start_verbs.len()))
             .collect();
-        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45)]);
+        assert_eq!(
+            counts,
+            [
+                ("en", 5, 38),
+                ("es", 4, 45),
+                ("de", 5, 40),
+                ("fr", 5, 25),
+                ("ca", 5, 31),
+                ("it", 5, 34),
+                ("pt", 4, 30)
+            ]
+        );
+    }
+
+    /// German advice is caught, German description is not.
+    #[test]
+    fn german_imperatives_are_caught() {
+        for advice in [
+            "Nehmen Sie täglich 20 mg.",
+            "Du solltest den Wert prüfen lassen.",
+            "Die Dosis muss halbiert werden.",
+            "Trink mehr Wasser.",
+            "Sie müssen die Dosis halbieren.",
+            "Wenden Sie sich an Ihren Arzt.",
+            "Bei Fragen wenden Sie sich an die Praxis.",
+            "Bitte nehmen Sie täglich 20 mg.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "Der LDL-Wert liegt über dem Bereich des Labors.",
+            "Diese Angabe stammt aus dem Befund vom März.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// French advice is caught, French description is not.
+    #[test]
+    fn french_imperatives_are_caught() {
+        for advice in [
+            "Prenez 2 comprimés par jour.",
+            "Vous devez arrêter ce médicament.",
+            "Il faut refaire l'analyse.",
+            "Ne prenez pas d'ibuprofène.",
+            "N'arrêtez pas ce médicament.",
+            "N’utilisez plus ce flacon.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "Le LDL est au-dessus de l'intervalle du laboratoire.",
+            "Cette valeur vient du compte rendu de mars.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// Catalan advice is caught, Catalan description is not.
+    #[test]
+    fn catalan_imperatives_are_caught() {
+        for advice in [
+            "Pren dues pastilles al dia.",
+            "Has de deixar aquest medicament.",
+            "Cal que repeteixis l'anàlisi.",
+            "Eviteu l'alcohol.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "El colesterol LDL és per sobre de l'interval del laboratori.",
+            "Aquest valor ve de l'informe de març.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// Italian advice is caught, Italian description is not.
+    #[test]
+    fn italian_imperatives_are_caught() {
+        for advice in [
+            "Prendi 20 mg al giorno.",
+            "Dovresti ridurre il sale.",
+            "Bisogna ripetere l'esame.",
+            "Non assumere ibuprofene.",
+            "Non prenda questo farmaco.",
+            "Smettere di prendere il farmaco.",
+            "È meglio smettere di fumare.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "L'LDL è sopra l'intervallo del laboratorio.",
+            "Questo valore viene dal referto di marzo.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// Portuguese advice is caught, Portuguese description is not.
+    #[test]
+    fn portuguese_imperatives_are_caught() {
+        for advice in [
+            "Beba mais água.",
+            "Tem de parar este medicamento.",
+            "Deve repetir a análise.",
+            "Não tome ibuprofeno.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "O LDL está acima do intervalo do laboratório.",
+            "Este valor vem do relatório de março.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
     }
 }

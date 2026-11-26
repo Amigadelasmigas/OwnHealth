@@ -8,6 +8,11 @@ reviewed: 2026-11-11
 disclaimer:
   en: "OwnHealth is not affiliated with the USPSTF or the CDC, and neither endorses this list. It is our own reading of their published recommendations."
   es: "OwnHealth no tiene relación con el USPSTF ni con los CDC, y ninguno de los dos respalda esta lista. Es nuestra propia lectura de sus recomendaciones publicadas."
+  de: "OwnHealth steht in keiner Verbindung zur USPSTF oder zu den CDC, und keine der beiden befürwortet diese Liste. Sie ist unsere eigene Lesart ihrer veröffentlichten Empfehlungen."
+  fr: "OwnHealth n'est affilié ni à l'USPSTF ni aux CDC, et aucun des deux n'approuve cette liste. C'est notre propre lecture de leurs recommandations publiées."
+  ca: "OwnHealth no té relació amb l'USPSTF ni amb els CDC, i cap dels dos no avala aquesta llista. És la nostra lectura de les seves recomanacions publicades."
+  it: "OwnHealth non è affiliato all'USPSTF né ai CDC, e nessuno dei due approva questo elenco. È la nostra lettura delle loro raccomandazioni pubblicate."
+  pt: "O OwnHealth não tem ligação ao USPSTF nem aos CDC, e nenhum dos dois apoia esta lista. É a nossa própria leitura das suas recomendações publicadas."
 rows:
   - id: us.cancer.breast
     kind: every_n_months
@@ -18,7 +23,7 @@ rows:
     evidence: [mammography]
     source: USPSTF 2024 (B)
     cite: https://www.uspreventiveservicestaskforce.org/uspstf/recommendation/breast-cancer-screening
-    name: {en: "Breast cancer screening (mammography)", es: "Cribado de cáncer de mama (mamografía)"}
+    name: {en: "Breast cancer screening (mammography)", es: "Cribado de cáncer de mama (mamografía)", de: "Brustkrebs-Früherkennung (Mammographie)", fr: "Dépistage du cancer du sein (mammographie)", ca: "Cribratge de càncer de mama (mamografia)", it: "Screening del tumore della mammella (mammografia)", pt: "Rastreio do cancro da mama (mamografia)"}
   - id: us.cancer.colorectal
     kind: every_n_months
     area: screening
@@ -28,7 +33,7 @@ rows:
     interval_for: {colonoscopy: 120}
     source: USPSTF 2021 (A, B)
     cite: https://www.uspreventiveservicestaskforce.org/uspstf/recommendation/colorectal-cancer-screening
-    name: {en: "Colorectal cancer screening", es: "Cribado de cáncer colorrectal"}
+    name: {en: "Colorectal cancer screening", es: "Cribado de cáncer colorrectal", de: "Darmkrebs-Früherkennung", fr: "Dépistage du cancer colorectal", ca: "Cribratge de càncer colorectal", it: "Screening del tumore del colon-retto", pt: "Rastreio do cancro colorretal"}
   - id: us.cancer.cervix_cytology
     kind: every_n_months
     area: screening
@@ -39,7 +44,7 @@ rows:
     unless: {hysterectomy: "yes"}
     source: USPSTF 2018 (A)
     cite: https://www.uspreventiveservicestaskforce.org/uspstf/recommendation/cervical-cancer-screening
-    name: {en: "Cervical cancer screening (cytology)", es: "Cribado de cáncer de cuello de útero (citología)"}
+    name: {en: "Cervical cancer screening (cytology)", es: "Cribado de cáncer de cuello de útero (citología)", de: "Gebärmutterhalskrebs-Früherkennung (Zytologie)", fr: "Dépistage du cancer du col de l'utérus (cytologie)", ca: "Cribratge de càncer de coll d'úter (citologia)", it: "Screening del tumore della cervice uterina (citologia)", pt: "Rastreio do cancro do colo do útero (citologia)"}
   - id: us.cancer.cervix_hpv
     kind: every_n_months
     area: screening
@@ -51,7 +56,7 @@ rows:
     interval_for: {cervical_cytology: 36}
     source: USPSTF 2018 (A)
     cite: https://www.uspreventiveservicestaskforce.org/uspstf/recommendation/cervical-cancer-screening
-    name: {en: "Cervical cancer screening (HPV test)", es: "Cribado de cáncer de cuello de útero (prueba del VPH)"}
+    name: {en: "Cervical cancer screening (HPV test)", es: "Cribado de cáncer de cuello de útero (prueba del VPH)", de: "Gebärmutterhalskrebs-Früherkennung (HPV-Test)", fr: "Dépistage du cancer du col de l'utérus (test HPV)", ca: "Cribratge de càncer de coll d'úter (prova del VPH)", it: "Screening del tumore della cervice uterina (test HPV)", pt: "Rastreio do cancro do colo do útero (teste do VPH)"}
   - id: us.cancer.lung
     kind: every_n_months
     area: screening
@@ -61,7 +66,7 @@ rows:
     needs: {smoking_history: "yes"}
     source: USPSTF 2021 (B)
     cite: https://www.uspreventiveservicestaskforce.org/uspstf/recommendation/lung-cancer-screening
-    name: {en: "Lung cancer screening (low-dose CT)", es: "Cribado de cáncer de pulmón (TC de baja dosis)"}
+    name: {en: "Lung cancer screening (low-dose CT)", es: "Cribado de cáncer de pulmón (TC de baja dosis)", de: "Lungenkrebs-Früherkennung (Niedrigdosis-CT)", fr: "Dépistage du cancer du poumon (scanner à faible dose)", ca: "Cribratge de càncer de pulmó (TC de dosi baixa)", it: "Screening del tumore del polmone (TC a basso dosaggio)", pt: "Rastreio do cancro do pulmão (TC de baixa dose)"}
   - id: us.infect.hcv
     pack_rule: infect.hcv.once_adult
     source: USPSTF 2020 (B)
@@ -74,7 +79,7 @@ rows:
     evidence: [td]
     source: CDC adult schedule
     cite: https://www.cdc.gov/vaccines/hcp/imz-schedules/adult-age.html
-    name: {en: "Tetanus and diphtheria (Td or Tdap), every 10 years", es: "Tétanos y difteria (Td o Tdap), cada 10 años"}
+    name: {en: "Tetanus and diphtheria (Td or Tdap), every 10 years", es: "Tétanos y difteria (Td o Tdap), cada 10 años", de: "Tetanus und Diphtherie (Td oder Tdap), alle 10 Jahre", fr: "Tétanos et diphtérie (Td ou dTca), tous les 10 ans", ca: "Tètanus i diftèria (Td o Tdap), cada 10 anys", it: "Tetano e difterite (Td o Tdap), ogni 10 anni", pt: "Tétano e difteria (Td ou Tdap), a cada 10 anos"}
   - id: us.vac.influenza
     kind: seasonal
     area: vaccine
@@ -83,7 +88,7 @@ rows:
     evidence: [influenza]
     source: CDC adult schedule
     cite: https://www.cdc.gov/vaccines/hcp/imz-schedules/adult-age.html
-    name: {en: "Influenza, one dose each season", es: "Gripe, una dosis cada temporada"}
+    name: {en: "Influenza, one dose each season", es: "Gripe, una dosis cada temporada", de: "Influenza, eine Dosis pro Saison", fr: "Grippe, une dose chaque saison", ca: "Grip, una dosi cada temporada", it: "Influenza, una dose ogni stagione", pt: "Gripe, uma dose em cada época"}
   - id: us.vac.zoster
     kind: series
     area: vaccine
@@ -93,4 +98,4 @@ rows:
     evidence: [zoster]
     source: CDC adult schedule
     cite: https://www.cdc.gov/vaccines/hcp/imz-schedules/adult-age.html
-    name: {en: "Herpes zoster, two doses from age 50", es: "Herpes zóster, dos dosis a partir de los 50 años"}
+    name: {en: "Herpes zoster, two doses from age 50", es: "Herpes zóster, dos dosis a partir de los 50 años", de: "Herpes zoster, zwei Dosen ab 50 Jahren", fr: "Zona, deux doses à partir de 50 ans", ca: "Herpes zòster, dues dosis a partir dels 50 anys", it: "Herpes zoster, due dosi dai 50 anni", pt: "Herpes zóster, duas doses a partir dos 50 anos"}

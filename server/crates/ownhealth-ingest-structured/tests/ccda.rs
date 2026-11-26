@@ -3753,3 +3753,701 @@ fn round_10_a_cancelled_aborted_or_nullified_visit_waits_in_review() -> R {
     }
     Ok(())
 }
+
+// ------------------------------------------------------- pre-1.0 follow-ups ----
+
+/// A Social History section with one Smoking Status observation answered with `code` (SNOMED CT),
+/// on the 15th of `month` in 2021 (a month apart, so no two answers conflict).
+fn smoking_status(code: &str, display: &str, month: usize) -> Vec<u8> {
+    smoking_status_in("2.16.840.1.113883.6.96", code, display, month)
+}
+
+/// [`smoking_status`] with its answer coded in `system`.
+fn smoking_status_in(system: &str, code: &str, display: &str, month: usize) -> Vec<u8> {
+    social_history(&format!(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.78"/>
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1" displayName="Tobacco smoking status"/>
+             <statusCode code="completed"/><effectiveTime value="2021{month:02}15"/>
+             <value xsi:type="CD" code="{code}" codeSystem="{system}" displayName="{display}"/>
+           </observation></entry>"#
+    ))
+}
+
+/// PRE-1.0: a smoking status coded with a SNOMED CT answer the calculators read is a normal
+/// observation, not a value in review as implausible text. A code outside that list still waits.
+#[tokio::test]
+async fn pre1_a_coded_smoking_status_is_stored_as_an_observation() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let stored = |doc: Uuid| {
+        sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            "select loinc, value_code from observation where document_id = $1",
+        )
+        .bind(doc)
+    };
+    let cases = [
+        ("449868002", "Current every day smoker"),
+        ("428041000124106", "Current some day smoker"),
+        ("77176002", "Smoker, current status unknown"),
+        ("428061000124105", "Current light tobacco smoker"),
+        ("428071000124103", "Current heavy tobacco smoker"),
+        ("65568007", "Cigarette smoker"),
+        ("8517006", "Former smoker"),
+        ("266919005", "Never smoker"),
+    ];
+    for (month, (code, display)) in cases.into_iter().enumerate() {
+        let bytes = smoking_status(code, display, month + 1);
+        let name = format!("smoking-{code}.xml");
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, &name, ccda::MIME).await?;
+        import_ccda(&mut tx, &env.blobs, doc).await?;
+        let held = open_items(&mut tx, doc, "candidate_row").await?;
+        let checks: Vec<_> = held.iter().map(|item| item.payload["checks"].clone()).collect();
+        assert!(held.is_empty(), "{code}: {checks:?}");
+        let rows = stored(doc).fetch_all(&mut *tx).await?;
+        assert_eq!(rows, [(Some("72166-2".into()), Some(code.into()))], "{code}");
+    }
+    // "unknown if ever smoked" is no status the calculators read: a person decides
+    let bytes = smoking_status("266927001", "Unknown if ever smoked", 12);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "unknown.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(open_items(&mut tx, doc, "candidate_row").await?.len(), 1);
+    assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
+    // a listed number under a local code system is no SNOMED CT answer: a person decides
+    let bytes = smoking_status_in("1.2.3", "449868002", "Current every day smoker", 11);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "local.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(open_items(&mut tx, doc, "candidate_row").await?.len(), 1);
+    assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
+    Ok(())
+}
+
+/// One Social History observation (4.38) with `code` and `value`, no security label.
+fn social_observation(code: &str, value: &str) -> String {
+    format!(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             {code}<statusCode code="completed"/><effectiveTime value="20210301"/>{value}
+           </observation></entry>"#
+    )
+}
+
+/// The sensitivity of each open candidate row of `doc`, by the printed name of its observation.
+async fn sensitivity_by_name(conn: &mut PgConnection, doc: Uuid) -> anyhow::Result<BTreeMap<String, Value>> {
+    Ok(open_items(conn, doc, "candidate_row")
+        .await?
+        .iter()
+        .map(|item| {
+            let obs = &item.payload["observation"];
+            (
+                obs["printed_name"].as_str().unwrap_or_default().to_string(),
+                obs["sensitivity"].clone(),
+            )
+        })
+        .collect())
+}
+
+/// PRE-1.0 privacy triage (L5): an unlabelled Social History observation is classified by its SNOMED
+/// CT code too (the code itself, a translation, or the coded answer), so an answer about sexual
+/// activity, sexual orientation or pregnancy needs read:sensitive without a label. A SNOMED CT number
+/// under another code system, and an ordinary social history code, stay unlabelled.
+#[tokio::test]
+async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let text = r#"<value xsi:type="ST">Synthetic answer</value>"#;
+    let snomed_answer =
+        |code: &str| format!(r#"<value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96"/>"#);
+    let entries = [
+        social_observation(
+            r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.96" displayName="Q orientation"/>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="local" codeSystem="1.2.3" displayName="Q pregnancy">
+                 <translation code="364320009" codeSystem="2.16.840.1.113883.6.96"/></code>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q activity"/>"#,
+            &snomed_answer("162171002"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q answer translation"/>"#,
+            r#"<value xsi:type="CD" code="x" codeSystem="1.2.3">
+                 <translation code="38628009" codeSystem="2.16.840.1.113883.6.96"/></value>"#,
+        ),
+        social_observation(
+            r#"<code code="229819007" codeSystem="2.16.840.1.113883.6.96" displayName="Q tobacco"/>"#,
+            text,
+        ),
+        social_observation(
+            r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.1" displayName="Q other system"/>"#,
+            &snomed_answer("160573003"),
+        ),
+        // C-H1, U-C1: every finding under 285058000 "Finding relating to sexual activity"
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q active"/>"#,
+            &snomed_answer("228453005"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q multiple"/>"#,
+            &snomed_answer("228460004"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q single"/>"#,
+            &snomed_answer("228461000"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q abstinent"/>"#,
+            &snomed_answer("473022002"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q weekly"/>"#,
+            &snomed_answer("162174005"),
+        ),
+        // a listed number under a local code system is no SNOMED CT answer
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q local answer"/>"#,
+            r#"<value xsi:type="CD" code="162171002" codeSystem="1.2.3"/>"#,
+        ),
+        // U-M1: a local question named in words, and an uncoded answer in words
+        social_observation(
+            r#"<code code="SH-SEXACT" codeSystem="1.2.3" displayName="Sexual activity"/>"#,
+            r#"<value xsi:type="ST">Active, two partners in the last year</value>"#,
+        ),
+        social_observation(
+            r#"<code code="SH-1" codeSystem="1.2.3" displayName="Q local words"/>"#,
+            r#"<value xsi:type="ST">Embarazada de 12 semanas</value>"#,
+        ),
+        social_observation(
+            r#"<code code="SH-2" codeSystem="1.2.3" displayName="Sex assigned at birth"/>"#,
+            r#"<value xsi:type="ST">Female</value>"#,
+        ),
+        // R1-M1: the word inside another word (bisexual, homosexual) is the same concept
+        social_observation(
+            r#"<code code="SH-5" codeSystem="1.2.3" displayName="Q orientation words"/>"#,
+            r#"<value xsi:type="ST">Bisexual</value>"#,
+        ),
+        // R1-L1 (recheck r2): the words of a coded answer under a local code system
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q local coded words"/>"#,
+            r#"<value xsi:type="CD" code="x" codeSystem="1.2.3" displayName="Bisexual"/>"#,
+        ),
+    ]
+    .concat();
+    let bytes = social_history(&entries);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "snomed.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(
+        sensitivity_by_name(&mut tx, doc).await?,
+        BTreeMap::from([
+            ("Q abstinent".to_string(), json!(["sexual_health"])),
+            ("Q active".to_string(), json!(["sexual_health"])),
+            ("Q activity".to_string(), json!(["sexual_health"])),
+            ("Q answer translation".to_string(), json!(["sexual_health"])),
+            ("Q local answer".to_string(), json!([])),
+            ("Q local coded words".to_string(), json!(["sexual_health"])),
+            ("Q local words".to_string(), json!(["reproductive"])),
+            ("Q multiple".to_string(), json!(["sexual_health"])),
+            ("Q orientation".to_string(), json!(["sexual_health"])),
+            ("Q orientation words".to_string(), json!(["sexual_health"])),
+            ("Q other system".to_string(), json!([])),
+            ("Q pregnancy".to_string(), json!(["reproductive"])),
+            ("Q single".to_string(), json!(["sexual_health"])),
+            ("Q tobacco".to_string(), json!([])),
+            ("Q weekly".to_string(), json!(["sexual_health"])),
+            ("Sex assigned at birth".to_string(), json!([])),
+            ("Sexual activity".to_string(), json!(["sexual_health"])),
+        ])
+    );
+    let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
+        .bind(doc)
+        .fetch_one(&mut *tx)
+        .await?;
+    assert_eq!(flags["sensitive"], 13, "{flags}");
+    assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+/// PRE-1.0 (L2): the curated list classifies Social History only. A result whose LOINC or SNOMED CT
+/// code is on the list stays unlabelled, as its file does.
+#[tokio::test]
+async fn pre1_a_listed_code_outside_social_history_stays_unlabelled() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let result = |code: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                 {code}<statusCode code="completed"/><effectiveTime value="20210301"/>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    };
+    let entries = [
+        result(r#"<code code="86647-5" codeSystem="2.16.840.1.113883.6.1" displayName="R loinc"/>"#),
+        result(r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.96" displayName="R snomed"/>"#),
+    ]
+    .concat();
+    let bytes = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.3.1"/><title>Results</title>
+           {entries}</section></component>"#
+    ));
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "results.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(
+        sensitivity_by_name(&mut tx, doc).await?,
+        BTreeMap::from([("R loinc".to_string(), json!([])), ("R snomed".to_string(), json!([])),])
+    );
+    assert!(!ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
+    Ok(())
+}
+
+/// PRE-1.0 (R6-L2): every reader of narrative text keeps the cut flag when its own words, not a
+/// referenced paragraph, exhaust the node budget before the first word: the Social History and
+/// Results text values, the reference range, the medication sig, an activity note, and an original
+/// text. Each lists the cut and keeps no words it did not read.
+#[test]
+fn pre1_every_narrative_reader_lists_a_local_text_cut_before_its_first_word() -> R {
+    let beyond = text_past_the_node_limit();
+    // the words of the section paragraph no entry points at, in observation_with_narrative
+    const UNSEEN: &str = "section text no entry points at (2 words)";
+    for social in [true, false] {
+        let c = convert(&observation_with_narrative(
+            social,
+            &format!(r#"<value xsi:type="ST">{beyond}</value>"#),
+        ))?;
+        assert!(resources(&c, "Observation")[0].get("valueString").is_none(), "{social}");
+        assert_eq!(
+            c.sections[0].not_read,
+            ["observation value (text scan limit reached)", UNSEEN],
+            "{social}"
+        );
+    }
+    let c = convert(&observation_with_narrative(
+        false,
+        &format!(
+            r#"<value xsi:type="PQ" value="5"/>
+               <referenceRange><observationRange><text>{beyond}</text></observationRange></referenceRange>"#
+        ),
+    ))?;
+    assert!(resources(&c, "Observation")[0].get("referenceRange").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["reference range (text scan limit reached)", UNSEEN]
+    );
+
+    let c = convert(&medicine_with("", &beyond, ""))?;
+    assert!(resources(&c, "MedicationStatement")[0].get("dosage").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        ["medication instructions (text scan limit reached)"]
+    );
+
+    for (rtype, tag, template) in NOTE_ACTIVITIES {
+        let c = convert(&activity_with_note(tag, template, "completed", "", &beyond))?;
+        assert!(resources(&c, rtype)[0].get("note").is_none(), "{rtype}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("{tag} {template} (note scan limit reached)")]
+        );
+    }
+
+    let c = convert(&observation_with_narrative(
+        false,
+        &format!(r#"<value xsi:type="CD" nullFlavor="OTH"><originalText>{beyond}</originalText></value>"#),
+    ))?;
+    assert!(resources(&c, "Observation")[0].get("valueCodeableConcept").is_none());
+    assert_eq!(
+        c.sections[0].not_read,
+        [UNSEEN, "value (original text kept in the uploaded file)"]
+    );
+    Ok(())
+}
+
+/// PRE-1.0 (R6-L1, K21R7-L1): a reference and local words whose characters fit only without the
+/// "; " between them are cut when joined, and the cut is flagged.
+#[test]
+fn pre1_the_join_separator_counts_against_the_text_bound() {
+    use ccda::xml::{joined, joined_cuts};
+    let fits = ("a".repeat(999), "b".repeat(999));
+    assert!(!joined_cuts(&fits.0, &fits.1));
+    assert_eq!(joined(&fits.0, &fits.1), format!("{}; {}", fits.0, fits.1));
+    // one more character: 1,000 + 999 fit in 2,000 only without the separator
+    let over = ("a".repeat(1_000), "b".repeat(999));
+    assert!(joined_cuts(&over.0, &over.1));
+    assert_ne!(joined(&over.0, &over.1), format!("{}; {}", over.0, over.1));
+}
+
+/// PRE-1.0 (K21R7-L2): a negated entry whose only words sit in an original text cut before its first
+/// word may name something no one read: it is held whole, never "no known allergies", "no known
+/// problems" or "no known medications".
+#[test]
+fn pre1_a_negated_entry_whose_text_was_cut_is_not_a_no_known_list() -> R {
+    let beyond = text_past_the_node_limit();
+    let original = r##"<originalText><reference value="#late"/></originalText>"##;
+    let narrative = format!(r#"<text><paragraph ID="late">{beyond}</paragraph></text>"#);
+    let allergy = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.6.1"/><title>Allergies</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+             <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="419199007" codeSystem="2.16.840.1.113883.6.96"/>
+             <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+               <code nullFlavor="OTH">{original}</code>
+             </playingEntity></participantRole></participant>
+           </observation></entry></section></component>"#
+    ));
+    let problem = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+             <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="55607006" codeSystem="2.16.840.1.113883.6.96">{original}</value>
+           </observation></entry></section></component>"#
+    ));
+    let medication = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.1.1"/><title>Medications</title>
+           {narrative}
+           <entry><substanceAdministration classCode="SBADM" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.16"/><statusCode code="completed"/>
+             <consumable><manufacturedProduct><manufacturedMaterial>
+               <code nullFlavor="OTH">{original}</code>
+             </manufacturedMaterial></manufacturedProduct></consumable>
+           </substanceAdministration></entry></section></component>"#
+    ));
+    // the concept's own text was read, a translation's was cut
+    let translated = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+             <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="55607006" codeSystem="2.16.840.1.113883.6.96" displayName="Problem">
+               <originalText>Problem</originalText>
+               <translation code="x" codeSystem="1.2.3">{original}</translation></value>
+           </observation></entry></section></component>"#
+    ));
+    for (rtype, held, bytes) in [
+        (
+            "AllergyIntolerance",
+            "observation 2.16.840.1.113883.10.20.22.4.7",
+            allergy,
+        ),
+        ("Condition", "observation 2.16.840.1.113883.10.20.22.4.4", translated),
+        ("Condition", "observation 2.16.840.1.113883.10.20.22.4.4", problem),
+        (
+            "MedicationStatement",
+            "substanceAdministration 2.16.840.1.113883.10.20.22.4.16",
+            medication,
+        ),
+    ] {
+        let c = convert(&bytes)?;
+        assert!(resources(&c, rtype).is_empty(), "{rtype}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("{held} (text scan limit reached)")],
+            "{rtype}"
+        );
+    }
+    Ok(())
+}
+
+/// PRE-1.0 (K21R9-L1, K21R9-L2): a local label that differs from the narrative only by punctuation,
+/// case or spacing is the same text: the value keeps one copy and review gets no line. A label that is
+/// part of a narrative word ("reactive" in "Nonreactive.") is still a label of its own.
+#[test]
+fn pre1_punctuation_alone_does_not_make_another_text() -> R {
+    let observation = |display: &str, local: &str| {
+        format!(
+            r##"<text><paragraph ID="t1">Nonreactive.</paragraph></text>
+           <entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="266919005" codeSystem="2.16.840.1.113883.6.96" {display}>
+               <originalText><reference value="#t1"/>{local}</originalText></value>
+           </observation></entry>"##
+        )
+    };
+    let read = |xml: String| -> anyhow::Result<(Value, Vec<String>)> {
+        let c = convert(&social_history(&xml))?;
+        let o = resources(&c, "Observation");
+        anyhow::ensure!(o.len() == 1, "{o:?}");
+        Ok((
+            o[0]["valueCodeableConcept"]["text"].clone(),
+            c.sections[0].not_read.clone(),
+        ))
+    };
+    let unread = || vec!["value (original text kept in the uploaded file)".to_string()];
+    // L1: the local label is the narrative without its full stop
+    assert_eq!(read(observation("", "Nonreactive"))?, (json!("Nonreactive."), vec![]));
+    assert_eq!(
+        read(observation("", " «nonreactive» "))?,
+        (json!("Nonreactive."), vec![])
+    );
+    // L2: a bare reference beside the same display
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, ""))?,
+        (json!("Nonreactive"), vec![])
+    );
+    // a word inside a narrative word stays a label of its own
+    assert_eq!(
+        read(observation("", "reactive"))?,
+        (json!("Nonreactive.; reactive"), vec![])
+    );
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, "reactive."))?,
+        (json!("Nonreactive"), unread())
+    );
+    // a sign that carries meaning is no punctuation to drop
+    assert_eq!(
+        read(observation(r#"displayName="Nonreactive""#, "-Nonreactive"))?,
+        (json!("Nonreactive"), unread())
+    );
+    Ok(())
+}
+
+/// PRE-1.0 (CodeRabbit, mirror PR 7): a decimal point or comma before a digit is part of the number.
+/// ".5 mg" beside the display "5 mg" is another text and review lists it; a full stop after a number at
+/// the end of a sentence ("5 mg.") is still punctuation.
+#[test]
+fn pre1_a_leading_decimal_point_is_no_punctuation() -> R {
+    let observation = |display: &str, local: &str| {
+        format!(
+            r##"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="x" codeSystem="1.2.3" displayName="{display}">
+               <originalText>{local}</originalText></value>
+           </observation></entry>"##
+        )
+    };
+    let not_read = |xml: String| -> anyhow::Result<Vec<String>> {
+        let c = convert(&social_history(&xml))?;
+        anyhow::ensure!(resources(&c, "Observation").len() == 1);
+        Ok(c.sections[0].not_read.clone())
+    };
+    let unread = || vec!["value (original text kept in the uploaded file)".to_string()];
+    assert_eq!(not_read(observation("5 mg", ".5 mg"))?, unread());
+    assert_eq!(not_read(observation("5 mg", "(.5 mg)"))?, unread());
+    assert_eq!(not_read(observation("5 mg", ",5 mg"))?, unread());
+    assert_eq!(not_read(observation(".5 mg", ".5 mg"))?, Vec::<String>::new());
+    // sentence punctuation after a number still drops
+    assert_eq!(not_read(observation("5 mg", "5 mg."))?, Vec::<String>::new());
+    assert_eq!(not_read(observation("Dose 5", "Dose 5."))?, Vec::<String>::new());
+    assert_eq!(not_read(observation("Dose 5", "«Dose 5»."))?, Vec::<String>::new());
+    Ok(())
+}
+
+/// PRE-1.0 (CodeRabbit, mirror PR 7): a negated problem whose original text points into a PSY section
+/// and that is then held for another reason (status active with an end date) passes no label of that
+/// text to the next problem of its concern act.
+#[test]
+fn pre1_a_negated_problem_held_after_the_probe_passes_no_narrative_labels_on() -> R {
+    let c = convert(&document(&format!(
+        r##"{}<component><section><text><paragraph ID="named">Depression</paragraph></text><entry>{}</entry></section></component>"##,
+        problems_section(&format!(
+            r##"<entry><act classCode="ACT" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.3"/>
+              <id root="1.2.3.4" extension="act-two"/>
+              <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN" negationInd="true">
+                <templateId root="2.16.840.1.113883.10.20.22.4.4"/><id root="1.2.3.4" extension="obs-held"/>
+                <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/>
+                <effectiveTime><low value="20190101"/><high value="20200301"/></effectiveTime>
+                <value xsi:type="CD" code="x" codeSystem="1.2.3"><originalText><reference value="#named"/></originalText></value>{}
+              </observation></entryRelationship>
+              <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.4"/><id root="1.2.3.4" extension="obs-next"/>
+                <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/>
+                <effectiveTime><low value="20100101"/></effectiveTime>
+                <value xsi:type="CD" code="195967001" codeSystem="2.16.840.1.113883.6.96" displayName="Asthma"/>
+              </observation></entryRelationship></act></entry>"##,
+            problem_status("55561003")
+        )),
+        security_label("PSY")
+    )))?;
+    let conditions = resources(&c, "Condition");
+    assert_eq!(conditions.len(), 1, "{conditions:?}");
+    assert_eq!(conditions[0]["code"]["coding"][0]["code"], "195967001");
+    assert_eq!(label_codes(&c, "Condition"), [Vec::<String>::new()]);
+    let problems = c
+        .sections
+        .iter()
+        .find(|s| s.kind == Some(Section::Problems))
+        .ok_or_else(|| anyhow::anyhow!("no problems section"))?;
+    assert!(
+        problems
+            .not_read
+            .contains(&"observation 2.16.840.1.113883.10.20.22.4.4 (status active with an end date)".to_string()),
+        "{:?}",
+        problems.not_read
+    );
+    Ok(())
+}
+
+/// PRE-1.0 (K21R8-L2): a Notes, Encounters, Procedures or Social History section that says it has no
+/// information (nullFlavor) but holds words is held, as it was before these sections were read. A core
+/// section that says so keeps its guard: "No information" there needs no review.
+#[test]
+fn pre1_a_null_flavored_section_with_words_is_held() -> R {
+    for (template, title) in [
+        ("2.16.840.1.113883.10.20.22.2.65", "Notes"),
+        ("2.16.840.1.113883.10.20.22.2.22.1", "Encounters"),
+        ("2.16.840.1.113883.10.20.22.2.7.1", "Procedures"),
+        ("2.16.840.1.113883.10.20.22.2.17", "Social History"),
+        ("2.16.840.1.113883.10.20.22.2.6.1", "Allergies"),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section nullFlavor="NI"><templateId root="{template}"/><title>{title}</title>
+              <text><paragraph>Seen for a cough on Tuesday.</paragraph></text></section></component>"#
+        )))?;
+        let held = held_items(&c, "test", "n.xml");
+        if title == "Allergies" {
+            assert!(!c.sections[0].narrative);
+            assert!(held.is_empty(), "{held:?}");
+        } else {
+            assert!(c.sections[0].narrative, "{title}");
+            assert_eq!(held.len(), 1, "{title}: {held:?}");
+        }
+    }
+    Ok(())
+}
+
+/// PRE-1.0 (L4): a Social History or procedure activity observation that ends before it starts keeps
+/// its start, and the reversed end waits in review.
+#[test]
+fn pre1_an_activity_observation_with_a_reversed_period_keeps_only_its_start() -> R {
+    let observation = |template: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="{template}"/>
+                 <code code="229819007" codeSystem="2.16.840.1.113883.6.96" displayName="Tobacco use"/>
+                 <statusCode code="completed"/>
+                 <effectiveTime><low value="2010"/><high value="2009"/></effectiveTime>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    };
+    for (template, bytes) in [
+        (
+            "2.16.840.1.113883.10.20.22.4.38",
+            social_history(&observation("2.16.840.1.113883.10.20.22.4.38")),
+        ),
+        (
+            "2.16.840.1.113883.10.20.22.4.13",
+            procedures(&observation("2.16.840.1.113883.10.20.22.4.13")),
+        ),
+    ] {
+        let c = convert(&bytes)?;
+        let obs = resources(&c, "Observation");
+        assert_eq!(obs.len(), 1, "{template}");
+        assert_eq!(obs[0]["effectivePeriod"], json!({"start": "2010"}), "{template}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("observation {template} (ends before it starts)")]
+        );
+    }
+    Ok(())
+}
+
+/// PRE-1.0 (C-M1): a question mark beside a coded name is clinical shorthand for "suspected", so an
+/// original text that differs from the display only by it is another text and waits in review. A
+/// full stop is still no other text.
+#[test]
+fn pre1_a_question_mark_beside_a_coded_problem_goes_to_review() -> R {
+    for (original, unread) in [
+        ("?Pneumonia", true),
+        ("Pneumonia?", true),
+        ("? Pneumonia", true),
+        ("¿Pneumonia?", true),
+        ("Pneumonia!", true),
+        ("Pneumonia.", false),
+        ("Pneumonia", false),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+               <entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+                 <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+                 <effectiveTime><low value="20210301"/></effectiveTime>
+                 <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96" displayName="Pneumonia"><originalText>{original}</originalText></value>
+               </observation></entry></section></component>"#
+        )))?;
+        assert_eq!(resources(&c, "Condition").len(), 1, "{original}");
+        let expected: Vec<String> = if unread {
+            vec!["value (original text kept in the uploaded file)".into()]
+        } else {
+            vec![]
+        };
+        assert_eq!(c.sections[0].not_read, expected, "{original}");
+    }
+    Ok(())
+}
+
+/// PRE-1.0 (C-L3, C-L1): a negated allergy held for a cut name passes none of the labels of the text
+/// it read to the next allergy of its concern act. That next allergy, not negated, imports even
+/// though its own original text was cut, and the cut is listed.
+#[test]
+fn pre1_a_held_negated_allergy_passes_no_narrative_labels_on() -> R {
+    let beyond = text_past_the_node_limit();
+    let c = convert(&document(&format!(
+        r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.6.1"/><title>Allergies</title>
+           <text><paragraph ID="late">{beyond}</paragraph></text>
+           <entry><act classCode="ACT" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.30"/>
+             <code code="CONC" codeSystem="2.16.840.1.113883.5.6"/><statusCode code="active"/>
+             <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN" negationInd="true">
+               <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+               <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+               <effectiveTime><low value="20210301"/></effectiveTime>
+               <value xsi:type="CD" code="419199007" codeSystem="2.16.840.1.113883.6.96"/>
+               <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+                 <code code="x" codeSystem="1.2.3"><originalText><reference value="#named"/></originalText>
+                   <translation code="y" codeSystem="1.2.3"><originalText><reference value="#late"/></originalText></translation>
+                 </code>
+               </playingEntity></participantRole></participant>
+             </observation></entryRelationship>
+             <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN">
+               <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+               <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+               <effectiveTime><low value="20200101"/></effectiveTime>
+               <value xsi:type="CD" code="419511003" codeSystem="2.16.840.1.113883.6.96"/>
+               <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+                 <code code="7980" codeSystem="2.16.840.1.113883.6.88" displayName="Penicillin G">
+                   <originalText><reference value="#late"/></originalText></code>
+               </playingEntity></participantRole></participant>
+             </observation></entryRelationship>
+           </act></entry></section></component>
+           <component><section><text><paragraph ID="named">Peanut</paragraph></text><entry>{}</entry></section></component>"##,
+        security_label("PSY")
+    )))?;
+    let allergies = resources(&c, "AllergyIntolerance");
+    assert_eq!(allergies.len(), 1, "{allergies:?}");
+    assert_eq!(allergies[0]["code"]["coding"][0]["code"], "7980");
+    assert_eq!(label_codes(&c, "AllergyIntolerance"), [Vec::<String>::new()]);
+    assert!(
+        c.sections[0]
+            .not_read
+            .contains(&"observation 2.16.840.1.113883.10.20.22.4.7 (text scan limit reached)".to_string()),
+        "{:?}",
+        c.sections[0].not_read
+    );
+    assert!(
+        c.sections[0].not_read.len() >= 2,
+        "the cut of the stored allergy is listed too: {:?}",
+        c.sections[0].not_read
+    );
+    Ok(())
+}

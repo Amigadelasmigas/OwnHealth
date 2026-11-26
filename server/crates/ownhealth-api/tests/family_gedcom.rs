@@ -176,7 +176,9 @@ async fn a_tree_proposes_each_relative_once_and_accept_adds_one_while_dismiss_ad
     assert_eq!(
         father["payload"],
         json!({"source": "gedcom", "version": "5.5.1", "relationship": "FTH",
-               "label": {"es": "padre", "en": "father"}, "sex_at_birth": "male", "born_year": 1955,
+               "label": {"es": "padre", "en": "father", "de": "Vater", "fr": "père", "ca": "pare",
+                         "it": "padre", "pt": "pai"},
+               "sex_at_birth": "male", "born_year": 1955,
                "deceased": true, "death_age": 64})
     );
     let mother = items

@@ -88,7 +88,7 @@ Colesterol LDL directo	ldl_c	direct	curated	2026-11-08
 - `method`: only when the printed name says it (`direct`, `calculated`); blank otherwise.
 - `source`: `curated`. `reviewed`: today's date.
 
-**A new analyte** also needs a row in `groups.tsv` (canonical unit, SI and conventional units, plausibility limits, English and Spanish names) and its LOINC codes in [loinc/codes.tsv](data/terminology/loinc/codes.tsv). Then rebuild the shipped LOINC subset, which needs network access:
+**A new analyte** also needs a row in `groups.tsv` (canonical unit, SI and conventional units, plausibility limits, English and Spanish names), its name in every other language in [names/analytes.tsv](data/names/analytes.tsv), and its LOINC codes in [loinc/codes.tsv](data/terminology/loinc/codes.tsv). Then rebuild the shipped LOINC subset, which needs network access:
 
 ```sh
 python3 data/terminology/loinc/build_subset.py   # standard library only

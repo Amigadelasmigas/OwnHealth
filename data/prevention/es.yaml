@@ -23,7 +23,7 @@ rows:
     evidence: [mammography]
     source: PAPPS 2024
     cite: https://www.elsevier.es/es-revista-atencion-primaria-27-articulo-recomendaciones-prevencion-del-cancer-actualizacion-S0212656724002701
-    name: {en: "Breast cancer screening (mammography)", es: "Cribado de cáncer de mama (mamografía)"}
+    name: {en: "Breast cancer screening (mammography)", es: "Cribado de cáncer de mama (mamografía)", de: "Brustkrebs-Früherkennung (Mammographie)", fr: "Dépistage du cancer du sein (mammographie)", ca: "Cribratge de càncer de mama (mamografia)", it: "Screening del tumore della mammella (mammografia)", pt: "Rastreio do cancro da mama (mamografia)"}
   - id: es.cancer.colorectal
     kind: every_n_months
     area: screening
@@ -33,7 +33,7 @@ rows:
     interval_for: {colonoscopy: 180}
     source: PAPPS 2024
     cite: https://www.elsevier.es/es-revista-atencion-primaria-27-articulo-recomendaciones-prevencion-del-cancer-actualizacion-S0212656724002701
-    name: {en: "Colorectal cancer screening", es: "Cribado de cáncer colorrectal"}
+    name: {en: "Colorectal cancer screening", es: "Cribado de cáncer colorrectal", de: "Darmkrebs-Früherkennung", fr: "Dépistage du cancer colorectal", ca: "Cribratge de càncer colorectal", it: "Screening del tumore del colon-retto", pt: "Rastreio do cancro colorretal"}
   - id: es.cancer.cervix_cytology
     kind: every_n_months
     area: screening
@@ -44,7 +44,7 @@ rows:
     unless: {hysterectomy: "yes"}
     source: PAPPS 2024
     cite: https://www.elsevier.es/es-revista-atencion-primaria-27-articulo-recomendaciones-prevencion-del-cancer-actualizacion-S0212656724002701
-    name: {en: "Cervical cancer screening (cytology)", es: "Cribado de cáncer de cuello de útero (citología)"}
+    name: {en: "Cervical cancer screening (cytology)", es: "Cribado de cáncer de cuello de útero (citología)", de: "Gebärmutterhalskrebs-Früherkennung (Zytologie)", fr: "Dépistage du cancer du col de l'utérus (cytologie)", ca: "Cribratge de càncer de coll d'úter (citologia)", it: "Screening del tumore della cervice uterina (citologia)", pt: "Rastreio do cancro do colo do útero (citologia)"}
   - id: es.cancer.cervix_hpv
     kind: every_n_months
     area: screening
@@ -56,7 +56,7 @@ rows:
     interval_for: {cervical_cytology: 36}
     source: PAPPS 2024
     cite: https://www.elsevier.es/es-revista-atencion-primaria-27-articulo-recomendaciones-prevencion-del-cancer-actualizacion-S0212656724002701
-    name: {en: "Cervical cancer screening (HPV test)", es: "Cribado de cáncer de cuello de útero (prueba del VPH)"}
+    name: {en: "Cervical cancer screening (HPV test)", es: "Cribado de cáncer de cuello de útero (prueba del VPH)", de: "Gebärmutterhalskrebs-Früherkennung (HPV-Test)", fr: "Dépistage du cancer du col de l'utérus (test HPV)", ca: "Cribratge de càncer de coll d'úter (prova del VPH)", it: "Screening del tumore della cervice uterina (test HPV)", pt: "Rastreio do cancro do colo do útero (teste do VPH)"}
   - id: es.vac.td
     kind: once
     area: vaccine
@@ -65,7 +65,7 @@ rows:
     evidence: [td]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Tetanus and diphtheria (Td), dose around age 65", es: "Tétanos y difteria (Td), dosis hacia los 65 años"}
+    name: {en: "Tetanus and diphtheria (Td), dose around age 65", es: "Tétanos y difteria (Td), dosis hacia los 65 años", de: "Tetanus und Diphtherie (Td), Dosis um das 65. Lebensjahr", fr: "Tétanos et diphtérie (Td), dose vers 65 ans", ca: "Tètanus i diftèria (Td), dosi cap als 65 anys", it: "Tetano e difterite (Td), dose verso i 65 anni", pt: "Tétano e difteria (Td), dose por volta dos 65 anos"}
   - id: es.vac.influenza
     kind: seasonal
     area: vaccine
@@ -74,7 +74,7 @@ rows:
     evidence: [influenza]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Influenza, one dose each season", es: "Gripe, una dosis cada temporada"}
+    name: {en: "Influenza, one dose each season", es: "Gripe, una dosis cada temporada", de: "Influenza, eine Dosis pro Saison", fr: "Grippe, une dose chaque saison", ca: "Grip, una dosi cada temporada", it: "Influenza, una dose ogni stagione", pt: "Gripe, uma dose em cada época"}
   - id: es.vac.pneumococcal
     kind: once
     area: vaccine
@@ -83,7 +83,7 @@ rows:
     evidence: [pneumococcal]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Pneumococcal, from age 65", es: "Neumococo, a partir de los 65 años"}
+    name: {en: "Pneumococcal, from age 65", es: "Neumococo, a partir de los 65 años", de: "Pneumokokken, ab 65 Jahren", fr: "Pneumocoque, à partir de 65 ans", ca: "Pneumococ, a partir dels 65 anys", it: "Pneumococco, dai 65 anni", pt: "Pneumococo, a partir dos 65 anos"}
   - id: es.vac.zoster
     kind: series
     area: vaccine
@@ -93,7 +93,7 @@ rows:
     evidence: [zoster]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Herpes zoster, two doses from age 65", es: "Herpes zóster, dos dosis a partir de los 65 años"}
+    name: {en: "Herpes zoster, two doses from age 65", es: "Herpes zóster, dos dosis a partir de los 65 años", de: "Herpes zoster, zwei Dosen ab 65 Jahren", fr: "Zona, deux doses à partir de 65 ans", ca: "Herpes zòster, dues dosis a partir dels 65 anys", it: "Herpes zoster, due dosi dai 65 anni", pt: "Herpes zóster, duas doses a partir dos 65 anos"}
   - id: es.vac.hpv
     kind: once
     area: vaccine
@@ -101,7 +101,7 @@ rows:
     evidence: [hpv]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Human papillomavirus (HPV), one dose at 12", es: "Virus del papiloma humano (VPH), una dosis a los 12 años"}
+    name: {en: "Human papillomavirus (HPV), one dose at 12", es: "Virus del papiloma humano (VPH), una dosis a los 12 años", de: "Humane Papillomviren (HPV), eine Dosis mit 12 Jahren", fr: "Papillomavirus humain (HPV), une dose à 12 ans", ca: "Virus del papil·loma humà (VPH), una dosi als 12 anys", it: "Papillomavirus umano (HPV), una dose a 12 anni", pt: "Vírus do papiloma humano (VPH), uma dose aos 12 anos"}
   - id: es.vac.menacwy
     kind: once
     area: vaccine
@@ -110,4 +110,4 @@ rows:
     evidence: [menacwy]
     source: CISNS 2026
     cite: https://www.sanidad.gob.es/areas/promocionPrevencion/vacunaciones/calendario/docs/CalendarioVacunacion_Todalavida.pdf
-    name: {en: "Meningococcal ACWY, one dose at 12", es: "Meningococo ACWY, una dosis a los 12 años"}
+    name: {en: "Meningococcal ACWY, one dose at 12", es: "Meningococo ACWY, una dosis a los 12 años", de: "Meningokokken ACWY, eine Dosis mit 12 Jahren", fr: "Méningocoque ACWY, une dose à 12 ans", ca: "Meningococ ACWY, una dosi als 12 anys", it: "Meningococco ACWY, una dose a 12 anni", pt: "Meningococo ACWY, uma dose aos 12 anos"}

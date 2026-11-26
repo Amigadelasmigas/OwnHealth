@@ -6,6 +6,11 @@
 //   equal), its strings in data/ and its wording-lint patterns (the server tests name each one missing).
 // en and es stay in dict.ts, where every UI slice adds its keys.
 import { dict, type Key } from './dict.ts';
+import { de } from './de.ts';
+import { fr } from './fr.ts';
+import { ca } from './ca.ts';
+import { it } from './it.ts';
+import { pt } from './pt.ts';
 
 /** Every UI string of one language. */
 export type Table = Readonly<Record<Key, string>>;
@@ -27,7 +32,12 @@ export interface LangEntry {
 /** The languages, in picker order. The first is the default of a new login on the server. */
 export const LANGS = [
 	{ code: 'es', label: 'ES', name: 'Español', intl: 'es-ES', beta: false, table: dict.es },
-	{ code: 'en', label: 'EN', name: 'English', intl: 'en-GB', beta: false, table: dict.en }
+	{ code: 'en', label: 'EN', name: 'English', intl: 'en-GB', beta: false, table: dict.en },
+	{ code: 'de', label: 'DE', name: 'Deutsch', intl: 'de-DE', beta: true, table: de },
+	{ code: 'fr', label: 'FR', name: 'Français', intl: 'fr-FR', beta: true, table: fr },
+	{ code: 'ca', label: 'CA', name: 'Català', intl: 'ca-ES', beta: true, table: ca },
+	{ code: 'it', label: 'IT', name: 'Italiano', intl: 'it-IT', beta: true, table: it },
+	{ code: 'pt', label: 'PT', name: 'Português', intl: 'pt-PT', beta: true, table: pt }
 ] as const satisfies readonly LangEntry[];
 
 export type Lang = (typeof LANGS)[number]['code'];

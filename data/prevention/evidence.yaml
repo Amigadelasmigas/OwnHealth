@@ -5,27 +5,27 @@
 version: "prevention-evidence 0.2.0"
 groups:
   mammography:
-    name: {en: "Mammography", es: "Mamografía"}
-    aliases: [mammography, mammogram, mamografía, mamografia]
+    name: {en: "Mammography", es: "Mamografía", de: "Mammographie", fr: "Mammographie", ca: "Mamografia", it: "Mammografia", pt: "Mamografia"}
+    aliases: [mammography, mammogram, mamografía, mamografia, mammographie, mammografia]
     snomed: ["71651007"]
     loinc: ["24606-6"]
   fit:
-    name: {en: "Faecal immunochemical test", es: "Sangre oculta en heces (test inmunológico)"}
-    aliases: [faecal immunochemical test, fecal immunochemical test, fit test, sangre oculta en heces, sohi]
+    name: {en: "Faecal immunochemical test", es: "Sangre oculta en heces (test inmunológico)", de: "Immunologischer Stuhltest (FIT)", fr: "Test immunochimique fécal", ca: "Sang oculta en femta (test immunològic)", it: "Test immunochimico fecale", pt: "Pesquisa de sangue oculto nas fezes (teste imunoquímico)"}
+    aliases: [faecal immunochemical test, fecal immunochemical test, fit test, sangre oculta en heces, sohi, immunologischer stuhltest, test immunochimique fécal, sang oculta en femta, test immunochimico fecale, sangue oculto nas fezes]
     loinc: ["29771-3", "57905-2"]
   colonoscopy:
-    name: {en: "Colonoscopy", es: "Colonoscopia"}
-    aliases: [colonoscopy, colonoscopia]
+    name: {en: "Colonoscopy", es: "Colonoscopia", de: "Koloskopie", fr: "Coloscopie", ca: "Colonoscòpia", it: "Colonscopia", pt: "Colonoscopia"}
+    aliases: [colonoscopy, colonoscopia, koloskopie, coloscopie, colonscopia]
     snomed: ["73761001"]
   cervical_cytology:
-    name: {en: "Cervical cytology", es: "Citología cervical"}
-    aliases: [cervical cytology, pap smear, pap test, citología cervical, citologia cervical]
+    name: {en: "Cervical cytology", es: "Citología cervical", de: "Zervixzytologie", fr: "Cytologie cervicale", ca: "Citologia cervical", it: "Citologia cervicale", pt: "Citologia cervical"}
+    aliases: [cervical cytology, pap smear, pap test, citología cervical, citologia cervical, zervixzytologie, cytologie cervicale, citologia cervicale]
     loinc: ["10524-7"]
   hpv_test:
-    name: {en: "HPV test", es: "Prueba del VPH"}
-    aliases: [hpv test, prueba del vph, prueba de vph, test de vph, test vph]
+    name: {en: "HPV test", es: "Prueba del VPH", de: "HPV-Test", fr: "Test HPV", ca: "Prova del VPH", it: "Test HPV", pt: "Teste do VPH"}
+    aliases: [hpv test, prueba del vph, prueba de vph, test de vph, test vph, test hpv, prova del vph, teste do vph]
     loinc: ["21440-3"]
   ldct_chest:
-    name: {en: "Low-dose chest CT", es: "TC de tórax de baja dosis"}
+    name: {en: "Low-dose chest CT", es: "TC de tórax de baja dosis", de: "Niedrigdosis-CT des Thorax", fr: "Scanner thoracique à faible dose", ca: "TC de tòrax de dosi baixa", it: "TC del torace a basso dosaggio", pt: "TC do tórax de baixa dose"}
     # only a CT of the chest: a low-dose CT of the abdomen or the kidneys, or a bare "LDCT", says nothing about the lungs
-    aliases: [ldct chest, chest ldct, ldct lung, lung ldct, ldct of the chest, low dose chest ct, low dose ct chest, low dose ct of the chest, low dose lung ct, low dose ct lung, ct chest low dose, chest ct low dose, lung cancer screening ct, tc de torax de baja dosis, tac de torax de baja dosis, tc toracico de baja dosis, tc de baja dosis de torax, tac de baja dosis de torax]
+    aliases: [ldct chest, chest ldct, ldct lung, lung ldct, ldct of the chest, low dose chest ct, low dose ct chest, low dose ct of the chest, low dose lung ct, low dose ct lung, ct chest low dose, chest ct low dose, lung cancer screening ct, tc de torax de baja dosis, tac de torax de baja dosis, tc toracico de baja dosis, tc de baja dosis de torax, tac de baja dosis de torax, niedrigdosis ct des thorax, scanner thoracique à faible dose, tc de tòrax de dosi baixa, tc del torace a basso dosaggio, tc do tórax de baixa dose]
