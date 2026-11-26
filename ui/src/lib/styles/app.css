@@ -299,6 +299,10 @@ pre.code{background:#091017;border:1px solid var(--line);border-radius:8px;paddi
 .top .search{order:9;flex:1 1 100%;max-width:none}
 .top .seg button{padding:3px 5px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15}
 .top .seg button small{font-size:9px;line-height:1}
+/* The bell's word goes to its tooltip and its accessible name, as on a phone, so the review count, the
+   bell and the avatar share the picker's row in every language. With the word, the avatar wrapped to a
+   row of its own at 768 px in de, fr and it. */
+.top .nt .iconbtn>span{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 }
 /* Phone (v0.2, lane F-ui; finished in the UI polish): the sidebar becomes one scrolling row with the
    profile initials and the views; the search moves to a second row of the top bar. */

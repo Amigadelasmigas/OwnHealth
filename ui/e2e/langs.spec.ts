@@ -210,6 +210,34 @@ for (const l of LANGS) {
 	});
 }
 
+// On a tablet with the bell shown, the review count, the bell and the avatar share the picker's row in
+// every language. The avatar once wrapped to a row of its own at 768 px in de, fr and it.
+for (const l of LANGS) {
+	test(`with the bell shown, the avatar stays on the picker row on a tablet, in ${l.code}`, async ({ page }) => {
+		await page.route('**/api/notifications', (route) => route.fulfill({ json: NOTICES }));
+		await page.setViewportSize({ width: 768, height: 1024 });
+		await page.goto(`/?lang=${l.code}`);
+		await expect(page.locator('header.top .nt .iconbtn')).toBeVisible();
+		await expect(page.locator('header.top .av')).toBeVisible();
+		const out: string[] = [];
+		for (const width of [761, 768, 820, 900, 1024, 1100]) {
+			await page.setViewportSize({ width, height: 1024 });
+			const head = await page.locator('header.top').evaluate((h) => {
+				const box = (s: string) => h.querySelector(s)!.getBoundingClientRect();
+				const row = box('.seg[role=group]');
+				const mid = (s: string) => Math.round(box(s).top + box(s).height / 2);
+				return { top: Math.round(row.top), bottom: Math.round(row.bottom), review: mid('a.iconbtn'), bell: mid('.nt .iconbtn'), av: mid('.av'), reviewH: Math.round(box('a.iconbtn').height), avW: Math.round(box('.av').width) };
+			});
+			for (const [what, y] of [['review count', head.review], ['bell', head.bell], ['avatar', head.av]] as const) {
+				if (y < head.top || y > head.bottom) out.push(`${width} px: the ${what} is off the picker row (${y} outside ${head.top}-${head.bottom})`);
+			}
+			// the fix shortens a label, never a hit target
+			if (head.reviewH < 34 || head.avW < 26) out.push(`${width} px: a hit target shrank (review ${head.reviewH} px high, avatar ${head.avW} px wide)`);
+		}
+		expect(out).toEqual([]);
+	});
+}
+
 // The picker clips whatever spills past its rounded border, so a button's focus ring is drawn inside
 // the button, where the clip cannot cut its top and bottom off.
 test('the focus ring of a picker button is drawn whole', async ({ page }) => {
