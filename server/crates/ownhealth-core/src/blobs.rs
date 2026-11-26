@@ -594,6 +594,7 @@ impl BlobStore {
         let root = root.into();
         fs::create_dir_all(root.join("tmp"))?;
         fs::create_dir_all(root.join("sha256"))?;
+        flush_store_names(&root)?;
         Ok(BlobStore {
             root,
             keys: None,
@@ -1385,11 +1386,13 @@ impl BlobStore {
         })
     }
 
-    /// Put the file `from` of a backup's blob tree where its `key` says, copied whole, made
-    /// read-only and then renamed, so a blob is never there half or writable. A key that is not one
+    /// Put the file `from` of a backup's blob tree where its `key` says, copied whole, flushed to
+    /// disk, made read-only and then renamed, so a blob is never there half or writable; every folder
+    /// from its own up to the root is flushed after the rename. A key that is not one
     /// ([`tree_files`]) is refused. False when the file is there already: a resumed restore checked
-    /// its bytes first ([`check_restore_target`]), and it is made read-only too, in case an older
-    /// placement stopped between its rename and its mode change. An error names the destination.
+    /// its bytes first ([`check_restore_target`]), and it is made read-only and its folders flushed
+    /// too, in case an older placement stopped between its rename and those steps. An error names
+    /// the destination.
     pub fn place(&self, key: &str, from: &Path) -> Result<bool, BlobError> {
         let target = self
             .root
@@ -1400,20 +1403,29 @@ impl BlobStore {
                 format!("cannot place blob {key} at {}: {e}", target.display()),
             ))
         };
+        let parent = target.parent().unwrap_or(&self.root);
         if target.exists() {
             set_mode(&target, 0o440).map_err(named)?;
+            // An older placement may have stopped after its rename and before these flushes, and one
+            // from before this check flushed its bytes may have renamed them unflushed.
+            sync_file(&target).map_err(named)?;
+            sync_folders_up_to(parent, &self.root).map_err(named)?;
             return Ok(false);
         }
-        let parent = target.parent().unwrap_or(&self.root);
         fs::create_dir_all(parent).map_err(named)?;
         let part = restore_part_path(&target, key);
         let placed = fs::copy(from, &part)
+            .and_then(|_| sync_file(&part))
             .and_then(|_| set_mode(&part, 0o440))
             .and_then(|_| rename_part(&part, &target));
         if let Err(e) = placed {
             let _ = fs::remove_file(&part);
             return Err(named(e));
         }
+        // The new name, and every folder up to the root, are on disk before the restore goes on: a
+        // power cut after the restore returns leaves no empty or missing file that the database
+        // names. A folder that is there already may be one an earlier place made and never flushed.
+        sync_folders_up_to(parent, &self.root).map_err(named)?;
         Ok(true)
     }
 }
@@ -1425,6 +1437,56 @@ type PartHook = Box<dyn FnOnce(&Path)>;
 #[cfg(test)]
 thread_local! {
     static BEFORE_PLACE_RENAME: std::cell::RefCell<Option<PartHook>> = const { std::cell::RefCell::new(None) };
+}
+
+// Every path [`sync_file`] or [`sync_folder`] made durable, in this test thread only.
+#[cfg(test)]
+thread_local! {
+    static SYNCED: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Flush the file at `path` to disk.
+fn sync_file(path: &Path) -> io::Result<()> {
+    File::open(path)?.sync_all()?;
+    #[cfg(test)]
+    SYNCED.with(|synced| synced.borrow_mut().push(path.to_path_buf()));
+    Ok(())
+}
+
+/// Flush the folder at `path` to disk: the names in it, of files and folders made or renamed there.
+fn sync_folder(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(path)?.sync_all()?;
+    #[cfg(test)]
+    SYNCED.with(|synced| synced.borrow_mut().push(path.to_path_buf()));
+    Ok(())
+}
+
+/// Flush `folder` and every folder above it up to and including `root`, which holds it.
+fn sync_folders_up_to(folder: &Path, root: &Path) -> io::Result<()> {
+    for f in folder.ancestors() {
+        sync_folder(f)?;
+        if f == root {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Flush the store's root, which holds `tmp` and `sha256`, and every folder above it, so the names
+/// that lead to the store survive a power cut. It runs on every open: a folder that is there already
+/// may be one an earlier open made and stopped before it flushed. A relative root is taken from the
+/// current folder. A folder above the root that this user may not read is skipped, so a store below
+/// such a folder still opens.
+fn flush_store_names(root: &Path) -> io::Result<()> {
+    let root = std::path::absolute(root)?;
+    for f in root.ancestors() {
+        match sync_folder(f) {
+            Err(e) if f != root && e.kind() == io::ErrorKind::PermissionDenied => {}
+            done => done?,
+        }
+    }
+    Ok(())
 }
 
 /// The last step of [`BlobStore::place`]: the `.part` file takes the blob's name.
@@ -2679,6 +2741,188 @@ mod tests {
         set_mode(&target, 0o644)?;
         assert!(!fresh.place(&sha, &from)?);
         assert_eq!(mode(&target)?, 0o440, "the reused blob kept a writable mode");
+        Ok(())
+    }
+
+    /// A placed blob is on disk before the restore goes on: its bytes before it takes its name, then
+    /// its name and every folder made for it, so a power cut after a restore leaves no empty or
+    /// missing file behind a database that names it.
+    #[test]
+    fn a_placed_blob_is_flushed_with_its_bytes_and_every_new_folder() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let from = dir.path().join("from");
+        fs::write(&from, b"reference table")?;
+        let sha = sha256_reader(&b"reference table"[..])?;
+        let root = dir.path().join("fresh");
+        let fresh = BlobStore::new(root.clone())?;
+        let target = plain_at(&root, &sha);
+        // Each folder the place makes for the blob, and the folder there already that gets the first
+        // new name: every one of them holds a new name.
+        let mut renamed = Vec::new();
+        for folder in target.ancestors().skip(1) {
+            renamed.push(folder.to_path_buf());
+            if folder.is_dir() {
+                break;
+            }
+        }
+        assert!(renamed.len() >= 2, "the blob needs a new folder: {renamed:?}");
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        let before_rename = std::rc::Rc::new(std::cell::Cell::new(None));
+        let observed = before_rename.clone();
+        BEFORE_PLACE_RENAME.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |part: &Path| {
+                observed.set(Some(SYNCED.with(|synced| synced.borrow().iter().any(|p| p == part))));
+            }));
+        });
+        assert!(fresh.place(&sha, &from)?);
+        assert_eq!(
+            before_rename.get(),
+            Some(true),
+            "the .part file took the blob's name before its bytes were flushed"
+        );
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        for folder in &renamed {
+            assert!(
+                synced.iter().any(|p| p == folder),
+                "{} was not flushed: {synced:?}",
+                folder.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// A store made at a new path flushes every folder it made, and the folder above each, so its
+    /// own folders keep their names after a power cut; a placed blob then flushes every folder from
+    /// its own up to the store's root, also those that were there already.
+    #[test]
+    fn a_new_store_and_a_placed_blob_flush_every_folder_up_to_the_root() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().join("data").join("blobs");
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        let fresh = BlobStore::new(root.clone())?;
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        // root holds tmp and sha256, data holds blobs, and the temp folder holds data
+        for folder in [root.clone(), dir.path().join("data"), dir.path().to_path_buf()] {
+            assert!(
+                synced.iter().any(|p| p == &folder),
+                "{} was not flushed when the store was made: {synced:?}",
+                folder.display()
+            );
+        }
+        let from = dir.path().join("from");
+        fs::write(&from, b"reference table")?;
+        let sha = sha256_reader(&b"reference table"[..])?;
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        assert!(fresh.place(&sha, &from)?);
+        let target = plain_at(&root, &sha);
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        for folder in target.ancestors().skip(1).take_while(|f| f.starts_with(&root)) {
+            assert!(
+                synced.iter().any(|p| p == folder),
+                "{} was not flushed by the place: {synced:?}",
+                folder.display()
+            );
+        }
+        assert!(
+            synced.iter().any(|p| p == &root),
+            "the root was not flushed: {synced:?}"
+        );
+        Ok(())
+    }
+
+    /// A blob a stopped placement had renamed into place, but whose folders it never flushed, gets
+    /// them flushed by the retry that finds it there.
+    #[test]
+    fn a_retry_that_finds_the_blob_flushes_its_folders_up_to_the_root() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let from = dir.path().join("from");
+        fs::write(&from, b"reference table")?;
+        let sha = sha256_reader(&b"reference table"[..])?;
+        let root = dir.path().join("fresh");
+        let fresh = BlobStore::new(root.clone())?;
+        assert!(fresh.place(&sha, &from)?);
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        assert!(!fresh.place(&sha, &from)?);
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        let target = plain_at(&root, &sha);
+        // An older placement may have renamed the file before its bytes reached the disk.
+        assert!(
+            synced.iter().any(|p| p == &target),
+            "the blob itself was not flushed by the retry: {synced:?}"
+        );
+        for folder in target.ancestors().skip(1).take_while(|f| f.starts_with(&root)) {
+            assert!(
+                synced.iter().any(|p| p == folder),
+                "{} was not flushed by the retry: {synced:?}",
+                folder.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// An open that stopped after it made the store's folders and before it flushed them left them in
+    /// place: the next open still flushes the root and every folder above it.
+    #[test]
+    fn an_open_after_a_stopped_one_flushes_the_folders_it_finds() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().join("data").join("blobs");
+        // what the stopped open left: every folder made, none flushed
+        fs::create_dir_all(root.join("tmp"))?;
+        fs::create_dir_all(root.join("sha256"))?;
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        BlobStore::new(root.clone())?;
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        for folder in [root.clone(), dir.path().join("data"), dir.path().to_path_buf()] {
+            assert!(
+                synced.iter().any(|p| p == &folder),
+                "{} was not flushed by the second open: {synced:?}",
+                folder.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// Set in the child process of [`a_relative_root_flushes_the_folders_that_lead_to_it`].
+    const RELATIVE_ROOT_CHILD: &str = "OWNHEALTH_TEST_RELATIVE_ROOT_CHILD";
+
+    /// A relative root such as `data/blobs` is taken from the current folder, so the folders that lead
+    /// to it are flushed too. The current folder belongs to the whole process, so the check runs in a
+    /// child process of this test binary, started in a temporary folder of its own.
+    #[test]
+    fn a_relative_root_flushes_the_folders_that_lead_to_it() -> Result<(), BlobError> {
+        if std::env::var_os(RELATIVE_ROOT_CHILD).is_some() {
+            let here = std::env::current_dir()?;
+            SYNCED.with(|synced| synced.borrow_mut().clear());
+            BlobStore::new("data/blobs")?;
+            let synced = SYNCED.with(|synced| synced.borrow().clone());
+            for folder in [here.join("data").join("blobs"), here.join("data"), here.clone()] {
+                assert!(
+                    synced.iter().any(|p| p == &folder),
+                    "{} was not flushed: {synced:?}",
+                    folder.display()
+                );
+            }
+            return Ok(());
+        }
+        let dir = tempfile::tempdir()?;
+        let out = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "blobs::tests::a_relative_root_flushes_the_folders_that_lead_to_it",
+                "--test-threads=1",
+            ])
+            .env(RELATIVE_ROOT_CHILD, "1")
+            .current_dir(dir.path())
+            .output()?;
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success(), "{said}");
+        // a filter that matched no test would pass too
+        assert!(said.contains("1 passed"), "{said}");
+        assert!(dir.path().join("data").join("blobs").join("sha256").is_dir(), "{said}");
         Ok(())
     }
 

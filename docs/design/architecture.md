@@ -629,7 +629,7 @@ returning job.*;
 - **Dedupe:** `state.rebuild` for a profile is enqueued with a dedupe key, so ten imports in a row cause one rebuild after the last. The key is unique among queued jobs only, so an import that lands while a rebuild runs queues a fresh one, which reads the new data. A worker takes a `state.rebuild` only under a per-profile advisory lock, so two rebuilds of one profile never run at once.
 - **Retention:** `done` jobs are deleted after 30 days; `dead` jobs stay until their review item is closed.
 
-v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `wearables.rollup`, `blob.gc`, `backup.run`, `backup.verify_restore`. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
+v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `wearables.rollup`, `blob.gc`. Backups and the weekly restore check are not jobs: `deploy/restic/backup.sh` and `restore-test.sh` run from cron. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
 
 ### PDF import path
 
@@ -801,10 +801,10 @@ A benchmark job in CI runs the synthetic family and fails if a target regresses 
 
 ## 14. Backup and restore
 
-- `ownhealth backup` (also the `backup.run` job, nightly by default): `pg_dump -Fc`, the blob directory, the rule overrides and a manifest (app version, schema revision, rule pack hash, per-table row counts, the backup's `as_of` and each profile's `state_hash` at it) into a restic repository. restic and the Postgres client ship in the app image.
-- One consistent cut: the job opens a `repeatable read` transaction, exports its snapshot (`pg_export_snapshot()`), reads the manifest counts inside it, builds each profile's state from the rows it sees (stored snapshots are not copied, so a `state.rebuild` still queued after a re-derivation cannot leave the manifest behind the dump) and runs `pg_dump --snapshot=<id>`, so the dump and the manifest see the same rows. While the job runs it holds an advisory lock that `blob.gc` and the blob step of a hard purge also take, so no blob the dump references is deleted before restic has read it.
+- `ownhealth backup` (run nightly from cron by `deploy/restic/backup.sh`; it is not a job): `pg_dump -Fc`, the blob directory, the rule overrides and a manifest (app version, schema revision, rule pack hash, per-table row counts, the backup's `as_of` and each profile's `state_hash` at it) into a restic repository. restic and the Postgres client ship in the app image.
+- One consistent cut: the backup opens a `repeatable read` transaction, exports its snapshot (`pg_export_snapshot()`), reads the manifest counts inside it, builds each profile's state from the rows it sees (stored snapshots are not copied, so a `state.rebuild` still queued after a re-derivation cannot leave the manifest behind the dump) and runs `pg_dump --snapshot=<id>`, so the dump and the manifest see the same rows. While the backup runs it holds an advisory lock that `blob.gc` and the blob step of a hard purge also take, so no blob the dump references is deleted before restic has read it.
 - The restic password is not in the backup. The docs say so on the setup screen: keep it in a password manager, or the backup is useless.
-- `ownhealth verify-restore` (weekly job `backup.verify_restore`) takes a session lock on its live database connection. A second check of that database returns an error before changing any database. The check replaces only its reserved scratch database, `<live_db>_restore_check`, and restores the latest snapshot there. That name must fit PostgreSQL's identifier limit, so with the default limit of 63 bytes the live database name can have at most 49 bytes; a longer one is refused before any database changes. It then compares row counts with the manifest, re-hashes every restored blob, rebuilds state for each profile at the manifest's `as_of` and compares `state_hash` with the manifest. Any difference creates a `restore_check_failed` review item and sets the metric. A backup that was never restored is treated as missing.
+- `ownhealth verify-restore` (run weekly from cron by `deploy/restic/restore-test.sh`) takes a session lock on its live database connection. A second check of that database returns an error before changing any database. The check restores the latest snapshot into its scratch database, `<live_db>_restore_check`. It marks that database with a comment when it creates it, and drops a database at that name only when it carries the mark: any other database there stops the check and stays as it is. That name must fit PostgreSQL's identifier limit, so with the default limit of 63 bytes the live database name can have at most 49 bytes; a longer one is refused before any database changes. It then compares row counts with the manifest, re-hashes every restored blob, opens every referenced sealed blob it has the key for, rebuilds state for each profile at the manifest's `as_of` and compares `state_hash` with the manifest. Any difference makes it exit 1, and `restore-test.sh` writes `restore test FAILED` to `backup.log`. Not built yet: a `restore_check_failed` review item (the kind exists, nothing creates it) and the restore-check metric. A backup that was never restored is treated as missing.
 - `ownhealth restore --snapshot <id>` restores into an empty instance.
 - Orthanc storage (profile `imaging`) stays out of backups: it is a cache of the stored zips. After a restore, the `imaging.sweep` job that runs at every start finds the recorded studies Orthanc lacks and queues `imaging.rebuild`, which sends them again from each profile's zips (`imaging_import.zip_blob`) under the same study ids (`ownhealth-imaging` `rebuild.rs`).
 
@@ -825,9 +825,9 @@ A benchmark job in CI runs the synthetic family and fails if a target regresses 
 | `ownhealth_jobs_finished_total` | counter, `kind`, `result` (done, failed, dead) |
 | `ownhealth_import_rows_total` | counter, `importer`, `outcome` (review, accepted, rejected) |
 | `ownhealth_review_items_open` | gauge, `kind` |
-| `ownhealth_backup_last_success_timestamp_seconds` | gauge |
-| `ownhealth_restore_check_last_success_timestamp_seconds` | gauge |
 | `ownhealth_blob_bytes`, `ownhealth_db_bytes` | gauge |
+
+Backups and the restore check run from cron outside the app, so they have no metric here; their result is in `backup.log` (deploy/README.md).
 
 - Logs: JSON lines to stdout with request id, route, status, duration, job id. No document text, values or names in logs.
 - `/healthz` says the process is up; `/readyz` checks the database, the blob directory and the migration state.

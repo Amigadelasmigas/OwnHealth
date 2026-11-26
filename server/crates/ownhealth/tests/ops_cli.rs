@@ -521,6 +521,47 @@ fn script(name: &str, env: &Env) -> anyhow::Result<Output> {
     run(deploy().join(name), env, &[])
 }
 
+fn script_with(name: &str, env: &Env, args: &[&str]) -> anyhow::Result<Output> {
+    run(deploy().join(name), env, args)
+}
+
+/// Put a `restic` first on the env's PATH that appends its arguments to the returned file, one call
+/// per line, and then runs the real restic.
+fn logged_restic(env: &mut Env, restic: &Path, tmp: &Path) -> anyhow::Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tmp.join("restic-shim");
+    std::fs::create_dir_all(&dir)?;
+    let log = tmp.join("restic-calls.log");
+    let shim = dir.join("restic");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            restic.display()
+        ),
+    )?;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    for (k, v) in env.vars.iter_mut() {
+        if k == "PATH" {
+            *v = format!("{}:{v}", dir.display());
+        }
+    }
+    Ok(log)
+}
+
+/// The names in the folder at `dir`, sorted; none when it is not there.
+fn entries(dir: &Path) -> anyhow::Result<Vec<String>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut names = std::fs::read_dir(dir)?
+        .map(|e| Ok(e?.file_name().to_string_lossy().into_owned()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    names.sort();
+    Ok(names)
+}
+
 fn text(o: &Output) -> String {
     format!(
         "{}{}",
@@ -554,14 +595,38 @@ async fn backup_then_restore_test_then_restore_into_a_fresh_stack() -> R {
     assert!(check.status.success(), "{}", text(&check));
     let report: Value = serde_json::from_slice(&check.stdout)?;
     assert!(report["ok"] == true && report["profiles"].as_object().map(|p| p.len()) == Some(4));
-    assert!(!tmp.path().join("restore").exists());
+    assert_eq!(entries(&tmp.path().join("restore"))?, Vec::<String>::new());
 
     let fresh_db = TestDb::empty().await?;
     let mut fresh = fresh_db.settings(&tmp.path().join("fresh"))?;
     fresh.secrets_key = s.secrets_key.clone(); // the key the backup was made under
     fresh.keyring_dir = Some(s.keyring_path()); // the keyring mount, outside the snapshot
-    let restored = script("restore.sh", &env_for(&fresh, tmp.path()))?;
+    let mut fresh_env = env_for(&fresh, tmp.path());
+    let calls = logged_restic(&mut fresh_env, &restic, tmp.path())?;
+    fresh_env.vars.push(("COMPOSE_PROJECT_NAME".into(), "health-b".into()));
+    let restored = script("restore.sh", &fresh_env)?;
     assert!(restored.status.success(), "{}", text(&restored));
+    // the concrete snapshot "latest" named, for a retry of a restore that stopped
+    let short_id = snaps[0]["short_id"].as_str().unwrap_or_default();
+    assert_eq!(short_id.len(), 8, "{snaps:#}");
+    let said = String::from_utf8_lossy(&restored.stderr).to_string();
+    assert!(said.contains(&format!("restoring snapshot {short_id}")), "{said}");
+    // the hints name the Compose project, so a retry from a new shell reaches the same stack
+    assert!(
+        said.contains(&format!(
+            "COMPOSE_PROJECT_NAME=health-b ./deploy/restic/restore.sh {short_id}"
+        )) && said.contains("COMPOSE_PROJECT_NAME=health-b docker compose up -d"),
+        "{said}"
+    );
+    // restic restored the snapshot the script printed, not whatever "latest" names by then
+    let staging = tmp.path().join("staging");
+    let calls = std::fs::read_to_string(calls)?;
+    let wanted = format!(" {short_id}:{}", staging.display());
+    assert!(
+        calls.lines().any(|l| l.starts_with("restore ") && l.contains(&wanted)),
+        "{calls}"
+    );
+    assert_eq!(entries(&tmp.path().join("restore"))?, Vec::<String>::new());
     let fresh_report: Value = serde_json::from_slice(&restored.stdout)?;
     assert_eq!(fresh_report["ok"], true);
     let actual: Vec<(String, Value)> = fresh_report["profiles"]
@@ -643,6 +708,133 @@ async fn restore_test_fails_when_the_latest_snapshot_does_not_match_its_manifest
     let report: Value = serde_json::from_slice(&check.stdout)?;
     assert_eq!(report["ok"], false);
     assert!(String::from_utf8_lossy(&check.stderr).contains("FAILED"));
+    Ok(())
+}
+
+/// restore-test.sh restores into a folder of its own under OWNHEALTH_RESTORE_DIR. A second run
+/// never deletes the archive another run's check is reading, and the folder of a run that stopped
+/// a day ago or more goes, with every other leftover, dotfiles too. restore.sh removes only its own
+/// folder there, so a restore test that runs meanwhile keeps its archive.
+#[tokio::test]
+async fn restore_test_leaves_another_runs_folder_alone() -> R {
+    let Some(restic) = restic_or_skip() else { return Ok(()) };
+    let tmp = tempfile::tempdir()?;
+    let (_db, s) = seeded(tmp.path()).await?;
+    let env = env_for(&s, tmp.path());
+    assert!(run(&restic, &env, &["init", "--quiet"])?.status.success());
+    assert!(script("backup.sh", &env)?.status.success());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let base = tmp.path().join("restore");
+    let running = format!("run-{now}-1");
+    let stopped = format!("run-{}-2", now - 2 * 86_400);
+    for name in [&running, &stopped] {
+        std::fs::create_dir_all(base.join(name))?;
+        std::fs::write(base.join(name).join("manifest.json"), b"{}")?;
+    }
+    // what a stopped 0.4.0 run left: it restored straight into the folder
+    std::fs::create_dir_all(base.join("blobs"))?;
+    std::fs::write(base.join("blobs").join("ab"), b"x")?;
+    std::fs::write(base.join("db.dump"), b"x")?;
+    std::fs::write(base.join("manifest.json"), b"{}")?;
+    // a dotfile and a name with two leading dots: the sweep's two hidden-name globs
+    std::fs::write(base.join(".left"), b"x")?;
+    std::fs::write(base.join("..left"), b"x")?;
+    let check = script("restore-test.sh", &env)?;
+    assert!(check.status.success(), "{}", text(&check));
+    assert_eq!(entries(&base)?, std::slice::from_ref(&running), "{}", text(&check));
+
+    let fresh_db = TestDb::empty().await?;
+    let mut fresh = fresh_db.settings(&tmp.path().join("fresh"))?;
+    fresh.secrets_key = s.secrets_key.clone();
+    fresh.keyring_dir = Some(s.keyring_path());
+    let restored = script("restore.sh", &env_for(&fresh, tmp.path()))?;
+    assert!(restored.status.success(), "{}", text(&restored));
+    assert_eq!(entries(&base)?, [running], "{}", text(&restored));
+    Ok(())
+}
+
+/// A restic restore that fails after it wrote part of the snapshot leaves no run folder behind, so a
+/// retry within a day does not restore a second copy beside the first.
+#[tokio::test]
+async fn restore_test_removes_its_folder_when_the_restic_restore_fails() -> R {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir()?;
+    let db = TestDb::empty().await?;
+    let s = db.settings(&tmp.path().join("live"))?;
+    let mut env = env_for(&s, tmp.path());
+    let dir = tmp.path().join("restic-fails");
+    std::fs::create_dir_all(&dir)?;
+    let shim = dir.join("restic");
+    std::fs::write(
+        &shim,
+        "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --target ]; then mkdir -p \"$2\" && echo part > \"$2/db.dump\"; fi\n  shift\ndone\necho 'restic: no space left on device' >&2\nexit 1\n",
+    )?;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    for (k, v) in env.vars.iter_mut() {
+        if k == "PATH" {
+            *v = format!("{}:{v}", dir.display());
+        }
+    }
+    let check = script("restore-test.sh", &env)?;
+    assert_eq!(check.status.code(), Some(1), "{}", text(&check));
+    assert!(text(&check).contains("no space left"), "{}", text(&check));
+    assert_eq!(
+        entries(&tmp.path().join("restore"))?,
+        Vec::<String>::new(),
+        "{}",
+        text(&check)
+    );
+    Ok(())
+}
+
+/// restore.sh passes on restic's own error instead of claiming that no snapshot matched, and
+/// refuses an explicit id of a snapshot without host ownhealth and tag ownhealth (restic ignores
+/// both filters for an explicit id).
+#[tokio::test]
+async fn restore_sh_reports_restics_error_and_checks_host_and_tag() -> R {
+    let Some(restic) = restic_or_skip() else { return Ok(()) };
+    let tmp = tempfile::tempdir()?;
+    let (_db, s) = seeded(tmp.path()).await?;
+    let env = env_for(&s, tmp.path());
+    assert!(run(&restic, &env, &["init", "--quiet"])?.status.success());
+    assert!(script("backup.sh", &env)?.status.success());
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(&other)?;
+    std::fs::write(other.join("manifest.json"), b"{}")?;
+    let other_arg = other.display().to_string();
+    for (host, tag) in [("otherbox", "ownhealth"), ("ownhealth", "other")] {
+        let args = ["backup", "--quiet", "--host", host, "--tag", tag, other_arg.as_str()];
+        let made = run(&restic, &env, &args)?;
+        assert!(made.status.success(), "{}", text(&made));
+        let listed = run(&restic, &env, &["snapshots", "--json", "--host", host, "--tag", tag])?;
+        let snaps: Value = serde_json::from_slice(&listed.stdout)?;
+        let id = snaps[0]["short_id"].as_str().unwrap_or_default().to_string();
+        assert_eq!(id.len(), 8, "{snaps:#}");
+        let done = script_with("restore.sh", &env, &[&id])?;
+        let said = text(&done);
+        assert_eq!(done.status.code(), Some(1), "{said}");
+        assert!(
+            said.contains(&format!(
+                "{id} is not one snapshot with host ownhealth and tag ownhealth"
+            )) && !said.contains("restoring snapshot"),
+            "{host} {tag}: {said}"
+        );
+    }
+    let mut wrong = env_for(&s, tmp.path());
+    for (k, v) in wrong.vars.iter_mut() {
+        if k == "RESTIC_PASSWORD" {
+            *v = "not-the-password".into();
+        }
+    }
+    let done = script("restore.sh", &wrong)?;
+    let said = text(&done);
+    assert_eq!(done.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("restic could not list snapshot latest") && !said.contains("is not one snapshot"),
+        "{said}"
+    );
     Ok(())
 }
 
