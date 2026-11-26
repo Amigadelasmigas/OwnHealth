@@ -51,6 +51,23 @@ use mapping::Mapped;
 /// Normalizer reasons about resolving the printed name; a valid received LOINC code makes them moot.
 const NAME_RESOLUTION: [&str; 2] = ["unmapped", "loinc_unknown"];
 
+/// Whether `obs` is a tobacco smoking status (LOINC 72166-2) whose stored answer is one of the SNOMED
+/// CT codes in [`normalize::SMOKING`], sent as a SNOMED CT coding of the resource's value.
+fn coded_smoking_status(obs: &ObservationIn, resource: &Value) -> bool {
+    let Some(code) = obs.value_code.as_deref() else {
+        return false;
+    };
+    obs.loinc.as_deref() == Some(normalize::SMOKING_LOINC)
+        && normalize::SMOKING.iter().any(|(known, _)| *known == code)
+        && resource["valueCodeableConcept"]["coding"]
+            .as_array()
+            .is_some_and(|codings| {
+                codings
+                    .iter()
+                    .any(|c| c["system"] == mapping::SNOMED && c["code"] == code)
+            })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     /// Where the resource sits in the file: `/entry/3/resource`, `L12`, `/`.
@@ -1147,6 +1164,11 @@ impl Run<'_> {
         if loinc_ok {
             // the received code answers what name resolution could not
             checks.retain(|c| c.ok || !c.reason.as_deref().is_some_and(|r| NAME_RESOLUTION.contains(&r)));
+        }
+        if coded_smoking_status(&obs, resource) {
+            // a smoking status coded with an answer the calculators read is a value, not printed text
+            // that failed to read as a result
+            checks.retain(|c| c.ok || !(c.name == "value" && c.reason.as_deref() == Some("implausible")));
         }
         Ok((obs, checks))
     }

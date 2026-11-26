@@ -3753,3 +3753,62 @@ fn round_10_a_cancelled_aborted_or_nullified_visit_waits_in_review() -> R {
     }
     Ok(())
 }
+
+// ------------------------------------------------------- pre-1.0 follow-ups ----
+
+/// A Social History section with one Smoking Status observation answered with `code` (SNOMED CT),
+/// on the 15th of `month` in 2021 (a month apart, so no two answers conflict).
+fn smoking_status(code: &str, display: &str, month: usize) -> Vec<u8> {
+    social_history(&format!(
+        r#"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.78"/>
+             <code code="72166-2" codeSystem="2.16.840.1.113883.6.1" displayName="Tobacco smoking status"/>
+             <statusCode code="completed"/><effectiveTime value="2021{month:02}15"/>
+             <value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96" displayName="{display}"/>
+           </observation></entry>"#
+    ))
+}
+
+/// PRE-1.0: a smoking status coded with a SNOMED CT answer the calculators read is a normal
+/// observation, not a value in review as implausible text. A code outside that list still waits.
+#[tokio::test]
+async fn pre1_a_coded_smoking_status_is_stored_as_an_observation() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    as_isabella(&mut tx, &fam, "lucia").await?;
+    let stored = |doc: Uuid| {
+        sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            "select loinc, value_code from observation where document_id = $1",
+        )
+        .bind(doc)
+    };
+    let cases = [
+        ("449868002", "Current every day smoker"),
+        ("428041000124106", "Current some day smoker"),
+        ("77176002", "Smoker, current status unknown"),
+        ("428061000124105", "Current light tobacco smoker"),
+        ("428071000124103", "Current heavy tobacco smoker"),
+        ("65568007", "Cigarette smoker"),
+        ("8517006", "Former smoker"),
+        ("266919005", "Never smoker"),
+    ];
+    for (month, (code, display)) in cases.into_iter().enumerate() {
+        let bytes = smoking_status(code, display, month + 1);
+        let name = format!("smoking-{code}.xml");
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, &name, ccda::MIME).await?;
+        import_ccda(&mut tx, &env.blobs, doc).await?;
+        let held = open_items(&mut tx, doc, "candidate_row").await?;
+        let checks: Vec<_> = held.iter().map(|item| item.payload["checks"].clone()).collect();
+        assert!(held.is_empty(), "{code}: {checks:?}");
+        let rows = stored(doc).fetch_all(&mut *tx).await?;
+        assert_eq!(rows, [(Some("72166-2".into()), Some(code.into()))], "{code}");
+    }
+    // "unknown if ever smoked" is no status the calculators read: a person decides
+    let bytes = smoking_status("266927001", "Unknown if ever smoked", 12);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "unknown.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(open_items(&mut tx, doc, "candidate_row").await?.len(), 1);
+    assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
+    Ok(())
+}

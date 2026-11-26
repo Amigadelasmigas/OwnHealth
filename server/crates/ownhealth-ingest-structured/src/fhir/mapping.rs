@@ -25,7 +25,7 @@ use crate::py::{self, get_truthy, list, truthy};
 
 pub const LOINC: &str = "http://loinc.org";
 pub const UCUM: &str = "http://unitsofmeasure.org";
-const SNOMED: &str = "http://snomed.info/sct";
+pub(crate) const SNOMED: &str = "http://snomed.info/sct";
 const RXNORM: &str = "http://www.nlm.nih.gov/research/umls/rxnorm";
 
 /// `core.fhir.CODE_SYSTEMS`, read backwards: URL -> our short name.

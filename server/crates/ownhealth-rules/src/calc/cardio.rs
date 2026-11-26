@@ -53,17 +53,7 @@ const SCORE2_SCOPE: [&str; 4] = ["ascvd", "diabetes", "ckd", "fh"];
 /// What PREVENT refuses on (adults without cardiovascular disease).
 const PREVENT_SCOPE: [&str; 2] = ["ascvd", "heart_failure"];
 /// SNOMED CT answers to LOINC 72166-2 (tobacco smoking status), and what each means here.
-pub const SMOKING: [(&str, &str); 8] = [
-    ("77176002", "current"),
-    ("449868002", "current"),
-    ("428041000124106", "current"),
-    ("428061000124105", "current"),
-    ("428071000124103", "current"),
-    ("65568007", "current"),
-    ("8517006", "former"),
-    ("266919005", "never"),
-];
-pub const SMOKING_LOINC: &str = "72166-2";
+pub use ownhealth_normalize::{SMOKING, SMOKING_LOINC};
 /// The value of a smoking status whose code is none of `SMOKING`.
 pub const NOT_CODED: &str = "not_coded";
 /// What a risk result reads beyond the labs, as scopes; without one of them it is not assessed.
