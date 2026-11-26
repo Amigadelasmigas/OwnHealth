@@ -2159,7 +2159,11 @@ async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() ->
     let r = sam.get("/api/inboxes/health").await?;
     assert_eq!(r.status, 200, "{:?}", r.json);
     assert!(shows(&r), "through the ordinary read:labs: {:?}", r.json);
-    assert_eq!(record_uses(&b, id).await?, before, "the emergency read:records was not needed");
+    assert_eq!(
+        record_uses(&b, id).await?,
+        before,
+        "the emergency read:records was not needed"
+    );
 
     b.grant_sam("viewer", &["read:summary"]).await?;
     let r = sam.get("/api/inboxes/health").await?;
