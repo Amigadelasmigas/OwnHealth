@@ -998,3 +998,32 @@ async fn timeline(
         json!({"events": events, "spans": spans, "withheld": {"by_scope": withheld}}),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(table: &[(&'static str, &'static str)]) -> BTreeSet<&'static str> {
+        table.iter().map(|(k, _)| *k).collect()
+    }
+
+    /// Every language but English translates each stored status word and document type the Spanish
+    /// table does, so no timeline shows a raw code; English keeps a code as it reads and translates
+    /// only the ones Spanish has too.
+    #[test]
+    fn every_language_names_every_status_word_and_document_type() {
+        for (lang, w) in WORDS {
+            let (enums, docs) = (keys(w.enums), keys(w.doc_types));
+            if *lang == "en" {
+                assert!(enums.is_subset(&keys(ES.enums)), "en enums");
+            } else {
+                assert_eq!(enums, keys(ES.enums), "{lang} enums");
+            }
+            assert_eq!(docs, keys(ES.doc_types), "{lang} doc_types");
+        }
+        assert_eq!(
+            DE.word(Some("entered-in-error".into())).as_deref(),
+            Some("irrtümlich erfasst")
+        );
+    }
+}

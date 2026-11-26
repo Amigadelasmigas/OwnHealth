@@ -75,6 +75,20 @@ test('a count of zero never reads as one: a language whose zero takes the singul
 	assert.deepEqual(wrong, []);
 });
 
+test('every language fills the placeholders English has, and no other', () => {
+	const wrong: string[] = [];
+	for (const l of LANGS) {
+		const tb = l.table as Record<string, string>;
+		for (const k of enKeys) {
+			// a singular may print its count as a word or a digit instead of {n}
+			const drop = (xs: string[]) => (k.endsWith('_one') ? xs.filter((x) => x !== 'n') : xs);
+			const want = drop(names((dict.en as Record<string, string>)[k]));
+			if (k in tb && JSON.stringify(drop(names(tb[k]))) !== JSON.stringify(want)) wrong.push(`${l.code} ${k}: ${tb[k]}`);
+		}
+	}
+	assert.deepEqual(wrong, []);
+});
+
 // A pick of es or en written into a component: a comparison with the code either way round and in
 // either quote, a two-language type, a per-language field (`summary_es`, `en?:`), a hand-written
 // option (`value="es"`) or a hand-written list row (`['es', 'Español']`). Screens read the registry

@@ -215,6 +215,25 @@ mod tests {
         assert_eq!(count(999, "en"), "999");
     }
 
+    /// Each beta language writes its numbers its own way (the UI's `Intl` of its locale; French and
+    /// Portuguese group with a no-break space, which the printed sheets can carry).
+    #[test]
+    fn each_language_writes_numbers_its_own_way() {
+        let cases = [
+            ("de", "1.234,5", "12.345,6", "1.234"),
+            ("fr", "1\u{a0}234,5", "12\u{a0}345,6", "1\u{a0}234"),
+            ("ca", "1.234,5", "12.345,6", "1.234"),
+            ("it", "1234,5", "12.345,6", "1234"),
+            ("pt", "1234,5", "12\u{a0}345,6", "1234"),
+        ];
+        for (lang, small, big, n) in cases {
+            assert_eq!(localized("1234.5", lang), small, "{lang}");
+            assert_eq!(localized("12345.6", lang), big, "{lang}");
+            assert_eq!(localized("0.98", lang), "0,98", "{lang}");
+            assert_eq!(count(1234, lang), n, "{lang}");
+        }
+    }
+
     #[test]
     fn quantize_keeps_the_scale_and_rounds_half_even() {
         assert_eq!(num(&quantize(Decimal::from(118), 1)), "118.0");

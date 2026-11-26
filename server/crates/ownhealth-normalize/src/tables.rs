@@ -129,19 +129,9 @@ static MORE_NAMES: LazyLock<HashMap<String, Vec<(&'static str, String)>>> = Lazy
 /// a group without its name, is named here (`tests/langs.rs`). A row for a group `groups.tsv` lacks is
 /// named too.
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {
-    let mut out = Vec::new();
-    for l in langs {
-        let lacking: Vec<&str> = groups()
-            .values()
-            .filter(|g| !g.names().iter().any(|(c, t)| c == l && !t.trim().is_empty()))
-            .map(|g| g.alias_group.as_str())
-            .collect();
-        if lacking.len() == groups().len() {
-            out.push(format!("analyte names have no `{l}` column"));
-        } else {
-            out.extend(lacking.iter().map(|g| format!("analyte {g} has no `{l}` name")));
-        }
-    }
+    let named: Vec<(&str, Vec<(&str, &str)>)> =
+        groups().values().map(|g| (g.alias_group.as_str(), g.names())).collect();
+    let mut out = lacking_names(&named, langs);
     let mut unknown: Vec<&String> = MORE_NAMES.keys().filter(|g| !groups().contains_key(*g)).collect();
     unknown.sort();
     out.extend(
@@ -149,6 +139,25 @@ pub fn missing_langs(langs: &[&str]) -> Vec<String> {
             .into_iter()
             .map(|g| format!("names/analytes.tsv names an unknown group {g}")),
     );
+    out
+}
+
+/// The names `langs` lack among `named` (each alias group with its names): one line for a language
+/// no group has a name in (a missing column), else one line per group without its name.
+fn lacking_names(named: &[(&str, Vec<(&str, &str)>)], langs: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for l in langs {
+        let lacking: Vec<&str> = named
+            .iter()
+            .filter(|(_, names)| !names.iter().any(|(c, t)| c == l && !t.trim().is_empty()))
+            .map(|(g, _)| *g)
+            .collect();
+        if lacking.len() == named.len() {
+            out.push(format!("analyte names have no `{l}` column"));
+        } else {
+            out.extend(lacking.iter().map(|g| format!("analyte {g} has no `{l}` name")));
+        }
+    }
     out
 }
 
@@ -426,6 +435,24 @@ pub fn tables_hash() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A group whose name in one language is blank is named on its own; a language no group has is
+    /// one missing column.
+    #[test]
+    fn a_blank_analyte_name_is_named_by_its_group() {
+        let named = vec![
+            ("ldl", vec![("es", "Colesterol LDL"), ("de", "LDL-Cholesterin")]),
+            ("hba1c", vec![("es", "HbA1c"), ("de", " ")]),
+            ("tsh", vec![("es", "TSH"), ("de", "TSH")]),
+        ];
+        assert_eq!(lacking_names(&named, &["es"]), Vec::<String>::new());
+        assert_eq!(lacking_names(&named, &["de"]), vec!["analyte hba1c has no `de` name"]);
+        assert_eq!(
+            lacking_names(&named, &["fr"]),
+            vec!["analyte names have no `fr` column"]
+        );
+        assert_eq!(missing_langs(&ownhealth_core::langs::LANGS), Vec::<String>::new());
+    }
 
     #[test]
     fn fold_matches_python() {
