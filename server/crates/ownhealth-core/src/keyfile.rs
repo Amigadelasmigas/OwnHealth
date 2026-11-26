@@ -206,13 +206,19 @@ pub fn read(path: &Path) -> Result<Option<KeyringFile>, KeyError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(unreadable(path, &e.to_string())),
     };
-    let v: Value = serde_json::from_slice(&bytes).map_err(|e| unreadable(path, &e.to_string()))?;
-    parse(&v).map(Some).ok_or_else(|| {
-        unreadable(
-            path,
-            &format!("it is not an {SCHEMA} file with keys of {WRAPPED_LEN} bytes"),
-        )
-    })
+    decode(&bytes).map(Some).map_err(|why| unreadable(path, &why))
+}
+
+/// The keyring in `bytes`, checked as [`read`] checks the file. The error says what is wrong, never a
+/// key.
+pub fn decode(bytes: &[u8]) -> Result<KeyringFile, String> {
+    let v: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    parse(&v).ok_or_else(|| format!("it is not an {SCHEMA} file with keys of {WRAPPED_LEN} bytes"))
+}
+
+/// What [`write`] puts in `keyring.json`: pretty JSON and a final newline.
+pub fn encode(k: &KeyringFile) -> String {
+    format!("{:#}\n", to_json(k))
 }
 
 /// Read the keyring and check that it belongs to the configured install.
@@ -371,9 +377,7 @@ fn to_json(k: &KeyringFile) -> Value {
 /// the old keyring or the new one, never half of either, and the old one is gone once the rename is
 /// on disk. A missing folder is made 0700.
 pub fn write(dir: &Path, k: &KeyringFile) -> Result<(), KeyError> {
-    let body = serde_json::to_string_pretty(&to_json(k))
-        .map_err(|e| KeyError(format!("could not write the keyring: {e}")))?
-        + "\n";
+    let body = encode(k);
     let tmp = dir.join(format!(".{FILE}.{}.tmp", crate::ids::token_hex(6)));
     let written = (|| -> std::io::Result<()> {
         if fs::symlink_metadata(dir).is_err() {
@@ -558,4 +562,62 @@ async fn prune_restore_losses(conn: &mut PgConnection, settings: &Settings) -> R
         crate::blobs::write_restore_losses(settings, &losses).map_err(|e| KeyError(e.to_string()))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn id(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    /// A keyring with every field in use: a live key, a profile closed by a named tombstone that
+    /// holds a newer key, and one closed by a tombstone that names no key.
+    fn ring() -> KeyringFile {
+        KeyringFile {
+            kek_fingerprint: Some(vec![0xab; 8]),
+            profiles: BTreeMap::from([(id(1), vec![1; WRAPPED_LEN]), (id(2), vec![2; WRAPPED_LEN])]),
+            shredded: BTreeSet::from([id(2), id(3)]),
+            shredded_keys: BTreeMap::from([(id(2), BTreeSet::from(["ab".repeat(32)]))]),
+        }
+    }
+
+    #[test]
+    fn a_keyring_reads_back_as_it_was_written() {
+        assert_eq!(decode(encode(&ring()).as_bytes()), Ok(ring()));
+        assert_eq!(
+            decode(encode(&KeyringFile::default()).as_bytes()),
+            Ok(KeyringFile::default())
+        );
+    }
+
+    #[test]
+    fn bytes_that_are_not_a_keyring_are_refused_and_never_read_as_empty() {
+        let good: Value = serde_json::from_str(&encode(&ring())).unwrap_or_default();
+        assert!(good.is_object());
+        let with = |field: &str, value: Value| {
+            let mut v = good.clone();
+            v[field] = value;
+            v.to_string()
+        };
+        let bad = [
+            String::new(),
+            "{}".into(),
+            "null".into(),
+            r#"{"schema": "ownhealth.keyring/v1"}"#.into(),
+            with("schema", json!("ownhealth.keyring/v2")),
+            with("kek_fingerprint", json!("abab")),
+            with("kek_fingerprint", Value::Null),
+            with("profiles", json!({"not a uuid": "AAAA"})),
+            with("profiles", json!({id(1).to_string(): "AAAA"})),
+            with("shredded", json!(["not a uuid"])),
+            with("shredded_keys", json!({id(2).to_string(): []})),
+            with("shredded_keys", json!({id(1).to_string(): ["ab".repeat(32)]})),
+            with("shredded_keys", json!({id(2).to_string(): ["xy".repeat(32)]})),
+        ];
+        for bytes in bad {
+            assert!(decode(bytes.as_bytes()).is_err(), "{bytes}");
+        }
+    }
 }

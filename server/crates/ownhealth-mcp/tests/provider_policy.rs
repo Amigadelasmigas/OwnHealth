@@ -1,5 +1,5 @@
 //! The provider policy (`data/connectors/providers.yaml`) at every MCP path: an Oura ring and a native
-//! Dexcom sensor (withheld until their connector pages quote the vendors' terms) never reach an agent,
+//! Dexcom sensor (withheld by the vendors' terms, docs/connectors) never reach an agent,
 //! while an Apple Watch (served) does. search_observations and get_trend count what they left out in
 //! `withheld.vendor_terms`; the status, its resource, the calculators and the freshness date change
 //! nothing at all.

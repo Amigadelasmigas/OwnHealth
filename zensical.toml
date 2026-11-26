@@ -32,9 +32,10 @@ extra_css = ["stylesheets/theme.css"]
 # GOAL.md, DESIGN.md) is a repo-facing note, and design/, research/ and notes/
 # hold material read on GitHub. Add a line for any other per-repo note.
 # OwnHealth, per the docs/ contract (README-STANDARD D1, D7):
-# - recipes/README.md and calculators/README.md are the two section indexes, so
-#   they are published as recipes/ and calculators/ (Zensical treats a README.md
-#   as its folder's index) while GitHub still renders them in the tree view;
+# - recipes/README.md, calculators/README.md and connectors/README.md are the
+#   section indexes, so they are published as recipes/, calculators/ and
+#   connectors/ (Zensical treats a README.md as its folder's index) while
+#   GitHub still renders them in the tree view;
 # - v0.1-, v0.2- and v0.3-exit-criteria.md have a dot in the name, so they are
 #   neither pages nor notes by name; they are measured results for ROADMAP.md
 #   and stay on GitHub with it;
@@ -46,6 +47,7 @@ exclude_docs = """
 [A-Z]*.md
 !recipes/README.md
 !calculators/README.md
+!connectors/README.md
 v0.*-exit-criteria.md
 mockup/
 research/
@@ -88,6 +90,23 @@ nav = [
       { "Personal baseline (usual level)" = "calculators/baseline.md" },
     ] },
     { "Guideline files: how to add a country" = "guidelines.md" },
+    { "Vendor terms" = [
+      "connectors/README.md",
+      { "Epic" = "connectors/epic.md" },
+      { "Oracle Health" = "connectors/oracle.md" },
+      { "athenahealth" = "connectors/athena.md" },
+      { "eClinicalWorks (healow)" = "connectors/healow.md" },
+      { "MEDITECH Expanse" = "connectors/meditech.md" },
+      { "NextGen Enterprise" = "connectors/nextgen.md" },
+      { "VA Lighthouse" = "connectors/va.md" },
+      { "CMS Blue Button 2.0" = "connectors/bluebutton.md" },
+      { "Oura" = "connectors/oura.md" },
+      { "WHOOP" = "connectors/whoop.md" },
+      { "Polar" = "connectors/polar.md" },
+      { "Withings" = "connectors/withings.md" },
+      { "Dexcom" = "connectors/dexcom.md" },
+      { "Strava" = "connectors/strava.md" },
+    ] },
     { "OCR benchmark" = "ocr-benchmark.md" },
   ] },
   { "How it works" = [

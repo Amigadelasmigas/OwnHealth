@@ -1,6 +1,6 @@
 //! The provider policy at the rule engine (`engine::wearables`): the pack markers, the state and its
 //! hash, the dashboard and the calculators never read a provider that `data/connectors/providers.yaml`
-//! withholds (Oura, native Dexcom, Withings ...), so the UI and MCP get one state_hash. A served
+//! withholds (Oura, WHOOP, Withings, native Dexcom ...), so the UI and MCP get one state_hash. A served
 //! provider is read as before.
 
 mod common;
