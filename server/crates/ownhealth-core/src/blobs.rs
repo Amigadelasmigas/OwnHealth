@@ -592,8 +592,9 @@ impl BlobStore {
     /// tools. The app builds its store with [`BlobStore::with_keys`].
     pub fn new(root: impl Into<PathBuf>) -> io::Result<BlobStore> {
         let root = root.into();
-        create_dir_flushed(&root.join("tmp"))?;
-        create_dir_flushed(&root.join("sha256"))?;
+        fs::create_dir_all(root.join("tmp"))?;
+        fs::create_dir_all(root.join("sha256"))?;
+        flush_store_names(&root)?;
         Ok(BlobStore {
             root,
             keys: None,
@@ -1472,21 +1473,17 @@ fn sync_folders_up_to(folder: &Path, root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Make the folder `path` and any missing folder above it, then flush the folder above each one it
-/// made, so their names survive a power cut. It stops at the nearest folder that was there already,
-/// and flushes that one too when it got a new name.
-fn create_dir_flushed(path: &Path) -> io::Result<()> {
-    let Some(existing) = path.ancestors().find(|f| f.is_dir()).map(Path::to_path_buf) else {
-        return fs::create_dir_all(path);
-    };
-    if existing == path {
-        return Ok(());
-    }
-    fs::create_dir_all(path)?;
-    for f in path.ancestors().skip(1) {
-        sync_folder(f)?;
-        if f == existing {
-            break;
+/// Flush the store's root, which holds `tmp` and `sha256`, and every folder above it, so the names
+/// that lead to the store survive a power cut. It runs on every open: a folder that is there already
+/// may be one an earlier open made and stopped before it flushed. A relative root is taken from the
+/// current folder. A folder above the root that this user may not read is skipped, so a store below
+/// such a folder still opens.
+fn flush_store_names(root: &Path) -> io::Result<()> {
+    let root = std::path::absolute(root)?;
+    for f in root.ancestors() {
+        match sync_folder(f) {
+            Err(e) if f != root && e.kind() == io::ErrorKind::PermissionDenied => {}
+            done => done?,
         }
     }
     Ok(())
@@ -2860,6 +2857,72 @@ mod tests {
                 folder.display()
             );
         }
+        Ok(())
+    }
+
+    /// An open that stopped after it made the store's folders and before it flushed them left them in
+    /// place: the next open still flushes the root and every folder above it.
+    #[test]
+    fn an_open_after_a_stopped_one_flushes_the_folders_it_finds() -> Result<(), BlobError> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path().join("data").join("blobs");
+        // what the stopped open left: every folder made, none flushed
+        fs::create_dir_all(root.join("tmp"))?;
+        fs::create_dir_all(root.join("sha256"))?;
+        SYNCED.with(|synced| synced.borrow_mut().clear());
+        BlobStore::new(root.clone())?;
+        let synced = SYNCED.with(|synced| synced.borrow().clone());
+        for folder in [root.clone(), dir.path().join("data"), dir.path().to_path_buf()] {
+            assert!(
+                synced.iter().any(|p| p == &folder),
+                "{} was not flushed by the second open: {synced:?}",
+                folder.display()
+            );
+        }
+        Ok(())
+    }
+
+    /// Set in the child process of [`a_relative_root_flushes_the_folders_that_lead_to_it`].
+    const RELATIVE_ROOT_CHILD: &str = "OWNHEALTH_TEST_RELATIVE_ROOT_CHILD";
+
+    /// A relative root such as `data/blobs` is taken from the current folder, so the folders that lead
+    /// to it are flushed too. The current folder belongs to the whole process, so the check runs in a
+    /// child process of this test binary, started in a temporary folder of its own.
+    #[test]
+    fn a_relative_root_flushes_the_folders_that_lead_to_it() -> Result<(), BlobError> {
+        if std::env::var_os(RELATIVE_ROOT_CHILD).is_some() {
+            let here = std::env::current_dir()?;
+            SYNCED.with(|synced| synced.borrow_mut().clear());
+            BlobStore::new("data/blobs")?;
+            let synced = SYNCED.with(|synced| synced.borrow().clone());
+            for folder in [here.join("data").join("blobs"), here.join("data"), here.clone()] {
+                assert!(
+                    synced.iter().any(|p| p == &folder),
+                    "{} was not flushed: {synced:?}",
+                    folder.display()
+                );
+            }
+            return Ok(());
+        }
+        let dir = tempfile::tempdir()?;
+        let out = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "blobs::tests::a_relative_root_flushes_the_folders_that_lead_to_it",
+                "--test-threads=1",
+            ])
+            .env(RELATIVE_ROOT_CHILD, "1")
+            .current_dir(dir.path())
+            .output()?;
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success(), "{said}");
+        // a filter that matched no test would pass too
+        assert!(said.contains("1 passed"), "{said}");
+        assert!(dir.path().join("data").join("blobs").join("sha256").is_dir(), "{said}");
         Ok(())
     }
 
