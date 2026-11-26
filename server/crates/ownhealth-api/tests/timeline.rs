@@ -246,7 +246,7 @@ async fn test_timeline_filters_scopes_and_access() -> R {
 async fn a_lang_outside_the_registry_is_refused_and_an_empty_one_reads_the_default() -> R {
     let a = app().await?;
     seed(&a).await?;
-    for bad in ["fr", "en-US", "EN"] {
+    for bad in ["xx", "en-US", "EN"] {
         let (s, out) = a.get("alex", &format!("/profiles/alex/timeline?lang={bad}")).await?;
         assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{bad}: {out}");
         assert_eq!(

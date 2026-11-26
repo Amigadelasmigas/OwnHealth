@@ -623,7 +623,7 @@ async fn creating_a_link_needs_a_fresh_step_up_and_a_share_address() -> R {
         json!({"days": 0}),
         json!({"days": 366}),
         json!({"passcode": "123"}),
-        json!({"lang": "fr"}),
+        json!({"lang": "xx"}),
         json!({"label": "x".repeat(81)}),
     ] {
         let mut alex = env.as_user(env.user("alex")).await?;
@@ -2008,8 +2008,9 @@ async fn the_file_answer_is_never_cached() -> R {
     Ok(())
 }
 
-/// A stored locale outside the registry (migration 1280 lets `app_user.locale` hold every planned
-/// language) never reaches `shl.lang`: a link made with no `lang` takes the registry default.
+/// A link made with no `lang` takes the person's stored locale, a registry language (migration 1280
+/// lets `app_user.locale` hold only planned languages, and every planned one is registered since the
+/// beta languages joined).
 #[tokio::test]
 async fn a_link_with_no_lang_takes_a_registry_language() -> R {
     let env = env().await?;
@@ -2027,6 +2028,7 @@ async fn a_link_with_no_lang_takes_a_registry_language() -> R {
         .bind("Dr")
         .fetch_one(env.pool())
         .await?;
-    assert_eq!(lang, ownhealth_core::langs::LANGS[0]);
+    assert_eq!(lang, "de");
+    assert!(ownhealth_core::langs::LANGS.contains(&lang.as_str()));
     Ok(())
 }

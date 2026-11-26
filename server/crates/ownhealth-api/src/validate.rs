@@ -19,7 +19,7 @@ pub fn param<'a>(q: &'a [(String, String)], key: &str) -> Option<&'a str> {
 }
 
 /// The `lang` query parameter, one rule on every REST route that reads it: a registry language, or
-/// None when it is absent or empty, so the route keeps its own default. Any other code (`fr`, `EN`,
+/// None when it is absent or empty, so the route keeps its own default. Any other code (`xx`, `EN`,
 /// `en-US`) is the 422 `literal_error` entry, never a silent other language. MCP never comes here:
 /// it speaks `langs::mcp_lang`.
 pub fn lang(value: Option<&str>) -> Result<Option<&'static str>, Value> {

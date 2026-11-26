@@ -1,6 +1,6 @@
 //! The printed doctor summary (`ownhealth_rules::summary` + `ownhealth_ops::summary_pdf`), read back
 //! the way a reader would (PDFium): the Rivera family and a profile with five years of monthly labs,
-//! for every specialty in es and en, fit on two A4 pages in under 5 s; every line that prints a value
+//! for every specialty in every registry language, fit on two A4 pages in under 5 s; every line that prints a value
 //! names its src id; two renders give the same bytes; the text layer is information, not advice. The
 //! slots (calculated values, due items, family patterns) print with the id of the formula or guideline
 //! row beside each number, and a recorded decision on a medicine prints without its reason.
@@ -40,6 +40,39 @@ fn opts(specialty: &str, lang: &str) -> Options {
         specialty: specialty.into(),
         sensitive_open: false,
         as_of: as_of(),
+    }
+}
+
+/// A text of `data/summary/templates.yaml` (`templates.<path>`) in `lang`.
+fn tpl(path: &[&str], lang: &str) -> String {
+    let doc = cited::read_doc(&Path::new(DATA).join("templates.yaml")).expect("summary templates load");
+    let mut v = &doc["templates"];
+    for k in path {
+        v = &v[*k];
+    }
+    v[lang].as_str().unwrap_or_default().to_string()
+}
+
+/// The words after `{n}` of a count line ("Y {n} más en el registro." -> "más en el registro").
+fn after_count(path: &[&str], lang: &str) -> String {
+    let t = tpl(path, lang);
+    let tail = t.split_once("{n}").map_or(t.as_str(), |(_, tail)| tail);
+    tail.trim().trim_end_matches('.').to_string()
+}
+
+/// Every text of `lang` in a localized mapping of `doc`.
+fn texts_of(doc: &Value, lang: &str, out: &mut Vec<String>) {
+    match doc {
+        Value::Object(m) => {
+            if let Some(Value::String(s)) = m.get(lang) {
+                out.push(s.clone());
+            }
+            for v in m.values() {
+                texts_of(v, lang, out);
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|v| texts_of(v, lang, out)),
+        _ => {}
     }
 }
 
@@ -319,17 +352,67 @@ async fn the_rivera_family_prints_on_two_pages_with_every_value_cited() -> R {
                         assert!(r["previous"]["src"].is_string(), "{what}: previous src of {r}");
                     }
                 }
-                let gap = if lang == "es" { "no medido" } else { "not measured" };
+                let gap = tpl(&["not_measured"], lang);
                 let gaps = m["markers"]
                     .as_array()
                     .into_iter()
                     .flatten()
                     .filter(|r| r.get("not_measured").is_some());
                 if gaps.count() > 0 {
-                    assert!(lines.iter().any(|l| l.contains(gap)), "{what}: no gap line");
+                    assert!(lines.iter().any(|l| l.contains(&gap)), "{what}: no gap line");
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// The sheet's own words, and the catalog names it prints, are WinAnsi (cp1252) in every registry
+/// language: ß, the umlauts, œ, the Catalan l·l and ã, õ, ç print as themselves, never folded to a
+/// look-alike or a '?'. A sheet in each language reads back with its title.
+#[tokio::test]
+async fn every_language_prints_its_own_letters_in_cp1252() -> R {
+    let folds = |what: &str, text: &str| {
+        let (_, folded) = ownhealth_core::pdfwrite::encode(text);
+        assert_eq!(folded, Vec::new(), "{what}: {text}");
+    };
+    for lang in LANGS {
+        for (name, _) in summary::FILES {
+            let doc = cited::read_doc(&Path::new(DATA).join(name))?;
+            let mut texts = Vec::new();
+            texts_of(&doc, lang, &mut texts);
+            assert!(texts.len() > 10, "{name} {lang}: {} texts", texts.len());
+            texts.iter().for_each(|t| folds(&format!("{name} {lang}"), t));
+        }
+        for g in ownhealth_normalize::tables::groups().values() {
+            let name = ownhealth_core::langs::pick(&g.names(), lang);
+            folds(&format!("analyte {} {lang}", g.alias_group), name);
+        }
+        let catalog = ownhealth_core::family::catalog()?;
+        for r in &catalog.relationships {
+            folds(
+                &format!("relationship {} {lang}", r.code),
+                ownhealth_core::langs::pick(&r.names(), lang),
+            );
+        }
+        for c in &catalog.conditions {
+            folds(
+                &format!("condition {} {lang}", c.kind),
+                ownhealth_core::langs::pick(&c.names(), lang),
+            );
+            folds(
+                &format!("condition {} {lang}", c.kind),
+                ownhealth_core::langs::pick(&c.shorts(), lang),
+            );
+        }
+    }
+    let s = seeded().await?;
+    for lang in LANGS {
+        let m = model(&s, s.pid("alex"), &all_scopes(), &opts("gp", lang)).await?;
+        let lines = check_sheet(&m, lang);
+        let title = tpl(&["title"], lang);
+        assert!(lines.iter().any(|l| l.contains(&title)), "{lang}: {lines:#?}");
+        assert_eq!(lint(&m, &SKIP_KEYS), Vec::new(), "{lang}");
     }
     Ok(())
 }
@@ -476,20 +559,21 @@ async fn a_name_the_font_cannot_print_is_marked_beside_it() -> R {
     let s = seeded().await?;
     for lang in LANGS {
         let mut m = model(&s, s.pid("alex"), &all_scopes(), &opts("gp", lang)).await?;
-        let says = if lang == "es" {
-            "esta hoja no puede imprimir"
-        } else {
-            "this sheet cannot print"
-        };
+        // the first words of the line, which a wrap never splits from the line's start
+        let says: String = tpl(&["unprintable"], lang)
+            .split(' ')
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" ");
         let lines = check_sheet(&m, "latin name");
-        assert!(!lines.iter().any(|l| l.contains(says)), "{lines:#?}");
+        assert!(!lines.iter().any(|l| l.contains(&says)), "{lines:#?}");
         m["person"]["name"] = json!("李明 Li Ming");
         let lines = check_sheet(&m, "chinese name");
         let at = lines
             .iter()
             .position(|l| l.contains("?? Li Ming"))
             .ok_or_else(|| anyhow::anyhow!("no name line: {lines:#?}"))?;
-        assert!(lines[at + 1].contains(says), "{lines:#?}");
+        assert!(lines[at + 1].contains(&says), "{lang}: {lines:#?}");
     }
     Ok(())
 }
@@ -514,22 +598,11 @@ async fn a_viewer_without_lab_records_or_genome_scopes_gets_them_withheld() -> R
         let lines = check_sheet(&m, "viewer");
         // a withheld line may wrap, so its words are read across the lines
         let text = lines.join(" ");
-        let (says, labs, records) = if lang == "es" {
-            (
-                "esta cuenta no puede leer",
-                "Valores de laboratorio y valores calculados: no se muestran",
-                "cribados pendientes y antecedentes familiares: no se muestran",
-            )
-        } else {
-            (
-                "this account cannot read",
-                "Lab values and calculated values: not shown",
-                "screenings due and family history: not shown",
-            )
-        };
-        assert_eq!(text.matches(says).count(), 3, "{lines:#?}");
-        // the withheld lines name the slots they leave out too
-        assert!(text.contains(labs) && text.contains(records), "{lines:#?}");
+        // each withheld line names the slots it leaves out, whole
+        for slot in ["labs", "records", "genome"] {
+            let says = tpl(&["withheld", slot], lang);
+            assert_eq!(text.matches(&says).count(), 1, "{lang} {slot}: {lines:#?}");
+        }
         assert!(!lines.iter().any(|l| l.contains("mg/dL")), "{lines:#?}");
     }
     Ok(())
@@ -910,12 +983,8 @@ async fn an_overflow_is_cut_by_rank_with_a_count_of_what_is_left_out() -> R {
         assert_eq!(sheet.pages, MAX_PAGES, "{lang}");
         assert!(sheet.cut > 0, "{lang}: nothing was cut");
         let lines = check_sheet(&m, lang);
-        let more = if lang == "es" {
-            "más en el registro"
-        } else {
-            "more in the record"
-        };
-        assert!(lines.iter().any(|l| l.contains(more)), "{lang}: {lines:#?}");
+        let more = after_count(&["more"], lang);
+        assert!(lines.iter().any(|l| l.contains(&more)), "{lang}: {lines:#?}");
         let top = format!("1 {}", first["text"].as_str().unwrap_or_default());
         let top: String = top.chars().take(30).collect();
         assert!(
@@ -956,12 +1025,8 @@ async fn long_record_lists_are_cut_too_and_only_printed_ids_are_reported() -> R 
         let sheet = render(&m);
         assert!(sheet.pages <= MAX_PAGES, "{lang}: {} pages", sheet.pages);
         let lines = check_sheet(&m, lang);
-        let more = if lang == "es" {
-            "más en el registro"
-        } else {
-            "more in the record"
-        };
-        assert!(lines.iter().any(|l| l.contains(more)), "{lang}: {lines:#?}");
+        let more = after_count(&["more"], lang);
+        assert!(lines.iter().any(|l| l.contains(&more)), "{lang}: {lines:#?}");
         let on_paper: Vec<&str> = lines
             .iter()
             .flat_map(|l| l.split_whitespace())
