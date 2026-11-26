@@ -239,6 +239,9 @@
 				await tick();
 				refocus(plan);
 			});
+			// A card document's note counts its rows that wait for this reader (open_review).
+			const id = docId;
+			if (id && shcDoc) doc.run(() => getDocument(id), id);
 		}
 	}
 	// Focus after a decision (Accept, Dismiss, Reject…). The pressed button is disabled while the request
