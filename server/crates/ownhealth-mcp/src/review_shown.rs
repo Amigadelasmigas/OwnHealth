@@ -94,36 +94,20 @@ pub fn visible(item: &ReviewItem, perm: &Permission) -> bool {
 }
 
 /// A held FHIR resource (`fhir_unmapped` from a file: the item holds the `resource` as received) shows
-/// on the terms of the fact it would be: an Observation with the scope of each of its categories, read
-/// as the importer reads them (`mapping::category_of`: `social-history` is a survey, `imaging` and
-/// `procedure` are exams) and mapped by [`obs_scope`], read:labs when none is one we read; any other
-/// type with read:records; and with read:sensitive too when a security label or a social-history code
-/// makes it sensitive.
+/// on the terms of the fact it would be: an Observation with the scope ([`obs_scope`]) of the one
+/// category the importer gives it (`mapping::observation_category`: the first category whose first
+/// code it reads, `social-history` as a survey, `imaging` and `procedure` as exams, else laboratory);
+/// any other type with read:records; and with read:sensitive too when a security label or a
+/// social-history code makes it sensitive.
 fn resource_shows(resource: &Value, perm: &Permission) -> bool {
-    let mut scopes: Vec<&str> = Vec::new();
-    if resource.get("resourceType").and_then(Value::as_str) == Some("Observation") {
-        scopes.extend(
-            resource
-                .get("category")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|c| c.get("coding").and_then(Value::as_array))
-                .flatten()
-                .filter_map(|c| c.get("code").and_then(Value::as_str))
-                .filter_map(ownhealth_ingest_structured::fhir::mapping::category_of)
-                .map(|category| obs_scope(Some(category))),
-        );
-        if scopes.is_empty() {
-            scopes.push(obs_scope(None));
-        }
+    use ownhealth_ingest_structured::fhir::mapping;
+    let scope = if resource.get("resourceType").and_then(Value::as_str) == Some("Observation") {
+        obs_scope(Some(mapping::observation_category(resource)))
     } else {
-        scopes.push("read:records");
-    }
-    let sensitive = !ownhealth_ingest_structured::fhir::mapping::sensitivity(resource).is_empty();
-    scopes
-        .iter()
-        .all(|s| perm.has(s) && (!sensitive || perm.may_read_sensitive(s)))
+        "read:records"
+    };
+    let sensitive = !mapping::sensitivity(resource).is_empty();
+    perm.has(scope) && (!sensitive || perm.may_read_sensitive(scope))
 }
 
 /// A pull's grouped item carries no values: it points at the bundle that holds them. It shows to

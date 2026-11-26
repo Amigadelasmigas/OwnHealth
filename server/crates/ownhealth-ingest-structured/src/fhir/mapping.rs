@@ -616,14 +616,20 @@ fn status(r: &Value) -> Option<String> {
     r.get("status").filter(|s| !s.is_null()).map(text_of)
 }
 
+/// The category the importer gives an Observation: the first `category` whose first code
+/// ([`status_code`]) is one it reads ([`category_of`]), else `laboratory`.
+pub fn observation_category(r: &Value) -> &'static str {
+    list(Some(r), "category")
+        .iter()
+        .find_map(|cc| category_of(&status_code(Some(cc), "")))
+        .unwrap_or("laboratory")
+}
+
 pub fn observation(r: &Value) -> Mapped {
     if let Some(s) = status(r).filter(|s| s == "entered-in-error" || s == "cancelled") {
         return skip(&format!("status_{s}"));
     }
-    let cat = list(Some(r), "category")
-        .iter()
-        .find_map(|cc| category_of(&status_code(Some(cc), "")))
-        .unwrap_or("laboratory");
+    let cat = observation_category(r);
     let effective = get_truthy(Some(r), "effectiveDateTime")
         .or_else(|| get_truthy(Some(r), "effectiveInstant"))
         .or_else(|| get_truthy(r.get("effectivePeriod"), "start"));

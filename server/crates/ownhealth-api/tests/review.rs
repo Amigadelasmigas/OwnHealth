@@ -1458,3 +1458,52 @@ async fn test_a_held_relative_shows_only_with_read_records_and_read_sensitive() 
     );
     Ok(())
 }
+
+/// U7-CATCODE: a held Observation takes the importer's category: the first `category` whose first code
+/// the importer knows, else laboratory. `local-vitals` comes first in its coding, so the importer reads
+/// the whole category as unknown and the Observation as a lab value, whatever codes follow; a second
+/// category that is `vital-signs` makes it a vital sign.
+#[tokio::test]
+async fn test_a_held_observation_takes_the_category_the_importer_chooses() -> R {
+    let a = app().await?;
+    let held = |category: Value| {
+        json!({"projection": null, "note": "no-value", "resource_type": "Observation",
+               "json_pointer": "/entry/0/resource", "src": {"import_ref": "obs#2"},
+               "resource": {"resourceType": "Observation", "status": "final", "code": {"text": "Tensión"},
+                            "category": category}})
+    };
+    let one_coding = item(
+        &a,
+        "carmen",
+        "fhir_unmapped",
+        Some(held(
+            json!([{"coding": [{"code": "local-vitals"}, {"code": "vital-signs"}]}]),
+        )),
+        json!({}),
+    )
+    .await?;
+    let second_category = item(
+        &a,
+        "carmen",
+        "fhir_unmapped",
+        Some(held(
+            json!([{"coding": [{"code": "local-vitals"}]}, {"coding": [{"code": "vital-signs"}]}]),
+        )),
+        json!({}),
+    )
+    .await?;
+    let ids = [one_coding, second_category];
+    assert_eq!(
+        alex_opens(&a, &["read:summary", "read:labs"], &ids).await?.0,
+        [one_coding],
+        "labs"
+    );
+    assert_eq!(
+        alex_opens(&a, &["read:summary", "read:vitals", "read:sensitive"], &ids)
+            .await?
+            .0,
+        [second_category],
+        "vitals"
+    );
+    Ok(())
+}
