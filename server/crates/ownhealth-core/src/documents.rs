@@ -987,15 +987,16 @@ pub async fn document_scope(conn: &mut PgConnection, document_id: Uuid) -> Resul
     Ok(document_profile_scope(conn, document_id).await?.map(|(_, scope)| scope))
 }
 
-/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
-/// profile): the scope its type needs, and read:sensitive when it is sensitive, as the documents route
-/// decides. A review item that only points at its document (a pull's `fhir_unmapped_summary`) shows on
-/// the same terms.
+/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on a
+/// profile): the document is on that profile now, the caller holds the scope its type needs, and
+/// read:sensitive when it is sensitive, as the documents route decides. A review item that only points
+/// at its document (a pull's `fhir_unmapped_summary`) shows on the same terms, so an item a move left
+/// on the profile the document came from no longer shows through that profile's permission.
 pub async fn file_opens(conn: &mut PgConnection, perm: &crate::access::Permission, document_id: Uuid) -> Result<bool> {
-    let Some(scope) = document_scope(&mut *conn, document_id).await? else {
+    let Some((profile, scope)) = document_profile_scope(&mut *conn, document_id).await? else {
         return Ok(false);
     };
-    if !perm.has(scope) {
+    if profile != Some(perm.profile.id) || !perm.has(scope) {
         return Ok(false);
     }
     let visible = perm.may_read_sensitive(scope) || !document_is_sensitive(conn, document_id).await?;

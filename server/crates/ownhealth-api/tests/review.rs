@@ -1281,3 +1281,39 @@ async fn test_a_document_filter_on_an_unreadable_document_finds_nothing() -> R {
     assert!(listed.to_string().contains(&id.to_string()), "{listed}");
     Ok(())
 }
+
+/// F-GROUPEDPROFILE: a pull's grouped item shows to whoever the file route would serve its bundle. A
+/// move leaves the item, dismissed, on the profile the bundle came from, so the check reads the
+/// profile the bundle is on now: once Carmen's bundle moves to Sam's profile, Alex's dismissed list
+/// on Carmen no longer shows the item, and its detail answers 404.
+#[tokio::test]
+async fn test_a_grouped_item_follows_the_profile_its_bundle_is_on_now() -> R {
+    let a = app().await?;
+    alex_on_carmen(&a, &["read:summary", "read:records"]).await?;
+    let doc = carmen_document(&a, "Hospital LabNorte · pull.json", json!({})).await?;
+    let summary = json!({"projection": null, "resource_type": "Coverage", "count": 1});
+    let id = item(&a, "carmen", "fhir_unmapped_summary", Some(summary), json!({})).await?;
+    sqlx::query("update review_item set document_id = $1, status = 'dismissed' where id = $2")
+        .bind(doc)
+        .bind(id)
+        .execute(&a.rt.pool)
+        .await?;
+    let shown = || async {
+        let (s, v) = a.get("alex", "/review?profile=carmen&status=dismissed").await?;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let listed = v["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|i| i["id"] == json!(id));
+        anyhow::Ok((listed, a.get("alex", &format!("/review/{id}")).await?.0))
+    };
+    assert_eq!(shown().await?, (true, StatusCode::OK), "on Carmen's profile");
+    sqlx::query("update document set profile_id = $1 where id = $2")
+        .bind(a.family.profile("sam"))
+        .bind(doc)
+        .execute(&a.rt.pool)
+        .await?;
+    assert_eq!(shown().await?, (false, StatusCode::NOT_FOUND), "moved to Sam's profile");
+    Ok(())
+}
