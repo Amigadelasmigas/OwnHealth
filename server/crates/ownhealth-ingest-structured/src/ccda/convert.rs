@@ -169,6 +169,16 @@ impl Section {
             Section::SocialHistory => "social_history",
         }
     }
+
+    /// Whether a `nullFlavor` on the section means its words only say there is no information. The
+    /// sections read since C-CDA part 2 (encounters, procedures, notes, social history) were held with
+    /// their words before it, and a nullFlavor does not change that.
+    fn null_flavor_means_no_information(self) -> bool {
+        !matches!(
+            self,
+            Section::Encounters | Section::Procedures | Section::Notes | Section::SocialHistory
+        )
+    }
 }
 
 /// What the converter did with one section of the document.
@@ -191,7 +201,7 @@ pub struct SectionReport {
     /// One line per entry, or part of an entry, that was not read (`observation 2.16.840...`).
     pub not_read: Vec<String>,
     /// The section has narrative text of its own and does not say it has no information (no
-    /// `nullFlavor`).
+    /// `nullFlavor`, which encounters, procedures, notes and social history ignore).
     pub narrative: bool,
 }
 
@@ -1109,14 +1119,17 @@ impl<'a, 'i> Conv<'a, 'i> {
     /// the section's own labels are returned with them, for its subsections.
     fn section(&mut self, sec: Node<'_, '_>, pointer: String, inherited: &[Value]) -> (SectionReport, Vec<Value>) {
         let entries: Vec<Node<'_, '_>> = children(sec, "entry").collect();
+        let kind = Section::of(sec);
+        let no_information =
+            attr(sec, "nullFlavor").is_some() && kind.is_none_or(Section::null_flavor_means_no_information);
         let mut rep = SectionReport {
             title: child(sec, "title").and_then(xml::text).unwrap_or_default(),
             templates: templates(sec).into_iter().map(String::from).collect(),
             code: child(sec, "code").and_then(|c| attr(c, "code")).map(String::from),
-            kind: Section::of(sec),
+            kind,
             entries: entries.len(),
             // A text cut before its first word still holds narrative the converter did not read.
-            narrative: attr(sec, "nullFlavor").is_none()
+            narrative: !no_information
                 && child(sec, "text").is_some_and(|t| {
                     let text = xml::read_text(t);
                     text.value.is_some() || text.truncated

@@ -4134,3 +4134,68 @@ fn pre1_punctuation_alone_does_not_make_another_text() -> R {
     );
     Ok(())
 }
+
+/// PRE-1.0 (K21R8-L2): a Notes, Encounters, Procedures or Social History section that says it has no
+/// information (nullFlavor) but holds words is held, as it was before these sections were read. A core
+/// section that says so keeps its guard: "No information" there needs no review.
+#[test]
+fn pre1_a_null_flavored_section_with_words_is_held() -> R {
+    for (template, title) in [
+        ("2.16.840.1.113883.10.20.22.2.65", "Notes"),
+        ("2.16.840.1.113883.10.20.22.2.22.1", "Encounters"),
+        ("2.16.840.1.113883.10.20.22.2.7.1", "Procedures"),
+        ("2.16.840.1.113883.10.20.22.2.17", "Social History"),
+        ("2.16.840.1.113883.10.20.22.2.6.1", "Allergies"),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section nullFlavor="NI"><templateId root="{template}"/><title>{title}</title>
+              <text><paragraph>Seen for a cough on Tuesday.</paragraph></text></section></component>"#
+        )))?;
+        let held = held_items(&c, "test", "n.xml");
+        if title == "Allergies" {
+            assert!(!c.sections[0].narrative);
+            assert!(held.is_empty(), "{held:?}");
+        } else {
+            assert!(c.sections[0].narrative, "{title}");
+            assert_eq!(held.len(), 1, "{title}: {held:?}");
+        }
+    }
+    Ok(())
+}
+
+/// PRE-1.0 (L4): a Social History or procedure activity observation that ends before it starts keeps
+/// its start, and the reversed end waits in review.
+#[test]
+fn pre1_an_activity_observation_with_a_reversed_period_keeps_only_its_start() -> R {
+    let observation = |template: &str| {
+        format!(
+            r#"<entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="{template}"/>
+                 <code code="229819007" codeSystem="2.16.840.1.113883.6.96" displayName="Tobacco use"/>
+                 <statusCode code="completed"/>
+                 <effectiveTime><low value="2010"/><high value="2009"/></effectiveTime>
+                 <value xsi:type="ST">Synthetic answer</value>
+               </observation></entry>"#
+        )
+    };
+    for (template, bytes) in [
+        (
+            "2.16.840.1.113883.10.20.22.4.38",
+            social_history(&observation("2.16.840.1.113883.10.20.22.4.38")),
+        ),
+        (
+            "2.16.840.1.113883.10.20.22.4.13",
+            procedures(&observation("2.16.840.1.113883.10.20.22.4.13")),
+        ),
+    ] {
+        let c = convert(&bytes)?;
+        let obs = resources(&c, "Observation");
+        assert_eq!(obs.len(), 1, "{template}");
+        assert_eq!(obs[0]["effectivePeriod"], json!({"start": "2010"}), "{template}");
+        assert_eq!(
+            c.sections[0].not_read,
+            [format!("observation {template} (ends before it starts)")]
+        );
+    }
+    Ok(())
+}
