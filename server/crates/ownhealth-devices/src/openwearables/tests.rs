@@ -2529,3 +2529,39 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     Ok(())
 }
 
+/// After the far-future alert closed, real time reaches the day before its bogus stamp. A gap then
+/// still opens an alert: an ended alert is stamped by when it ended, not by when it was filed.
+#[tokio::test]
+async fn an_ended_far_future_alert_leaves_the_day_before_its_stamp_judged() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(365)).await?;
+    synced(a + Duration::hours(21)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::hours(22)).await?;
+    assert!(open_gaps(&env, id).await?.is_empty());
+    // Polar last synced 10 days before; its window has long passed
+    synced(a + Duration::days(354)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(364) + Duration::hours(2)).await?;
+    assert_eq!(
+        open_gaps(&env, id).await?.len(),
+        1,
+        "the bogus stamp froze the day before it"
+    );
+    Ok(())
+}

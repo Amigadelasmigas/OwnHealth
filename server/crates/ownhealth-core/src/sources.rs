@@ -806,10 +806,12 @@ async fn reconcile_gap(
     // Passes can reach the row out of order. Every evaluation stamps the alert it keeps, so a pass whose
     // clock is older than the newest evaluation of this source leaves the alerts to that one.
     // A stamp more than FUTURE_STAMP_SLACK ahead came from a clock that was wrong, not from a newer
-    // pass: it is ignored here, or no pass would judge the source until real time passed it.
+    // pass: it is ignored here, or no pass would judge the source until real time passed it. An ended
+    // alert was last judged when it ended, so only that stamp counts: a bogus filing time it keeps would
+    // otherwise block the passes of the day before it.
     let newest: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "select max(stamp) from (select greatest(created_at, (payload->>'evaluated_at')::timestamptz, \
-         (payload->>'ended_at')::timestamptz) as stamp from review_item \
+        "select max(stamp) from (select coalesce((payload->>'ended_at')::timestamptz, \
+         greatest(created_at, (payload->>'evaluated_at')::timestamptz)) as stamp from review_item \
          where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1) s \
          where stamp <= $3",
     )
