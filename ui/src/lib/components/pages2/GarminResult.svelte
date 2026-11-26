@@ -37,15 +37,16 @@
 					<li tabindex="-1"><span dir="auto">{item.member}</span><span class="dim">{' · '}{t('i2_garmin_reason_' + item.reason)}</span></li>
 				{/each}
 			</ul>
-			{#if shown < summary.not_imported.length}
-				<button class="btn sm" onclick={more}>{t('i2_garmin_more')}</button>
-			{/if}
+			<!-- the counted files come before the button, which shows only more of the listed ones -->
 			{#if summary.not_imported_more}
 				<ul>
 					{#each summary.not_imported_more as unlisted (unlisted.reason)}
 						<li>{tp('i2_garmin_unlisted', unlisted.n)}<span class="dim">{' · '}{t('i2_garmin_reason_' + unlisted.reason)}</span></li>
 					{/each}
 				</ul>
+			{/if}
+			{#if shown < summary.not_imported.length}
+				<button class="btn sm" onclick={more}>{t('i2_garmin_more')}</button>
 			{/if}
 		</details>
 	{/if}
