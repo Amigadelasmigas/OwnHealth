@@ -82,6 +82,11 @@ test('files counted past a reason list add to the total and keep their reason', 
 	assert.ok(plain);
 	assert.equal(plain.not_imported_more, undefined);
 	assert.equal(omittedCount(plain), 1);
+	// a list is no count by reason: its positions would read as reasons
+	const listed = exportSummary({ garmin: { ...garmin, not_imported_more: [3] } });
+	assert.ok(listed);
+	assert.equal(listed.not_imported_more, undefined);
+	assert.equal(omittedCount(listed), 1);
 	for (const lang of ['en', 'es'] as const) {
 		for (const key of ['i2_garmin_unlisted', 'i2_garmin_unlisted_one']) {
 			assert.ok((dict[lang] as Record<string, string>)[key], `${lang} ${key}`);
