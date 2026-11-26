@@ -946,6 +946,7 @@ export const de: Table = {
 	fu_last_run: "Letzter Lauf",
 	fu_to: "Nach",
 	fu_none: "Noch keine Quellen. Daten kommen weiterhin per Hochladen an.",
+	fu_none_unmanaged: "Hier verwaltest du keine Quellen. Die Inhaberin oder der Inhaber eines Profils, oder wer das Profil eines Kindes betreut, richtet seine Quellen ein.",
 	fu_no_token: "noch kein Token",
 	fu_via_upload: "in Import & Prüfung hochgeladene Dateien",
 	fu_via_share: "vom Telefon geteilte Dateien",

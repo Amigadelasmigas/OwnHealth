@@ -946,6 +946,7 @@ export const ca: Table = {
 	fu_last_run: "Última execució",
 	fu_to: "Cap a",
 	fu_none: "Encara no hi ha orígens. Les dades continuen arribant en pujar-les.",
+	fu_none_unmanaged: "Aquí no gestiones cap origen. Els afegeix i els gestiona el titular del perfil, o qui tutela el perfil d'un menor.",
 	fu_no_token: "encara sense token",
 	fu_via_upload: "fitxers pujats a Importar i revisar",
 	fu_via_share: "fitxers compartits des del mòbil",

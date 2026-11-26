@@ -946,6 +946,7 @@ export const pt: Table = {
 	fu_last_run: "Última execução",
 	fu_to: "Para",
 	fu_none: "Ainda não há origens. Os dados continuam a chegar por carregamento.",
+	fu_none_unmanaged: "Aqui não geres nenhuma origem. Quem as adiciona e gere é o titular do perfil, ou quem tutela o perfil de um menor.",
 	fu_no_token: "ainda sem token",
 	fu_via_upload: "ficheiros carregados em Importar e rever",
 	fu_via_share: "ficheiros partilhados a partir do telemóvel",

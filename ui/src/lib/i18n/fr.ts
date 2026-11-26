@@ -946,6 +946,7 @@ export const fr: Table = {
 	fu_last_run: "Dernière exécution",
 	fu_to: "Vers",
 	fu_none: "Pas encore de sources. Les données arrivent toujours par envoi manuel.",
+	fu_none_unmanaged: "Vous ne gérez aucune source ici. Le titulaire d'un profil, ou le tuteur du profil d'un enfant, ajoute et gère ses sources.",
 	fu_no_token: "pas encore de jeton",
 	fu_via_upload: "fichiers envoyés dans Import et vérification",
 	fu_via_share: "fichiers partagés depuis le téléphone",

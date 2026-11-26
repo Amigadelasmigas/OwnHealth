@@ -946,6 +946,7 @@ export const it: Table = {
 	fu_last_run: "Ultima esecuzione",
 	fu_to: "Verso",
 	fu_none: "Ancora nessuna fonte. I dati arrivano comunque caricandoli.",
+	fu_none_unmanaged: "Qui non gestisci nessuna fonte. Le aggiunge e le gestisce il titolare del profilo, o chi tutela il profilo di un minore.",
 	fu_no_token: "ancora senza token",
 	fu_via_upload: "file caricati in Importa e rivedi",
 	fu_via_share: "file condivisi dal telefono",
