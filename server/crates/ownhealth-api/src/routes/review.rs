@@ -95,6 +95,41 @@ fn truthy(v: Option<&Value>) -> bool {
     }
 }
 
+/// How many rows the review list reads at a time while it fills a page with visible items.
+const LIST_BATCH: i64 = 200;
+
+/// A household item (no profile, a failed job say) can name a document of a profile the caller cannot
+/// read. Its `document_id`, and what its job wrote about that document (the error, the document id the
+/// job was given), go out only to a caller who may read the document on the profile it is on now.
+async fn hide_unread_document(
+    conn: &mut PgConnection,
+    perms: &[Permission],
+    item: &ReviewItem,
+    out: &mut Value,
+) -> R<()> {
+    let (None, Some(doc)) = (item.profile_id, item.document_id) else {
+        return Ok(());
+    };
+    let reader = match ownhealth_core::documents::document_profile_scope(conn, doc).await? {
+        Some((Some(profile), scope)) => perms
+            .iter()
+            .find(|p| p.profile.id == profile && p.has(scope))
+            .map(|p| (p, scope)),
+        _ => None,
+    };
+    match reader {
+        Some((perm, scope)) => perm.record_read(&[scope]),
+        None => {
+            out["document_id"] = Value::Null;
+            if let Some(payload) = out.get_mut("payload").and_then(Value::as_object_mut) {
+                payload.remove("error");
+                payload.remove("payload_document_id");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn no_item() -> Fail {
     Fail::Api(ApiError::new(
         StatusCode::NOT_FOUND,
@@ -207,42 +242,60 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .collect();
     let imaging_profiles = imaging_review_profiles(&perms);
     let gap_profiles = gap_review_profiles(&perms);
-    let items = review::list_items_with_kind_profiles(
-        &mut tx,
-        &ItemQuery {
-            household_id: principal.household_id,
-            profile_ids: Some(pids.clone()),
-            status: Some(status.to_string()).filter(|s| !s.is_empty()),
-            kind: kind.map(str::to_string),
-            document_id,
-            limit,
-            offset,
-        },
-        &[
-            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
-            (SOURCE_GAP, &gap_profiles),
-        ],
-    )
-    .await?;
     let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
     let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
-    let mut shown: Vec<&ReviewItem> = Vec::new();
-    for i in &items {
-        let show = match i.profile_id {
-            None => shows_household_items(counted.iter().copied()),
-            Some(pid) => match by_profile.get(&pid) {
-                Some(p) if visible(i, p) && opens_document(&mut tx, i, p).await? => {
-                    if !visible(i, &p.own_only()) {
-                        p.read_scopes();
-                    }
-                    true
-                }
-                Some(_) => false,
-                None => false,
+    // A page holds only items the caller sees: the query is read in batches, `offset` skips visible
+    // items only, and reading stops once the page is full or the query has no more rows.
+    let mut shown: Vec<ReviewItem> = Vec::new();
+    let mut skipped = 0;
+    let mut read = 0;
+    while (shown.len() as i64) < limit {
+        let batch = review::list_items_with_kind_profiles(
+            &mut tx,
+            &ItemQuery {
+                household_id: principal.household_id,
+                profile_ids: Some(pids.clone()),
+                status: Some(status.to_string()).filter(|s| !s.is_empty()),
+                kind: kind.map(str::to_string),
+                document_id,
+                limit: LIST_BATCH,
+                offset: read,
             },
-        };
-        if show {
+            &[
+                (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
+                (SOURCE_GAP, &gap_profiles),
+            ],
+        )
+        .await?;
+        let done = (batch.len() as i64) < LIST_BATCH;
+        read += LIST_BATCH;
+        for i in batch {
+            if (shown.len() as i64) >= limit {
+                break;
+            }
+            let show = match i.profile_id {
+                None => shows_household_items(counted.iter().copied()),
+                Some(pid) => match by_profile.get(&pid) {
+                    Some(p) => visible(&i, p) && opens_document(&mut tx, &i, p).await?,
+                    None => false,
+                },
+            };
+            if !show {
+                continue;
+            }
+            if skipped < offset {
+                skipped += 1;
+                continue;
+            }
+            if let Some(p) = i.profile_id.and_then(|pid| by_profile.get(&pid))
+                && !visible(&i, &p.own_only())
+            {
+                p.read_scopes();
+            }
             shown.push(i);
+        }
+        if done {
+            break;
         }
     }
     let household = principal.household_id.unwrap_or_default();
@@ -254,12 +307,15 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     audit.resource_ids = Some(shown.iter().map(|item| item.id.to_string()).collect());
     audit.rows_out = i32::try_from(shown.len()).ok();
     write_audit(&mut tx, &audit).await?;
-    tx.commit().await?;
     // `-> dict`: pydantic's JSON mode writes the datetimes with `Z` (GET /review/{id} did not)
-    let mut out = shown.iter().map(|i| item_out(i)).collect::<R<Vec<_>>>()?;
-    for i in &mut out {
-        pydantic_datetimes(i, &["decided_at", "created_at"]);
+    let mut out = Vec::with_capacity(shown.len());
+    for i in &shown {
+        let mut v = item_out(i)?;
+        pydantic_datetimes(&mut v, &["decided_at", "created_at"]);
+        hide_unread_document(&mut tx, &perms, i, &mut v).await?;
+        out.push(v);
     }
+    tx.commit().await?;
     // no count of the items left out: it would tell the caller that hidden items exist
     Ok(Json(json!({
         "items": out,
@@ -273,8 +329,13 @@ async fn get_one(State(rt): State<Runtime>, caller: Caller, Path(item_id): Path<
     let found = review::get_item(&mut tx, item_id).await?;
     let item = check(&mut tx, &caller.0, found, false).await?;
     audit(&mut tx, &caller.0, &item, "read").await?;
+    let mut out = item_out(&item)?;
+    if item.profile_id.is_none() && item.document_id.is_some() {
+        let perms = accessible_profiles(&mut tx, &caller.0).await?;
+        hide_unread_document(&mut tx, &perms, &item, &mut out).await?;
+    }
     tx.commit().await?;
-    Ok(Json(item_out(&item)?))
+    Ok(Json(out))
 }
 
 async fn accept(

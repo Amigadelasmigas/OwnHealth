@@ -1053,6 +1053,52 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
     Ok(())
 }
 
+/// CR-REVIEWPAGE: a page holds only items the reader may see. With 100 older held activity values a
+/// labs-only reviewer may not see and one newer lab value they may, the first page shows the lab value
+/// and `open` counts it. `offset` skips visible items only, and `limit` counts visible items.
+#[tokio::test]
+async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_ones() -> R {
+    let a = app().await?;
+    alex_on_carmen(&a, &["read:summary", "read:labs"]).await?;
+    let hidden = item(&a, "carmen", "candidate_row", None, json!({"category": "activity"})).await?;
+    sqlx::query(
+        "insert into review_item (household_id, profile_id, kind, payload, reasons, created_at) \
+         select household_id, profile_id, kind, payload, reasons, created_at - make_interval(secs => g) \
+         from review_item, generate_series(1, 99) g where id = $1",
+    )
+    .bind(hidden)
+    .execute(&a.rt.pool)
+    .await?;
+    let lab = item(&a, "carmen", "candidate_row", None, json!({})).await?;
+    let page = |query: &'static str| {
+        let a = &a;
+        async move {
+            let (s, v) = a.get("alex", &format!("/review?profile=carmen{query}")).await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            let ids: Vec<Value> = v["items"].as_array().into_iter().flatten().map(|i| i["id"].clone()).collect();
+            anyhow::Ok((ids, v["open"].clone()))
+        }
+    };
+    assert_eq!(page("").await?, (vec![json!(lab)], json!(1)));
+    assert_eq!(page("&limit=1").await?, (vec![json!(lab)], json!(1)));
+    assert_eq!(page("&offset=1").await?, (vec![], json!(1)));
+    // positive control: with read:wearables he sees all 101, oldest first, a page at a time
+    sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(a.family.user("alex"))
+        .bind(a.family.profile("carmen"))
+        .bind(vec!["read:summary".to_string(), "read:labs".to_string(), "read:wearables".to_string()])
+        .execute(&a.rt.pool)
+        .await?;
+    let (ids, open) = page("&limit=100").await?;
+    assert_eq!((ids.len(), open), (100, json!(101)));
+    assert_ne!(ids[0], json!(lab));
+    assert_eq!(page("&offset=100").await?, (vec![json!(lab)], json!(101)));
+    Ok(())
+}
+
+/// CR-FHIRALIAS: a held FHIR Observation shows on the terms of the category the importer would give
+/// it. The importer reads `social-history` as `survey` and `imaging` or `procedure` as `exam`, which
+/// need read:vitals; an Observation with no category is a lab value.
 #[tokio::test]
 async fn test_a_held_fhir_observation_takes_the_scope_of_its_imported_category() -> R {
     let a = app().await?;
@@ -1103,3 +1149,35 @@ async fn test_a_held_fhir_observation_takes_the_scope_of_its_imported_category()
 /// reader cannot read. Sam reviews on her own profile, so she sees the household's item, but not the
 /// document of Carmen's it names, nor the error its import wrote. Alex, who reads Carmen's documents,
 /// gets both.
+#[tokio::test]
+async fn test_a_household_item_names_its_document_only_to_a_reader_of_that_document() -> R {
+    let a = app().await?;
+    let doc = carmen_document(&a, "informe_carmen.pdf", json!({})).await?;
+    let id = household_item_on(
+        &a,
+        "job_failed",
+        doc,
+        json!({"kind": "import.pdf", "error": "informe_carmen.pdf: unreadable"}),
+    )
+    .await?;
+    for (who, sees) in [("sam", false), ("alex", true)] {
+        let (s, listed) = a.get(who, "/review").await?;
+        assert_eq!(s, StatusCode::OK, "{listed}");
+        let row = listed["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|i| i["id"] == json!(id)).cloned())
+            .ok_or_else(|| anyhow::anyhow!("{who}: the household item is not listed: {listed}"))?;
+        let (s, one) = a.get(who, &format!("/review/{id}")).await?;
+        assert_eq!(s, StatusCode::OK, "{one}");
+        for got in [&row, &one] {
+            assert_eq!(got["document_id"] == json!(doc), sees, "{who}: {got}");
+            assert_eq!(
+                got.to_string().contains("informe_carmen"),
+                sees,
+                "{who}: the error quotes the document: {got}"
+            );
+            assert_eq!(got["payload"]["kind"], json!("import.pdf"), "{who}: {got}");
+        }
+    }
+    Ok(())
+}
