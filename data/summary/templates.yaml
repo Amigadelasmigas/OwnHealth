@@ -74,7 +74,7 @@ templates:
     guideline: {en: Guideline or formula, es: Guía o fórmula, de: "Leitlinie oder Formel", fr: "Recommandation ou formule", ca: "Guia o fórmula", it: "Linea guida o formula", pt: "Norma ou fórmula"}
     cited_as: {en: Cited as, es: Citada como, de: "Zitiert als", fr: "Cité comme", ca: "Citada com a", it: "Citata come", pt: "Citada como"}
   none: {en: None on record., es: Nada registrado., de: "Nichts erfasst.", fr: "Rien d'enregistré.", ca: "Res registrat.", it: "Niente di registrato.", pt: "Nada registado."}
-  not_measured: {en: not measured, es: no medido, de: "nicht gemessen", fr: "non mesuré", ca: "no mesurat", it: "non misurato", pt: "não medido"}
+  not_measured: {en: not measured, es: no medido, de: "nie gemessen", fr: "non mesuré", ca: "no mesurat", it: "non misurato", pt: "não medido"}
   more: {en: "And {n} more in the record.", es: "Y {n} más en el registro.", de: "Und {n} weitere in der Akte.", fr: "Et {n} de plus dans le dossier.", ca: "I {n} més al registre.", it: "E altri {n} nella cartella.", pt: "E mais {n} no registo."}
   supplement: {en: supplement, es: suplemento, de: "Nahrungsergänzungsmittel", fr: "complément", ca: "suplement", it: "integratore", pt: "suplemento"}
   never: {en: none on record, es: sin registro, de: "nichts erfasst", fr: "aucun enregistrement", ca: "sense registre", it: "nessuna registrazione", pt: "sem registo"}

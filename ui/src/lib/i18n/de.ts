@@ -1611,7 +1611,7 @@ export const de: Table = {
 	sum_spec_cardiology: "Kardiologie",
 	sum_spec_endocrinology: "Endokrinologie",
 	sum_spec_hematology: "Hämatologie",
-	sum_spec_d: "Das Fachgebiet bestimmt die Laborwerte, berechneten Werte, fälligen Vorsorgeuntersuchungen und Familienmuster des Blatts. Ein nie gemessener Wert steht als „nicht gemessen“.",
+	sum_spec_d: "Das Fachgebiet bestimmt die Laborwerte, berechneten Werte, fälligen Vorsorgeuntersuchungen und Familienmuster des Blatts. Ein nie gemessener Wert steht als „nie gemessen“.",
 	sum_lang: "Sprache des Blatts",
 	sum_sens: "Sensible Genombefunde einschließen",
 	sum_sens_d: "Nur für diesen Druck. Sie werden nur gedruckt, solange der Schalter für sensible Befunde dieses Profils an ist (Einstellungen).",
