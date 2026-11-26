@@ -199,8 +199,8 @@ pub(crate) fn register() {
     if policy().is_none() {
         return;
     }
-    sources::register_gap_check(super::KIND, openwearables_gap, sources::ItemFailures::OwnClock);
-    sources::register_gap_check("dexcom", dexcom_gap, sources::ItemFailures::Count);
+    sources::register_gap_check(super::KIND, openwearables_gap);
+    sources::register_gap_check_with("dexcom", dexcom_gap, sources::ItemFailures::Count);
 }
 
 #[cfg(test)]

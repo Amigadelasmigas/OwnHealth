@@ -738,7 +738,14 @@ pub enum ItemFailures {
 static GAP_CHECKS: LazyLock<RwLock<HashMap<String, (GapCheck, ItemFailures)>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-pub fn register_gap_check(kind: &str, check: GapCheck, item_failures: ItemFailures) {
+/// Register a kind's sync-gap check. A run that is an error only because every item it saw failed is
+/// not a failed pull (`ItemFailures::OwnClock`), as before `register_gap_check_with` existed.
+pub fn register_gap_check(kind: &str, check: GapCheck) {
+    register_gap_check_with(kind, check, ItemFailures::OwnClock);
+}
+
+/// Register a kind's sync-gap check, saying what a run whose every item failed means for it.
+pub fn register_gap_check_with(kind: &str, check: GapCheck, item_failures: ItemFailures) {
     if let Ok(mut m) = GAP_CHECKS.write() {
         m.insert(kind.into(), (check, item_failures));
     }
