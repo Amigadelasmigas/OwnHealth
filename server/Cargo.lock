@@ -4372,6 +4372,7 @@ dependencies = [
  "ownhealth-auth",
  "ownhealth-core",
  "ownhealth-genome",
+ "ownhealth-imaging",
  "ownhealth-ingest-pdf",
  "ownhealth-ingest-structured",
  "ownhealth-normalize",

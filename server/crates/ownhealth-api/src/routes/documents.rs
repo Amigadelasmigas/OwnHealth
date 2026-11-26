@@ -34,8 +34,9 @@ use axum::{Json, Router};
 use ownhealth_core::access::{Permission, Principal, ProfileRef, effective_permission, require};
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::blobs::BlobOwner;
+pub use ownhealth_core::documents::{document_scope, file_opens};
 use ownhealth_core::documents::{
-    WEARABLES_DOC_TYPE, document_is_sensitive, record_document_sql, sensitive_document_sql,
+    CGM_SQL, WEARABLES_DOC_TYPE, document_is_sensitive, record_document_sql, scope_for, sensitive_document_sql,
 };
 use ownhealth_core::pyjson::{parse_datetime, pydantic_datetime, row_to_json};
 use ownhealth_core::{Error, Runtime};
@@ -107,22 +108,6 @@ fn untrusted(s: Option<&str>, origin: &str) -> Value {
         None => Value::Null,
     }
 }
-
-/// The scope a document needs, by its type; a document whose flags hold a CGM import (`cgm`) holds every
-/// reading of the export, so it needs read:wearables whatever its type.
-fn scope_for(doc_type: Option<&str>, cgm: bool) -> &'static str {
-    if cgm {
-        return "read:wearables";
-    }
-    match doc_type {
-        Some("lab_report") => "read:labs",
-        Some(WEARABLES_DOC_TYPE) => "read:wearables",
-        _ => "read:records",
-    }
-}
-
-/// [`scope_for`]'s `cgm` as a SQL boolean over the document alias `d`.
-const CGM_SQL: &str = "coalesce(d.flags ? 'cgm_csv', false)";
 
 fn unknown(message: &str) -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "unknown", message)
@@ -287,35 +272,6 @@ pub async fn visible_document(
         blob_sha256: hex(&sha),
         perm,
     })
-}
-
-/// The scope document `document_id` needs ([`scope_for`]); None when there is no such document.
-pub async fn document_scope(conn: &mut PgConnection, document_id: Uuid) -> Result<Option<&'static str>, ApiError> {
-    let row: Option<(Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select d.doc_type, {CGM_SQL} from document d where d.id = $1"
-    )))
-    .bind(document_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    Ok(row.map(|(doc_type, cgm)| scope_for(doc_type.as_deref(), cgm)))
-}
-
-/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
-/// profile): the scope its type needs, and read:sensitive when it is sensitive, as
-/// [`visible_document`] decides. A review item that only points at its document (a pull's
-/// `fhir_unmapped_summary`) shows on the same terms.
-pub async fn file_opens(conn: &mut PgConnection, perm: &Permission, document_id: Uuid) -> Result<bool, ApiError> {
-    let Some(scope) = document_scope(&mut *conn, document_id).await? else {
-        return Ok(false);
-    };
-    if !perm.has(scope) {
-        return Ok(false);
-    }
-    let visible = perm.may_read_sensitive(scope) || !document_is_sensitive(conn, document_id).await?;
-    if visible {
-        perm.record_read(&[scope]);
-    }
-    Ok(visible)
 }
 
 fn hex(b: &[u8]) -> String {

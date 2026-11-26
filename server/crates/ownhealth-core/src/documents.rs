@@ -951,6 +951,60 @@ pub async fn document_is_sensitive(conn: &mut PgConnection, document_id: Uuid) -
     Ok(v.unwrap_or(false))
 }
 
+/// The scope a document needs, by its type; a document whose flags hold a CGM import (`cgm`) holds every
+/// reading of the export, so it needs read:wearables whatever its type.
+pub fn scope_for(doc_type: Option<&str>, cgm: bool) -> &'static str {
+    if cgm {
+        return "read:wearables";
+    }
+    match doc_type {
+        Some("lab_report") => "read:labs",
+        Some(WEARABLES_DOC_TYPE) => "read:wearables",
+        _ => "read:records",
+    }
+}
+
+/// [`scope_for`]'s `cgm` as a SQL boolean over the document alias `d`.
+pub const CGM_SQL: &str = "coalesce(d.flags ? 'cgm_csv', false)";
+
+/// The profile document `document_id` is on now (None: no profile) and the scope it needs
+/// ([`scope_for`]); None when there is no such document.
+pub async fn document_profile_scope(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Option<(Option<Uuid>, &'static str)>> {
+    let row: Option<(Option<Uuid>, Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select d.profile_id, d.doc_type, {CGM_SQL} from document d where d.id = $1"
+    )))
+    .bind(document_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(|(profile, doc_type, cgm)| (profile, scope_for(doc_type.as_deref(), cgm))))
+}
+
+/// The scope document `document_id` needs ([`scope_for`]); None when there is no such document.
+pub async fn document_scope(conn: &mut PgConnection, document_id: Uuid) -> Result<Option<&'static str>> {
+    Ok(document_profile_scope(conn, document_id).await?.map(|(_, scope)| scope))
+}
+
+/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
+/// profile): the scope its type needs, and read:sensitive when it is sensitive, as the documents route
+/// decides. A review item that only points at its document (a pull's `fhir_unmapped_summary`) shows on
+/// the same terms.
+pub async fn file_opens(conn: &mut PgConnection, perm: &crate::access::Permission, document_id: Uuid) -> Result<bool> {
+    let Some(scope) = document_scope(&mut *conn, document_id).await? else {
+        return Ok(false);
+    };
+    if !perm.has(scope) {
+        return Ok(false);
+    }
+    let visible = perm.may_read_sensitive(scope) || !document_is_sensitive(conn, document_id).await?;
+    if visible {
+        perm.record_read(&[scope]);
+    }
+    Ok(visible)
+}
+
 /// The blobs of a document that moved, and the owner they were stored for before.
 /// `ownhealth_auth::household::drop_moved_copies` removes that owner's copies once the move commits.
 #[derive(Debug, Clone, PartialEq, Eq)]
