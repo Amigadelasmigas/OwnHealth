@@ -602,9 +602,14 @@ async fn concurrent_moves_of_one_released_mail_keep_its_raw_file_readable() -> R
     rekey_document(&mut tx, &blobs, documents[0], from, Some(sam)).await?;
     // the second move of the other document runs meanwhile
     let (pool, store, other) = (db.pool.clone(), blobs.clone(), documents[1]);
+    let (send_pid, second_pid) = tokio::sync::oneshot::channel::<i32>();
     let second = tokio::spawn(async move {
         let mut c = pool.acquire().await?;
         let mut tx = c.begin().await?;
+        let pid: i32 = sqlx::query_scalar("select pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await?;
+        let _ = send_pid.send(pid);
         let from = lock_owner(&mut tx, other).await?;
         sqlx::query("update document set profile_id = $1 where id = $2")
             .bind(sam)
@@ -615,7 +620,26 @@ async fn concurrent_moves_of_one_released_mail_keep_its_raw_file_readable() -> R
         tx.commit().await?;
         anyhow::Ok(())
     });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // commit the first move only once the second waits for it
+    let pid = second_pid.await?;
+    let mut waiting = false;
+    for _ in 0..100 {
+        anyhow::ensure!(
+            !second.is_finished(),
+            "the second move finished without waiting for the first"
+        );
+        waiting = sqlx::query_scalar(
+            "select exists (select 1 from pg_locks where pid = $1 and locktype = 'advisory' and not granted)",
+        )
+        .bind(pid)
+        .fetch_one(&mut *c)
+        .await?;
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    anyhow::ensure!(waiting, "the second move never waited for the first");
     tx.commit().await?;
     second.await??;
 
