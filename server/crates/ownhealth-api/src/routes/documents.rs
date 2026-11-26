@@ -18,8 +18,10 @@
 //! need `read:documents_text`. A document on a profile the caller cannot read answers 404 like an unknown
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
 //! such. Without read:sensitive a document's import flags leave out the C-CDA section titles, the
-//! sensitive and unprojected counts and the import summary, and `open_review` counts only the open
-//! items the review list shows the reader (none when they cannot review there).
+//! sensitive and unprojected counts, the import summary and the Apple Health record types it did not
+//! import; a SMART Health Card's rows show only to a reader the file would open for; and
+//! `open_review` counts only the open items the review list shows the reader (none when they cannot
+//! review there).
 
 use std::collections::BTreeSet;
 
@@ -66,6 +68,36 @@ const COLS: &str = "d.id, d.profile_id, d.filename, d.doc_type, d.provider_name,
 /// whose review counts take in the items the review list hides. They need read:sensitive.
 const SENSITIVE_FLAGS: [&str; 4] = ["ccda", "import", "sensitive", "unprojected"];
 
+/// A SMART Health Card's rows: type, date and `name: value` of every resource on the card, so the
+/// file's own content. They show on the terms of the file ([`visible_document`] with `content`): a
+/// reader without read:sensitive does not get them from a sensitive document.
+const SHC_FLAG: &str = "shc";
+
+/// Whether the card rows of document `row` stay out of what `perm` is shown: it holds a card, the
+/// reader may not read sensitive values of its scope, and something read from it is sensitive.
+async fn card_rows_hidden(
+    conn: &mut PgConnection,
+    row: &Map<String, Value>,
+    perm: &Permission,
+) -> Result<bool, ApiError> {
+    let flags = row.get("flags");
+    if flags.and_then(|f| f.get(SHC_FLAG)).is_none() {
+        return Ok(false);
+    }
+    let cgm = flags.and_then(|f| f.get("cgm_csv")).is_some();
+    if perm.may_read_sensitive(scope_for(row.get("doc_type").and_then(Value::as_str), cgm)) {
+        return Ok(false);
+    }
+    let Some(id) = row
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return Ok(true);
+    };
+    Ok(document_is_sensitive(conn, id).await?)
+}
+
 const FTS_CFG: &str = "cast(case d.language when 'es' then 'spanish' when 'en' then 'english' when 'de' then 'german' \
                        when 'fr' then 'french' else 'simple' end as regconfig)";
 
@@ -98,10 +130,18 @@ fn unknown(message: &str) -> ApiError {
 
 /// A document as the list and the detail show it to the reader `perm`. A CGM export's flags (its
 /// counts, sensors and import summary) reach only a caller who may read wearables: [`scope_for`] lets
-/// no one else list or open it. The [`SENSITIVE_FLAGS`] reach only a reader with read:sensitive, and
-/// `open_review` counts the items the review list shows the reader
+/// no one else list or open it. The [`SENSITIVE_FLAGS`] and the Apple Health record types an export
+/// held but OwnHealth did not import (sexual activity, menstrual flow: `apple_health.not_imported`)
+/// reach only a reader with read:sensitive. `hide_card_rows` ([`card_rows_hidden`]) leaves out the
+/// SMART Health Card rows. `open_review` counts the items the review list shows the reader
 /// (`review::shown_per_document`).
-fn summary(row: &Map<String, Value>, snippet: Option<&str>, perm: &Permission, open_review: i64) -> Map<String, Value> {
+fn summary(
+    row: &Map<String, Value>,
+    snippet: Option<&str>,
+    perm: &Permission,
+    open_review: i64,
+    hide_card_rows: bool,
+) -> Map<String, Value> {
     let cgm = row.get("flags").and_then(|f| f.get("cgm_csv")).is_some();
     let scope = scope_for(row.get("doc_type").and_then(Value::as_str), cgm);
     let sensitive = perm.may_read_sensitive(scope);
@@ -111,7 +151,17 @@ fn summary(row: &Map<String, Value>, snippet: Option<&str>, perm: &Permission, o
         .map(|f| {
             f.iter()
                 .filter(|(k, _)| *k != "metadata_text" && (sensitive || !SENSITIVE_FLAGS.contains(&k.as_str())))
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .filter(|(k, _)| !(hide_card_rows && *k == SHC_FLAG))
+                .map(|(k, v)| {
+                    let mut v = v.clone();
+                    if !sensitive
+                        && k == "apple_health"
+                        && let Some(apple) = v.as_object_mut()
+                    {
+                        apple.remove("not_imported");
+                    }
+                    (k.clone(), v)
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -395,7 +445,8 @@ pub async fn list_for(
         } else {
             None
         };
-        let mut item = summary(&j, snip, &perm, open.get(doc).copied().unwrap_or(0));
+        let hide = card_rows_hidden(&mut *conn, &j, &perm).await?;
+        let mut item = summary(&j, snip, &perm, open.get(doc).copied().unwrap_or(0), hide);
         // the day this document counts as `done` evidence from: its collection day, else its report
         // day, the rule prevention::evidence applies
         item.insert(
@@ -453,6 +504,7 @@ async fn get_document(
     let mut tx = rt.pool.begin().await?;
     let doc = visible_document(&mut tx, &principal, document_id, None, false).await?;
     let open = super::review::shown_per_document(&mut tx, &doc.perm, &[document_id]).await?;
+    let hide_card_rows = card_rows_hidden(&mut tx, &doc.row, &doc.perm).await?;
     let pages: Vec<PgRow> = sqlx::query(
         "select page_no, width_pt, height_pt, text_layer_ok, flags from document_page where document_id = $1 \
          order by page_no",
@@ -475,7 +527,13 @@ async fn get_document(
     )
     .await?;
     tx.commit().await?;
-    let mut out = summary(&doc.row, None, &doc.perm, open.get(&document_id).copied().unwrap_or(0));
+    let mut out = summary(
+        &doc.row,
+        None,
+        &doc.perm,
+        open.get(&document_id).copied().unwrap_or(0),
+        hide_card_rows,
+    );
     out.insert("mime".into(), doc.row.get("mime").cloned().unwrap_or(Value::Null));
     out.insert(
         "size_bytes".into(),

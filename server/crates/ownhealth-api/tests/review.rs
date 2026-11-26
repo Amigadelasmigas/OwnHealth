@@ -769,6 +769,48 @@ async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -
             "the count holds an item the list hides: {v}"
         );
     }
+    // a SMART Health Card's rows are the file's content: from a sensitive card they show only with
+    // read:sensitive, as the file does; a plain card shows them to every reader of the document. An
+    // Apple Health export's record types it did not import (sexual activity here) need read:sensitive.
+    let shc = |text: &str| {
+        json!({"shc": [{"iss": "https://issuer.labnorte.example", "host": "issuer.labnorte.example",
+            "kid": "k", "issued": "2026-10-22T12:00:00Z", "expires": null, "jws": "ab",
+            "entries": [{"type": "Observation", "date": "2026-03-02", "text": text}]}]})
+    };
+    let sensitive_card = carmen_document(&a, "tarjeta-vih.json", shc("VIH 1+2 Ac: Positivo")).await?;
+    let held = item(
+        &a,
+        "carmen",
+        "candidate_row",
+        None,
+        json!({"printed_name": "VIH Ac", "sensitivity": ["sexual_health"]}),
+    )
+    .await?;
+    sqlx::query("update review_item set document_id = $1 where id = $2")
+        .bind(sensitive_card)
+        .bind(held)
+        .execute(&a.rt.pool)
+        .await?;
+    let plain_card = carmen_document(&a, "tarjeta-gripe.json", shc("Gripe 2026")).await?;
+    let apple = carmen_document(
+        &a,
+        "export.zip",
+        json!({"apple_health": {"samples": 3, "not_imported": {"skipped:HKCategoryTypeIdentifierSexualActivity": 2}}}),
+    )
+    .await?;
+    let (card, card_listed) = carmen_flags(&a, sensitive_card).await?;
+    for f in [&card, &card_listed] {
+        assert!(f.get("shc").is_none(), "card rows of a sensitive card: {f}");
+    }
+    let (card, card_listed) = carmen_flags(&a, plain_card).await?;
+    for f in [&card, &card_listed] {
+        assert_eq!(f["shc"][0]["entries"][0]["text"], "Gripe 2026", "{f}");
+    }
+    let (export, export_listed) = carmen_flags(&a, apple).await?;
+    for f in [&export, &export_listed] {
+        assert_eq!(f["apple_health"], json!({"samples": 3}), "{f}");
+    }
+
     alex_on_carmen(&a, &["read:summary", "read:labs", "read:records", "read:sensitive"]).await?;
     let (one, listed, shown) = read_carmen_document(&a, doc).await?;
     assert_eq!(shown, 2);
@@ -776,5 +818,52 @@ async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -
         assert_eq!(flags(v), ["ccda", "import", "sensitive", "unprojected"], "{v}");
         assert_eq!(v["open_review"], json!(2), "{v}");
     }
+    let (card, card_listed) = carmen_flags(&a, sensitive_card).await?;
+    for f in [&card, &card_listed] {
+        assert_eq!(f["shc"][0]["entries"][0]["text"], "VIH 1+2 Ac: Positivo", "{f}");
+    }
+    let (export, export_listed) = carmen_flags(&a, apple).await?;
+    for f in [&export, &export_listed] {
+        assert_eq!(
+            f["apple_health"]["not_imported"]["skipped:HKCategoryTypeIdentifierSexualActivity"], 2,
+            "{f}"
+        );
+    }
+    // read:sensitive goes with the document's own scope: a C-CDA document is read with read:records,
+    // so read:labs plays no part
+    alex_on_carmen(&a, &["read:summary", "read:records", "read:sensitive"]).await?;
+    let (one, listed) = carmen_flags(&a, doc).await?;
+    for f in [&one, &listed] {
+        assert!(f.get("ccda").is_some() && f.get("import").is_some(), "{f}");
+    }
     Ok(())
+}
+
+/// A document of Carmen's (no type: read with read:records) with these flags.
+async fn carmen_document(a: &App, filename: &str, flags: Value) -> anyhow::Result<Uuid> {
+    Ok(sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, flags) \
+         values ($1, $2, decode($3, 'hex'), $4, 'application/octet-stream', 3, $5) returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(a.family.profile("carmen"))
+    .bind(ownhealth_core::ids::token_hex(32))
+    .bind(filename)
+    .bind(flags)
+    .fetch_one(&a.rt.pool)
+    .await?)
+}
+
+/// The flags Alex is shown of Carmen's document `doc`: in its detail, and in its row of the list.
+async fn carmen_flags(a: &App, doc: Uuid) -> anyhow::Result<(Value, Value)> {
+    let (s, one) = a.get("alex", &format!("/documents/{doc}")).await?;
+    assert_eq!(s, StatusCode::OK, "{one}");
+    let (s, list) = a.get("alex", "/profiles/carmen/documents").await?;
+    assert_eq!(s, StatusCode::OK, "{list}");
+    let listed = list["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|i| i["id"] == json!(doc)))
+        .map(|i| i["flags"].clone())
+        .ok_or_else(|| anyhow::anyhow!("the list leaves the document out: {list}"))?;
+    Ok((one["flags"].clone(), listed))
 }
