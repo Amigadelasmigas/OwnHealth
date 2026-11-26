@@ -1004,6 +1004,8 @@ impl<'a, 'i> Conv<'a, 'i> {
         let Some(concept) = concept.filter(|_| is_true(el, "negationInd")) else {
             return false;
         };
+        // reading the originals collects the labels of the text they point at, for the next push
+        let labels_before = self.narrative_labels.clone();
         let originals: Vec<_> = std::iter::once(concept)
             .chain(children(concept, "translation"))
             .filter_map(|code| child(code, "originalText"))
@@ -1014,6 +1016,8 @@ impl<'a, 'i> Conv<'a, 'i> {
         {
             return false;
         }
+        // nothing is pushed for a held entry, so the next resource must not get its labels
+        self.narrative_labels = labels_before;
         let line = format!("{} (text scan limit reached)", self.hold(el));
         rep.not_read.push(line);
         true

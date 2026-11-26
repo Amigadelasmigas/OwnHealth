@@ -4281,3 +4281,58 @@ fn pre1_a_question_mark_beside_a_coded_problem_goes_to_review() -> R {
     }
     Ok(())
 }
+
+/// PRE-1.0 (C-L3, C-L1): a negated allergy held for a cut name passes none of the labels of the text
+/// it read to the next allergy of its concern act. That next allergy, not negated, imports even
+/// though its own original text was cut, and the cut is listed.
+#[test]
+fn pre1_a_held_negated_allergy_passes_no_narrative_labels_on() -> R {
+    let beyond = text_past_the_node_limit();
+    let c = convert(&document(&format!(
+        r##"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.6.1"/><title>Allergies</title>
+           <text><paragraph ID="late">{beyond}</paragraph></text>
+           <entry><act classCode="ACT" moodCode="EVN"><templateId root="2.16.840.1.113883.10.20.22.4.30"/>
+             <code code="CONC" codeSystem="2.16.840.1.113883.5.6"/><statusCode code="active"/>
+             <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN" negationInd="true">
+               <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+               <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+               <effectiveTime><low value="20210301"/></effectiveTime>
+               <value xsi:type="CD" code="419199007" codeSystem="2.16.840.1.113883.6.96"/>
+               <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+                 <code code="x" codeSystem="1.2.3"><originalText><reference value="#named"/></originalText>
+                   <translation code="y" codeSystem="1.2.3"><originalText><reference value="#late"/></originalText></translation>
+                 </code>
+               </playingEntity></participantRole></participant>
+             </observation></entryRelationship>
+             <entryRelationship typeCode="SUBJ"><observation classCode="OBS" moodCode="EVN">
+               <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+               <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/><statusCode code="completed"/>
+               <effectiveTime><low value="20200101"/></effectiveTime>
+               <value xsi:type="CD" code="419511003" codeSystem="2.16.840.1.113883.6.96"/>
+               <participant typeCode="CSM"><participantRole classCode="MANU"><playingEntity classCode="MMAT">
+                 <code code="7980" codeSystem="2.16.840.1.113883.6.88" displayName="Penicillin G">
+                   <originalText><reference value="#late"/></originalText></code>
+               </playingEntity></participantRole></participant>
+             </observation></entryRelationship>
+           </act></entry></section></component>
+           <component><section><text><paragraph ID="named">Peanut</paragraph></text><entry>{}</entry></section></component>"##,
+        security_label("PSY")
+    )))?;
+    let allergies = resources(&c, "AllergyIntolerance");
+    assert_eq!(allergies.len(), 1, "{allergies:?}");
+    assert_eq!(allergies[0]["code"]["coding"][0]["code"], "7980");
+    assert_eq!(label_codes(&c, "AllergyIntolerance"), [Vec::<String>::new()]);
+    assert!(
+        c.sections[0]
+            .not_read
+            .contains(&"observation 2.16.840.1.113883.10.20.22.4.7 (text scan limit reached)".to_string()),
+        "{:?}",
+        c.sections[0].not_read
+    );
+    assert!(
+        c.sections[0].not_read.len() >= 2,
+        "the cut of the stored allergy is listed too: {:?}",
+        c.sections[0].not_read
+    );
+    Ok(())
+}
