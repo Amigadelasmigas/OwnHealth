@@ -781,7 +781,21 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                     break;
                 }
             };
-            let Some(next) = store_day(ctx, source, &binding, cursor.as_ref(), provider, to, bundle, &mut out).await?
+            // Rows that do not read on days past the mark and no new usable row of the vendor yet: if this
+            // day stores none either, its clock starts in the commit that moves the mark past these rows.
+            let unreadable_from = (unreadable_new > 0 && out.new == new_before).then_some(now);
+            let Some(next) = store_day(
+                ctx,
+                source,
+                &binding,
+                cursor.as_ref(),
+                provider,
+                to,
+                bundle,
+                unreadable_from,
+                &mut out,
+            )
+            .await?
             else {
                 // The binding changed while the day was read (rotated, deleted, switched off). This run
                 // read with the old one, so it must not count as a sync of the new one.
@@ -957,7 +971,8 @@ async fn lock_live_binding(
 }
 
 /// Store one vendor's day and move its cursor to `to`, in one transaction. None when the binding
-/// changed since the poll read it: nothing is written then.
+/// changed since the poll read it: nothing is written then. `unreadable_from` starts the vendor's clock
+/// for rows that do not read, if it is not running, when the day stores no new usable row.
 #[allow(clippy::too_many_arguments)]
 async fn store_day(
     ctx: &JobContext,
@@ -967,6 +982,7 @@ async fn store_day(
     provider: &str,
     to: DateTime<Utc>,
     bundle: Bundle,
+    unreadable_from: Option<DateTime<Utc>>,
     out: &mut RunOutcome,
 ) -> Result<Option<Value>> {
     let mut tx = ctx.pool.begin().await?;
@@ -980,15 +996,21 @@ async fn store_day(
     if mark(cursor, provider).is_none_or(|t| t < to) {
         next["providers"][provider] = json!(to);
     }
-    // A new usable row ends the vendor's clock for rows that do not read, with the commit that stores
-    // it: if a later day of this poll fails, the next poll reads the row again as known.
-    if out.new > new_before
-        && let Some(health) = next
-            .get_mut(gaps::CURSOR_KEY)
-            .and_then(|c| c.get_mut(provider))
-            .and_then(Value::as_object_mut)
+    // A new usable row ends the vendor's clock for rows that do not read, and a day past the mark with
+    // only such rows starts it, in the commit that moves the mark: if a later day of this poll fails,
+    // the next poll reads these rows again as known.
+    if let Some(health) = next
+        .get_mut(gaps::CURSOR_KEY)
+        .and_then(|c| c.get_mut(provider))
+        .and_then(Value::as_object_mut)
     {
-        health.shift_remove("unreadable_since");
+        if out.new > new_before {
+            health.shift_remove("unreadable_since");
+        } else if let Some(at) = unreadable_from
+            && health.get("unreadable_since").is_none_or(Value::is_null)
+        {
+            health.insert("unreadable_since".into(), json!(at));
+        }
     }
     sqlx::query("update source set cursor = $2 where id = $1")
         .bind(source)

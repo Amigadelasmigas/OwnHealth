@@ -2884,3 +2884,45 @@ async fn a_stamp_repair_stays_when_the_pass_then_leaves_the_alert() -> anyhow::R
     );
     Ok(())
 }
+
+/// A poll stores a new Polar day whose only new row does not read, then fails to store WHOOP's day. The
+/// Polar day is now behind its mark, so the retry reads that row as known: the clock must have started
+/// with the commit that stored the day.
+#[tokio::test]
+async fn an_unreadable_day_starts_its_clock_even_when_a_later_store_fails() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(unreadable_since(&env, id, "polar").await?, None);
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+        let mut bad = sample("raw", "polar", "heart_rate", 0., "bpm", Utc::now());
+        bad["value"] = json!("n/a");
+        fake.rows.push(bad);
+    }
+    sqlx::raw_sql(
+        "create function stop_whoop_mark() returns trigger language plpgsql as $$ begin \
+         if new.cursor #> '{providers,whoop}' is distinct from old.cursor #> '{providers,whoop}' \
+         then raise exception 'store refused'; end if; return new; end $$; \
+         create trigger stop_whoop_mark before update on source for each row execute function stop_whoop_mark();",
+    )
+    .execute(&env.ctx.pool)
+    .await?;
+    assert!(poll(&env.ctx, &env.base, id).await.is_err(), "the WHOOP day was stored");
+    let started = unreadable_since(&env, id, "polar").await?;
+    assert!(started.is_some(), "the Polar day was stored without its clock");
+    sqlx::raw_sql("drop trigger stop_whoop_mark on source")
+        .execute(&env.ctx.pool)
+        .await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(
+        unreadable_since(&env, id, "polar").await?,
+        started,
+        "the retry lost or restarted the clock"
+    );
+    Ok(())
+}
