@@ -4,7 +4,7 @@
 //!
 //! | Route | What |
 //! |---|---|
-//! | `GET /inboxes` | the household's sources with their health |
+//! | `GET /inboxes` | the household's sources the person manages, with their health |
 //! | `POST /inboxes` | `{kind, label, profile_id?, config, secret?, poll_seconds?}`; a secret is sealed (`core::secrets`) |
 //! | `GET /inboxes/{id}`, `PATCH /inboxes/{id}`, `DELETE /inboxes/{id}` | one source |
 //! | `GET /inboxes/{id}/runs?limit=` | recent runs and their errors |
@@ -274,14 +274,20 @@ async fn out_one(conn: &mut PgConnection, s: &Source) -> R<Value> {
     Ok(source_out(s, health.as_ref(), quarantined))
 }
 
-/// The sources this person may see (the same rule as the health routes).
+/// The sources this person manages, of those the health routes show them: a row carries the source's
+/// settings (a mailbox's host and user, the token prefix, the held mail), which `GET /inboxes/{id}`
+/// gives only to a manager too. A reader who does not manage sees the source on the health routes.
 async fn list(State(rt): State<Runtime>, caller: Caller) -> R {
     let mut conn = rt.pool.acquire().await?;
     let health = visible(&mut conn, &caller).await?;
     let Some(household) = caller.0.household_id else {
         return Err(ApiError::unauthenticated().into());
     };
-    let health: HashMap<Uuid, &SourceHealth> = health.iter().map(|(h, _)| (h.id, h)).collect();
+    let health: HashMap<Uuid, &SourceHealth> = health
+        .iter()
+        .filter(|(_, manages)| *manages == Some(true))
+        .map(|(h, _)| (h.id, h))
+        .collect();
     let held: HashMap<Uuid, i64> = sqlx::query_as::<_, (Uuid, i64)>(
         "select q.source_id, count(*) from quarantine_item q join source s on s.id = q.source_id          where s.household_id = $1 and q.status = 'held' group by q.source_id",
     )

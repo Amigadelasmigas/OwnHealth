@@ -267,6 +267,55 @@ async fn a_source_shows_only_to_a_reader_of_its_data() -> R {
     Ok(())
 }
 
+/// C-M2: the registry (`GET /api/inboxes`) carries a source's settings: the mailbox host and user, the
+/// token prefix, the last error, the held-mail count. It lists only the sources the person manages, as
+/// `GET /api/inboxes/{id}` answers only for them. A reader of the data sees the source on the health
+/// route, which sends none of that.
+#[tokio::test]
+async fn the_registry_lists_only_the_sources_the_person_manages() -> R {
+    let env = Env::new(true).await?;
+    let mail = {
+        let mut c = env.pool().acquire().await?;
+        let id = source(
+            &mut c,
+            env.fam().household_id,
+            Some(env.profile("alex")),
+            "email",
+            "Correo de Alex",
+            Some(300),
+        )
+        .await?;
+        sqlx::query("update source set config = $2 where id = $1")
+            .bind(id)
+            .bind(serde_json::json!({"host": "imap.correo.example", "port": 993, "username": "alex.rivera@correo.example"}))
+            .execute(&mut *c)
+            .await?;
+        id
+    };
+    let listed = |v: &Value| ids_of(v).contains(&mail.to_string());
+    let mut alex = env.as_user(env.user("alex")).await?;
+    let r = alex.get("/api/inboxes").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert!(listed(&r.json), "the owner: {:?}", r.json);
+    assert_eq!(row(&r.json, mail)["config"]["host"], "imap.correo.example");
+
+    // sam reads alex's documents but does not manage the profile
+    sam_on_alex(&env, &["read:summary", "read:labs"]).await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let health = sam.get("/api/inboxes/health").await?;
+    assert!(listed(&health.json), "{:?}", health.json);
+    assert!(row(&health.json, mail).get("config").is_none(), "{:?}", health.json);
+    let r = sam.get("/api/inboxes").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert!(!listed(&r.json), "a reader who does not manage: {:?}", r.json);
+    let body = String::from_utf8_lossy(&r.bytes);
+    assert!(
+        !body.contains("imap.correo.example"),
+        "the mailbox host reached a reader: {body}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn prometheus_format_for_alerting() -> R {
     let env = Env::new(true).await?;
