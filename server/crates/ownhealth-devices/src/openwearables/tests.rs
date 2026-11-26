@@ -2376,3 +2376,76 @@ async fn a_vendor_whose_rows_never_read_alerts_while_the_others_sync() -> anyhow
     );
     Ok(())
 }
+
+/// A failing vendor that stores newer days in a later poll, and then fails on a day after them, made
+/// progress: its failure clock starts again at that poll instead of keeping the old streak's start.
+#[tokio::test]
+async fn a_vendor_that_stores_newer_days_restarts_its_failure_clock() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", now]]);
+        fake.fail_from = Some(now - Duration::days(5));
+    }
+    // Polar is the only vendor, so each of these polls ends as an error after it saved what it read.
+    let _ = poll(&env.ctx, &env.base, id).await;
+    let first = env.mark(id, "polar").await?.expect("polar stored its older days");
+    assert!(failing_since(&env, id, "polar").await?.is_some());
+    set_failing_since(&env, id, "polar", now - Duration::hours(21)).await?;
+    env.fake().fail_from = Some(now - Duration::days(2));
+    let before = Utc::now();
+    let _ = poll(&env.ctx, &env.base, id).await;
+    assert!(env.mark(id, "polar").await? > Some(first), "polar stored newer days");
+    assert!(
+        failing_since(&env, id, "polar").await? >= Some(before),
+        "the clock kept the old streak"
+    );
+    sources::scheduler_tick(&env.ctx).await?;
+    assert!(open_gaps(&env, id).await?.is_empty());
+    Ok(())
+}
+
+/// Decision: a failing vendor keeps its failure clock while its connection is expired or revoked (it
+/// is in a gap then anyway). When it comes back still failing, the clock goes on from the first
+/// failure, so its alert stays open instead of closing and opening again a window later.
+#[tokio::test]
+async fn an_ended_connection_keeps_its_vendors_failure_clock() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", Utc::now()]]);
+        fake.unavailable_for = Some("polar".into());
+    }
+    let _ = poll(&env.ctx, &env.base, id).await;
+    let since = Utc::now() - Duration::hours(2);
+    set_failing_since(&env, id, "polar", since).await?;
+    let same = |kept: Option<DateTime<Utc>>| kept.is_some_and(|k| (k - since).num_milliseconds().abs() < 1);
+    for status in ["expired", "revoked", "active"] {
+        env.fake().connections = json!([["polar", status, Utc::now()]]);
+        let _ = poll(&env.ctx, &env.base, id).await;
+        let kept = failing_since(&env, id, "polar").await?;
+        assert!(same(kept), "{status}: {kept:?}");
+    }
+    Ok(())
+}
+
+/// The cursor keeps when the connection report started failing; a poll whose report reads ends that
+/// streak.
+#[tokio::test]
+async fn a_report_that_reads_clears_the_failed_report_mark() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    let id = env.seed_source().await?;
+    env.fake().connections = json!([["polar", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    let key = std::mem::replace(&mut env.fake().key, token_hex(20));
+    assert!(poll(&env.ctx, &env.base, id).await.is_err());
+    assert!(cursor_at(&env, id, &[gaps::REPORT_FAILED_KEY]).await?.is_some());
+    env.fake().key = key;
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(cursor_at(&env, id, &[gaps::REPORT_FAILED_KEY]).await?, None);
+    Ok(())
+}

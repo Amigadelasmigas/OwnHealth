@@ -242,6 +242,20 @@ mod tests {
         }
     }
 
+    /// A window of zero or fewer hours would raise every vendor's alert at once; the policy is refused.
+    #[test]
+    fn a_window_of_zero_or_fewer_hours_is_refused() {
+        for hours in [0, -1] {
+            let mut policy: Value = serde_json::from_str(SHIPPED).expect("the shipped policy is JSON");
+            policy["providers"]["polar"]["stale_hours"] = json!(hours);
+            let err = parse(&policy.to_string()).err().unwrap_or_default();
+            assert!(
+                err.starts_with(FILE) && err.contains("polar has no freshness window"),
+                "{hours}: {err}"
+            );
+        }
+    }
+
     /// Every alert text exists in every registry language, so no alert opens without its guidance.
     #[test]
     fn every_alert_text_needs_every_registry_language() {
