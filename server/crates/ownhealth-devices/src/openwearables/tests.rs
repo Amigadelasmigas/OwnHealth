@@ -2559,6 +2559,34 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     Ok(())
 }
 
+/// A sidecar that ignores `provider=whoop` sends WHOOP's pull a Polar row that does not read. That row is
+/// Polar's: it is counted among the rows that do not read, but starts no WHOOP clock.
+#[tokio::test]
+async fn another_vendors_row_that_does_not_read_starts_no_clock() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        let now = Utc::now();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        fake.ignore_filter_for = Some("whoop".into());
+        fake.rows.retain(|r| r["source"]["provider"] != "whoop");
+        let mut bad = sample("raw", "polar", "heart_rate", 0., "bpm", fake.t);
+        bad["value"] = json!("n/a");
+        fake.rows.push(bad);
+    }
+    let out = poll(&env.ctx, &env.base, id).await?;
+    // read twice: by Polar's pull, and by WHOOP's, which got every provider's rows
+    assert_eq!(out.skipped.get("unreadable_row"), Some(&2), "{:?}", out.skipped);
+    assert_eq!(
+        unreadable_since(&env, id, "whoop").await?,
+        None,
+        "a Polar row started WHOOP's clock"
+    );
+    Ok(())
+}
+
 /// After the far-future alert closed, real time reaches the day before its bogus stamp. A gap then
 /// still opens an alert: an ended alert is stamped by when it ended, not by when it was filed.
 #[tokio::test]

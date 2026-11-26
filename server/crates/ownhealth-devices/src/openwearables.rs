@@ -478,21 +478,6 @@ struct Pagination {
     next_cursor: Option<String>,
 }
 
-/// Each row of a page that reads as `T`. A row that does not (a value that is not a number, a missing
-/// field) is counted as `unreadable_row` and left out, so it never stops the page, the day or the vendor.
-fn readable<T: DeserializeOwned>(rows: Vec<Value>, out: &mut RunOutcome) -> Vec<T> {
-    out.seen += i32::try_from(rows.len()).unwrap_or(i32::MAX);
-    rows.into_iter()
-        .filter_map(|row| {
-            let parsed = serde_json::from_value(row).ok();
-            if parsed.is_none() {
-                *out.skipped.entry("unreadable_row".into()).or_default() += 1;
-            }
-            parsed
-        })
-        .collect()
-}
-
 /// One vendor's reads for one day.
 struct Pull<'a> {
     base: &'a Url,
@@ -502,6 +487,8 @@ struct Pull<'a> {
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     remaining: usize,
+    /// Rows of this pull's vendor that did not read.
+    unreadable: i32,
 }
 
 impl Pull<'_> {
@@ -512,6 +499,25 @@ impl Pull<'_> {
             JobError::permanent("too_large: Open Wearables answers for one day passed the size limit")
         })?;
         parse(&response.body)
+    }
+
+    /// Each row of a page that reads as `T`. A row that does not (a value that is not a number, a missing
+    /// field) is counted as `unreadable_row` and left out, so it never stops the page, the day or the
+    /// vendor. It counts against this pull's vendor only if it names that vendor at `provider`: a
+    /// sidecar that ignores the provider filter can send another vendor's rows.
+    fn readable<T: DeserializeOwned>(&mut self, rows: Vec<Value>, provider: &str, out: &mut RunOutcome) -> Vec<T> {
+        out.seen += i32::try_from(rows.len()).unwrap_or(i32::MAX);
+        rows.into_iter()
+            .filter_map(|row| {
+                let named = row.pointer(provider).and_then(Value::as_str) == Some(self.provider);
+                let parsed = serde_json::from_value(row).ok();
+                if parsed.is_none() {
+                    *out.skipped.entry("unreadable_row".into()).or_default() += 1;
+                    self.unreadable += i32::from(named);
+                }
+                parsed
+            })
+            .collect()
     }
 
     /// A row is taken only from the vendor this pull asked for. Any other row is counted: a provider
@@ -558,7 +564,8 @@ impl Pull<'_> {
         let mut cursors = HashSet::new();
         for _ in 0..MAX_PAGES {
             let page: Page<Value> = self.read("timeseries", &query).await?;
-            rows.extend(readable::<Sample>(page.data, out).into_iter().filter(|row| {
+            let read = self.readable::<Sample>(page.data, "/source/provider", out);
+            rows.extend(read.into_iter().filter(|row| {
                 let provider = row.source.as_ref().map_or("", |s| s.provider.as_str());
                 if !self.accepts(provider, out) {
                     return false;
@@ -609,7 +616,8 @@ impl Pull<'_> {
                 )
                 .await?;
             let count = page.data.len();
-            rows.extend(readable::<Score>(page.data, out).into_iter().filter(|row| {
+            let read = self.readable::<Score>(page.data, "/provider", out);
+            rows.extend(read.into_iter().filter(|row| {
                 let provider = row.provider.as_deref().unwrap_or("");
                 if !self.accepts(provider, out) {
                     return false;
@@ -672,6 +680,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
         from: now,
         to: now,
         remaining: MAX_BYTES_PER_DAY,
+        unreadable: 0,
     };
     let report = match pull.read::<Vec<Connection>>("connections", &[]).await {
         Ok(report) => report,
@@ -728,11 +737,11 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
     // A vendor that stored a new usable row (a sample or score that was not stored yet): something of it
     // arrives. A re-read of rows already stored is not news.
     let mut stored = Vec::new();
-    // A vendor that sent rows that do not read, and no new usable row: nothing of it arrives.
+    // A vendor that sent rows of its own that do not read, and no new usable row: nothing of it arrives.
     let mut unreadable = Vec::new();
-    let unreadable_rows = |out: &RunOutcome| out.skipped.get("unreadable_row").copied().unwrap_or(0);
     for &provider in &active {
-        let (new_before, unreadable_before) = (out.new, unreadable_rows(&out));
+        let new_before = out.new;
+        let mut unreadable_new = 0;
         let stored_until = mark(cursor.as_ref(), provider).map(|t| t.min(now));
         let mut from = stored_until.map_or(now - Duration::days(BACKFILL_DAYS), |t| {
             t - Duration::days(OVERLAP_DAYS)
@@ -750,8 +759,11 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                 from,
                 to,
                 remaining: MAX_BYTES_PER_DAY,
+                unreadable: 0,
             };
-            let bundle = match pull.bundle(&mut out).await {
+            let read = pull.bundle(&mut out).await;
+            unreadable_new += pull.unreadable;
+            let bundle = match read {
                 Ok(bundle) => bundle,
                 Err(err) => {
                     // Days the vendor already stored: go on after them. The next poll's window starts
@@ -777,7 +789,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
         // Judged for a vendor that then failed too, so a failure does not hide it.
         if out.new > new_before {
             stored.push(provider);
-        } else if unreadable_rows(&out) > unreadable_before {
+        } else if unreadable_new > 0 {
             unreadable.push(provider);
         }
     }
