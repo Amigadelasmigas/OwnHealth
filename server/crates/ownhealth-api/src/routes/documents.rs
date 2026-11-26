@@ -158,7 +158,7 @@ fn summary(
                         && k == "apple_health"
                         && let Some(apple) = v.as_object_mut()
                     {
-                        apple.remove("not_imported");
+                        apple.shift_remove("not_imported");
                     }
                     (k.clone(), v)
                 })
