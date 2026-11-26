@@ -291,10 +291,10 @@ pre.code{background:#091017;border:1px solid var(--line);border-radius:8px;paddi
 .ph .right{flex-wrap:wrap}
 .foot-hash{flex-wrap:wrap;gap:6px 14px}
 }
-/* Tablet header, up to an iPad held sideways: the search gets its own row under the picker, and a beta
-   language's tag sits small under its code, so the seven buttons stay narrow. Beside the picker, the
-   search shrank to 4 px at 768 to 900 px. */
-@media (max-width:1050px){
+/* Tablet header, up to the tablet width above: the search gets its own row under the picker, and a
+   beta language's tag sits small under its code, so the seven buttons stay narrow. Beside the picker,
+   the search shrank to 4 px at 768 to 900 px, and with the notification bell to 6 px at 1051 to 1100 px. */
+@media (max-width:1100px){
 .top{height:auto;flex-wrap:wrap;row-gap:8px;padding:8px 20px}
 .top .search{order:9;flex:1 1 100%;max-width:none}
 .top .seg button{padding:3px 5px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15}

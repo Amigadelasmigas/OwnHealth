@@ -174,6 +174,42 @@ for (const l of LANGS) {
 	});
 }
 
+// A notice puts the bell in the header too. Beside the picker and the bell, the search once shrank to
+// 6 px at 1051 to 1100 px.
+const NOTICES = {
+	items: [
+		{
+			id: '00000000-0000-4000-8000-000000000001',
+			kind: 'break_glass.request',
+			profile: { id: '00000000-0000-4000-8000-000000000002', slug: 'alex', display_name: 'Alex Rivera' },
+			request_id: '00000000-0000-4000-8000-000000000003',
+			actor: { user_id: '00000000-0000-4000-8000-000000000004', display_name: 'Sam Fixture' },
+			contact: { user_id: '00000000-0000-4000-8000-000000000004', display_name: 'Sam Fixture' },
+			created_at: '2026-11-26T09:00:00Z',
+			read_at: null
+		}
+	],
+	uses: [],
+	ice: [],
+	unread: 1
+};
+
+for (const l of LANGS) {
+	test(`with the bell shown, the header search stays wide enough to type in, in ${l.code}`, async ({ page }) => {
+		await page.route('**/api/notifications', (route) => route.fulfill({ json: NOTICES }));
+		await page.setViewportSize({ width: 1080, height: 900 });
+		await page.goto(`/?lang=${l.code}`);
+		await expect(page.locator('header.top .nt .iconbtn')).toBeVisible();
+		const out: string[] = [];
+		for (const width of [1051, 1080, 1100]) {
+			await page.setViewportSize({ width, height: 900 });
+			const w = await page.locator('header.top .search input').evaluate((e) => Math.round(e.getBoundingClientRect().width));
+			if (w < 120) out.push(`${width} px with the bell: the search is ${w} px wide`);
+		}
+		expect(out).toEqual([]);
+	});
+}
+
 // The picker clips whatever spills past its rounded border, so a button's focus ring is drawn inside
 // the button, where the clip cannot cut its top and bottom off.
 test('the focus ring of a picker button is drawn whole', async ({ page }) => {
