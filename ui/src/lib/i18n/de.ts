@@ -1333,6 +1333,8 @@ export const de: Table = {
 	i2_garmin_omitted_one: "1 Eintrag ausgelassen",
 	i2_garmin_gps: "GPS-Routen wurden ausgelassen.",
 	i2_garmin_more: "Mehr Dateien zeigen",
+	i2_garmin_unlisted: "{n} weitere Dateien, nicht aufgeführt",
+	i2_garmin_unlisted_one: "1 weitere Datei, nicht aufgeführt",
 	i2_garmin_readings: "{n} Messwerte hinzugefügt",
 	i2_garmin_readings_one: "1 Messwert hinzugefügt",
 	i2_garmin_nothing_new: "Nichts Neues: Alle {n} Messwerte waren schon da",

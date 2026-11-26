@@ -3,7 +3,7 @@
 // member who may not see Wearables. A cut-short ZIP reads as its own sentence, not as an unknown file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { exportNothing, garminReadings, exportSummary, rowsLeftOut } from '../src/lib/logic/garmin_import.ts';
+import { exportNothing, garminReadings, exportSummary, omittedCount, rowsLeftOut } from '../src/lib/logic/garmin_import.ts';
 import { fitHidden } from '../src/lib/logic/fit_import.ts';
 import { errKey } from '../src/lib/logic/errors.ts';
 import { dict } from '../src/lib/i18n/dict.ts';
@@ -70,4 +70,26 @@ test('a Strava result carries both unmatched counts and keeps the Wearables perm
 	const has = (key: string) => key in dict.en;
 	assert.equal(errKey(null, 'strava_zip_unreadable', has), 'err_strava_zip_unreadable');
 	assert.equal(errKey(null, 'strava_zip_limit', has), 'err_strava_zip_limit');
+});
+
+test('files counted past a reason list add to the total and keep their reason', () => {
+	const many = { ...garmin, not_imported_more: { no_readings: 2980, bad: 'x', zero: 0, part: 1.5 } };
+	const summary = exportSummary({ garmin: many });
+	assert.ok(summary);
+	assert.deepEqual(summary.not_imported_more, [{ reason: 'no_readings', n: 2980 }]);
+	assert.equal(omittedCount(summary), 2981);
+	const plain = exportSummary({ garmin });
+	assert.ok(plain);
+	assert.equal(plain.not_imported_more, undefined);
+	assert.equal(omittedCount(plain), 1);
+	// a list is no count by reason: its positions would read as reasons
+	const listed = exportSummary({ garmin: { ...garmin, not_imported_more: [3] } });
+	assert.ok(listed);
+	assert.equal(listed.not_imported_more, undefined);
+	assert.equal(omittedCount(listed), 1);
+	for (const lang of ['en', 'es'] as const) {
+		for (const key of ['i2_garmin_unlisted', 'i2_garmin_unlisted_one']) {
+			assert.ok((dict[lang] as Record<string, string>)[key], `${lang} ${key}`);
+		}
+	}
 });

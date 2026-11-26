@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import { t } from '#lib/i18n/index.svelte';
 	import { tp } from '#lib/components/pages1/util.svelte';
-	import type { ActivityExportSummary } from '#lib/logic/garmin_import';
+	import { omittedCount, type ActivityExportSummary } from '#lib/logic/garmin_import';
 
 	let { summary, readings = null }: { summary: ActivityExportSummary; readings?: { key: string; n: number } | null } = $props();
 	const pageSize = 50;
@@ -29,14 +29,22 @@
 		<div class="dim">{tp('i2_strava_files_without_row', summary.files_without_row)}</div>
 	{/if}
 	{#if summary.rows_left_out}<div class="dim">{tp('i2_fitbit_rows_left_out', summary.rows_left_out)}</div>{/if}
-	{#if summary.not_imported.length}
+	{#if omittedCount(summary)}
 		<details>
-			<summary>{tp('i2_garmin_omitted', summary.not_imported.length)}</summary>
+			<summary>{tp('i2_garmin_omitted', omittedCount(summary))}</summary>
 			<ul bind:this={list}>
 				{#each summary.not_imported.slice(0, shown) as item}
 					<li tabindex="-1"><span dir="auto">{item.member}</span><span class="dim">{' · '}{t('i2_garmin_reason_' + item.reason)}</span></li>
 				{/each}
 			</ul>
+			<!-- the counted files come before the button, which shows only more of the listed ones -->
+			{#if summary.not_imported_more}
+				<ul>
+					{#each summary.not_imported_more as unlisted (unlisted.reason)}
+						<li>{tp('i2_garmin_unlisted', unlisted.n)}<span class="dim">{' · '}{t('i2_garmin_reason_' + unlisted.reason)}</span></li>
+					{/each}
+				</ul>
+			{/if}
 			{#if shown < summary.not_imported.length}
 				<button class="btn sm" onclick={more}>{t('i2_garmin_more')}</button>
 			{/if}

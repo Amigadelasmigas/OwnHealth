@@ -208,7 +208,7 @@ pub async fn update_source(conn: &mut PgConnection, id: Uuid, p: &SourcePatch) -
 /// End the episode of a switched-off source's sync alert: an open alert closes as unavailable, and a
 /// decided one keeps the person's decision. Either way the next gap opens a new alert. The stamp comes
 /// from the clock the gap checks read, not the database's, since a check compares it with its own.
-async fn end_gap_episode(conn: &mut PgConnection, id: Uuid, household_id: Uuid) -> Result<()> {
+pub(crate) async fn end_gap_episode(conn: &mut PgConnection, id: Uuid, household_id: Uuid) -> Result<()> {
     sqlx::query(
         "update review_item set payload = jsonb_set(payload, '{ended_at}', to_jsonb($3::timestamptz)), \
          decided_at = coalesce(decided_at, $3), \
@@ -725,11 +725,29 @@ pub async fn enqueue_grant_poll(tx: &mut Transaction<'_, Postgres>, source_id: U
 /// included.
 pub type GapCheck = fn(Option<&Value>, bool, DateTime<Utc>) -> Option<Value>;
 
-static GAP_CHECKS: LazyLock<RwLock<HashMap<String, GapCheck>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+/// What a run that is an error only because every item it saw failed means for a kind's sync gap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemFailures {
+    /// A failed pull: the source answered, but nothing it sent was stored.
+    Count,
+    /// Not a failed pull: the connector keeps a clock of its own for each part that sends nothing
+    /// usable (an Open Wearables vendor whose reads fail or whose rows never read).
+    OwnClock,
+}
 
+static GAP_CHECKS: LazyLock<RwLock<HashMap<String, (GapCheck, ItemFailures)>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Register a kind's sync-gap check. A run that is an error only because every item it saw failed is
+/// not a failed pull (`ItemFailures::OwnClock`), as before `register_gap_check_with` existed.
 pub fn register_gap_check(kind: &str, check: GapCheck) {
+    register_gap_check_with(kind, check, ItemFailures::OwnClock);
+}
+
+/// Register a kind's sync-gap check, saying what a run whose every item failed means for it.
+pub fn register_gap_check_with(kind: &str, check: GapCheck, item_failures: ItemFailures) {
     if let Ok(mut m) = GAP_CHECKS.write() {
-        m.insert(kind.into(), check);
+        m.insert(kind.into(), (check, item_failures));
     }
 }
 
@@ -750,6 +768,7 @@ async fn pull_failed_for_interval(
     conn: &mut PgConnection,
     id: Uuid,
     source: &GapSource,
+    item_failures: ItemFailures,
     now: DateTime<Utc>,
 ) -> Result<bool> {
     let Some(interval) = source.poll_seconds.filter(|_| source.consecutive_failures > 0) else {
@@ -759,20 +778,22 @@ async fn pull_failed_for_interval(
     // alert, and one late failure after a long interval does not immediately raise it. The scheduler
     // queues the retry of a failed poll and runs this check in the same pass, so the check always
     // comes before that retry ends: a gap needs the retry to have failed too.
-    // Only a run the poller itself ended with an error counts: the source did not answer, or every part
-    // of it failed. A run that is an error only because every item it saw failed (`finish_run` stores
-    // its first problem as its error) reached the source, as when one Open Wearables vendor fails and
-    // another sends only rows that do not read; each vendor's own clock covers that.
+    // A run that is an error only because every item it saw failed (`finish_run` stores its first
+    // problem as its error) reached the source but stored nothing. That is a failed pull, unless the
+    // kind keeps its own clock for each part (one Open Wearables vendor fails and another sends only
+    // rows that do not read: each vendor's clock covers that).
     Ok(sqlx::query_scalar(
         "select count(*) >= 2 and min(finished_at) < $3 from source_run where source_id = $1 \
          and oauth_grant_id is not distinct from $2 and trigger in ('poll', 'manual') and status = 'error' \
          and finished_at is not null and ($4::timestamptz is null or finished_at > $4) \
-         and error is distinct from left((errors -> 0 ->> 'code') || ': ' || (errors -> 0 ->> 'message'), 500)",
+         and (not $5 or error is distinct from \
+           left((errors -> 0 ->> 'code') || ': ' || (errors -> 0 ->> 'message'), 500))",
     )
     .bind(id)
     .bind(source.oauth_grant_id)
     .bind(now - chrono::Duration::seconds(i64::from(interval)))
     .bind(source.last_success_at)
+    .bind(item_failures == ItemFailures::OwnClock)
     .fetch_one(conn)
     .await?)
 }
@@ -780,7 +801,7 @@ async fn pull_failed_for_interval(
 async fn reconcile_gap(
     conn: &mut PgConnection,
     id: Uuid,
-    checks: &HashMap<String, GapCheck>,
+    checks: &HashMap<String, (GapCheck, ItemFailures)>,
     clock: &Clock<'_>,
 ) -> Result<()> {
     // The source row serializes schedulers and health writers. Read the run and review rows in
@@ -799,11 +820,32 @@ async fn reconcile_gap(
     // The clock is read only now, so a poll that committed while this pass waited is judged at a time
     // after it: a report's age is never measured from before the report.
     let now = clock();
+    // A stamp more than FUTURE_STAMP_SLACK ahead came from a clock that was wrong, not from a newer pass.
+    // It is set to this pass's time, once: left as it was, it would block every pass until real time
+    // passed it, and a filter alone would let it order the passes again once real time came near it.
+    sqlx::query(
+        "update review_item set created_at = case when created_at > $4 then $3 else created_at end, \
+         payload = payload \
+           || case when (payload->>'evaluated_at')::timestamptz > $4 \
+                then jsonb_build_object('evaluated_at', to_jsonb($3::timestamptz)) else '{}' end \
+           || case when (payload->>'ended_at')::timestamptz > $4 \
+                then jsonb_build_object('ended_at', to_jsonb($3::timestamptz)) else '{}' end \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1 \
+         and (created_at > $4 or (payload->>'evaluated_at')::timestamptz > $4 \
+           or (payload->>'ended_at')::timestamptz > $4)",
+    )
+    .bind(id)
+    .bind(source.household_id)
+    .bind(now)
+    .bind(now + FUTURE_STAMP_SLACK)
+    .execute(&mut *tx)
+    .await?;
     // Passes can reach the row out of order. Every evaluation stamps the alert it keeps, so a pass whose
-    // clock is older than the newest evaluation of this source leaves the alerts to that one.
+    // clock is older than the newest evaluation of this source leaves the alerts to that one. An ended
+    // alert was last judged when it ended, so only that stamp counts.
     let newest: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "select max(greatest(created_at, (payload->>'evaluated_at')::timestamptz, \
-         (payload->>'ended_at')::timestamptz)) from review_item \
+        "select max(case when payload->>'ended_at' is not null then (payload->>'ended_at')::timestamptz \
+           else greatest(created_at, (payload->>'evaluated_at')::timestamptz) end) from review_item \
          where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1",
     )
     .bind(id)
@@ -811,11 +853,14 @@ async fn reconcile_gap(
     .fetch_one(&mut *tx)
     .await?;
     if newest.is_some_and(|newest| newest > now) {
+        // Keep the stamp repair. Rolled back, a far-future stamp would order the passes again once real
+        // time came within FUTURE_STAMP_SLACK of it.
+        tx.commit().await?;
         return Ok(());
     }
     let payload = match (checks.get(&source.kind), source.enabled, source.profile_id) {
-        (Some(check), true, Some(_)) => {
-            let failed = pull_failed_for_interval(&mut tx, id, &source, now).await?;
+        (Some((check, item_failures)), true, Some(_)) => {
+            let failed = pull_failed_for_interval(&mut tx, id, &source, *item_failures, now).await?;
             check(source.cursor.as_ref(), failed, now)
         }
         _ => None,
@@ -886,6 +931,11 @@ async fn reconcile_gap(
     tx.commit().await?;
     Ok(())
 }
+
+/// How far ahead of a gap check's clock an alert's stamp may be and still order the passes. A stamp
+/// further ahead came from a wrong clock and is set to the check's time, as a manual entry may be dated
+/// at most one day ahead.
+const FUTURE_STAMP_SLACK: chrono::Duration = chrono::Duration::days(1);
 
 /// A scheduler pass's clock for sync-gap checks.
 pub type Clock<'a> = dyn Fn() -> DateTime<Utc> + Send + Sync + 'a;

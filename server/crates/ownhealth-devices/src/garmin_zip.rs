@@ -5,6 +5,7 @@
 //! A run with a `document_id` imports that stored document again (a retraction of another export, or
 //! a move to another profile), as the zip itself is not kept.
 
+use std::collections::BTreeMap;
 use std::io::{self, BufRead, Read, Seek, Write};
 
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
@@ -43,6 +44,9 @@ const LIMIT: &str = "garmin_zip_limit";
 /// The reason a file past the expanded-size or reading budget is listed with: the files before it
 /// still import.
 pub(crate) const OVER_BUDGET: &str = "limit";
+/// Files listed by name for one reason. A month of watch monitoring files can hold thousands of files
+/// with no readings; past this many, the files of a reason are counted, not listed.
+pub(crate) const LISTED_PER_REASON: usize = 20;
 /// What a member name shows instead of the account's email address.
 const EMAIL: &str = "<email>";
 
@@ -127,6 +131,8 @@ struct Readings {
 pub(crate) struct Report {
     files_imported: usize,
     not_imported: Vec<Omission>,
+    /// The files of each reason left out past LISTED_PER_REASON: counted, not listed.
+    not_imported_more: BTreeMap<&'static str, usize>,
     pub(crate) gps_left_out: bool,
     readings: Vec<Readings>,
     /// Rows of a read file whose time could not be read or placed (Fitbit Takeout).
@@ -136,11 +142,20 @@ pub(crate) struct Report {
 impl Report {
     /// The details of an archive whose files hold rows of readings (Fitbit Takeout).
     pub(crate) fn archive_details(&self) -> Value {
-        json!({
+        let mut details = json!({
             "files_imported": self.files_imported,
             "not_imported": self.not_imported,
             "rows_left_out": self.rows_left_out,
-        })
+        });
+        self.count_unlisted(&mut details);
+        details
+    }
+
+    /// `not_imported_more`, only when a reason passed its list: `{reason: files not listed}`.
+    fn count_unlisted(&self, details: &mut Value) {
+        if !self.not_imported_more.is_empty() {
+            details["not_imported_more"] = json!(self.not_imported_more);
+        }
     }
 
     pub(crate) fn add_member(&mut self, member: String, samples: Vec<Sample>) {
@@ -153,7 +168,12 @@ impl Report {
     }
 
     pub(crate) fn omit(&mut self, member: String, reason: &'static str) {
-        self.not_imported.push(Omission { member, reason });
+        let listed = self.not_imported.iter().filter(|o| o.reason == reason).count();
+        if listed < LISTED_PER_REASON {
+            self.not_imported.push(Omission { member, reason });
+        } else {
+            *self.not_imported_more.entry(reason).or_default() += 1;
+        }
     }
 
     pub(crate) fn add(
@@ -175,11 +195,13 @@ impl Report {
     }
 
     fn details(&self) -> Value {
-        json!({
+        let mut details = json!({
             "files_imported": self.files_imported,
             "gps_left_out": self.gps_left_out,
             "not_imported": self.not_imported,
-        })
+        });
+        self.count_unlisted(&mut details);
+        details
     }
 }
 
@@ -975,6 +997,32 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A month of watch monitoring files holds thousands of FIT files with no readings. Each reason lists
+    /// its first files by name and counts the rest, so the result stays small; other reasons keep their
+    /// own list.
+    #[test]
+    fn repeated_reasons_are_counted_past_their_list() {
+        let mut report = Report::default();
+        for day in 0..3000 {
+            report.omit(
+                format!("UploadedFiles_0-_Part1.zip / monitoring_{day}.fit"),
+                "no_readings",
+            );
+        }
+        report.omit("userSettings.json".into(), "unsupported");
+        for details in [report.details(), report.archive_details()] {
+            let listed = details["not_imported"].as_array().expect("a list");
+            assert_eq!(listed.len(), 20 + 1, "{details}");
+            assert_eq!(listed[0]["member"], "UploadedFiles_0-_Part1.zip / monitoring_0.fit");
+            assert!(listed.iter().any(|o| o["reason"] == "unsupported"));
+            assert_eq!(details["not_imported_more"], json!({"no_readings": 3000 - 20}));
+        }
+        // under the list size nothing is counted apart
+        let mut few = Report::default();
+        few.omit("a.fit".into(), "no_readings");
+        assert_eq!(few.details().get("not_imported_more"), None);
+    }
 
     /// An end record alone whose central directory is one byte over the upload budget.
     fn end_record_over_the_directory_budget() -> Vec<u8> {

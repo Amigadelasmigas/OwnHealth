@@ -478,21 +478,6 @@ struct Pagination {
     next_cursor: Option<String>,
 }
 
-/// Each row of a page that reads as `T`. A row that does not (a value that is not a number, a missing
-/// field) is counted as `unreadable_row` and left out, so it never stops the page, the day or the vendor.
-fn readable<T: DeserializeOwned>(rows: Vec<Value>, out: &mut RunOutcome) -> Vec<T> {
-    out.seen += i32::try_from(rows.len()).unwrap_or(i32::MAX);
-    rows.into_iter()
-        .filter_map(|row| {
-            let parsed = serde_json::from_value(row).ok();
-            if parsed.is_none() {
-                *out.skipped.entry("unreadable_row".into()).or_default() += 1;
-            }
-            parsed
-        })
-        .collect()
-}
-
 /// One vendor's reads for one day.
 struct Pull<'a> {
     base: &'a Url,
@@ -502,6 +487,8 @@ struct Pull<'a> {
     from: DateTime<Utc>,
     to: DateTime<Utc>,
     remaining: usize,
+    /// Rows of this pull's vendor that did not read.
+    unreadable: i32,
 }
 
 impl Pull<'_> {
@@ -512,6 +499,25 @@ impl Pull<'_> {
             JobError::permanent("too_large: Open Wearables answers for one day passed the size limit")
         })?;
         parse(&response.body)
+    }
+
+    /// Each row of a page that reads as `T`. A row that does not (a value that is not a number, a missing
+    /// field) is counted as `unreadable_row` and left out, so it never stops the page, the day or the
+    /// vendor. It counts against this pull's vendor only if it names that vendor at `provider`: a
+    /// sidecar that ignores the provider filter can send another vendor's rows.
+    fn readable<T: DeserializeOwned>(&mut self, rows: Vec<Value>, provider: &str, out: &mut RunOutcome) -> Vec<T> {
+        out.seen += i32::try_from(rows.len()).unwrap_or(i32::MAX);
+        rows.into_iter()
+            .filter_map(|row| {
+                let named = row.pointer(provider).and_then(Value::as_str) == Some(self.provider);
+                let parsed = serde_json::from_value(row).ok();
+                if parsed.is_none() {
+                    *out.skipped.entry("unreadable_row".into()).or_default() += 1;
+                    self.unreadable += i32::from(named);
+                }
+                parsed
+            })
+            .collect()
     }
 
     /// A row is taken only from the vendor this pull asked for. Any other row is counted: a provider
@@ -558,7 +564,8 @@ impl Pull<'_> {
         let mut cursors = HashSet::new();
         for _ in 0..MAX_PAGES {
             let page: Page<Value> = self.read("timeseries", &query).await?;
-            rows.extend(readable::<Sample>(page.data, out).into_iter().filter(|row| {
+            let read = self.readable::<Sample>(page.data, "/source/provider", out);
+            rows.extend(read.into_iter().filter(|row| {
                 let provider = row.source.as_ref().map_or("", |s| s.provider.as_str());
                 if !self.accepts(provider, out) {
                     return false;
@@ -609,7 +616,8 @@ impl Pull<'_> {
                 )
                 .await?;
             let count = page.data.len();
-            rows.extend(readable::<Score>(page.data, out).into_iter().filter(|row| {
+            let read = self.readable::<Score>(page.data, "/provider", out);
+            rows.extend(read.into_iter().filter(|row| {
                 let provider = row.provider.as_deref().unwrap_or("");
                 if !self.accepts(provider, out) {
                     return false;
@@ -672,6 +680,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
         from: now,
         to: now,
         remaining: MAX_BYTES_PER_DAY,
+        unreadable: 0,
     };
     let report = match pull.read::<Vec<Connection>>("connections", &[]).await {
         Ok(report) => report,
@@ -725,7 +734,16 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
     let mut failed = Vec::new();
     // A failed re-read of days a vendor already stored: named, and the vendor goes on after its cursor.
     let mut skipped = Vec::new();
-    'vendors: for &provider in &active {
+    // A vendor that stored a new usable row (a sample or score that was not stored yet): something of it
+    // arrives. A re-read of rows already stored is not news.
+    let mut stored = Vec::new();
+    // A vendor that sent rows that do not read on days past its stored mark, and no new usable row:
+    // nothing of it arrives. Its rows that do not read on days it already stored are read again for the
+    // overlap; that is not news.
+    let mut unreadable = Vec::new();
+    for &provider in &active {
+        let new_before = out.new;
+        let mut unreadable_new = 0;
         let stored_until = mark(cursor.as_ref(), provider).map(|t| t.min(now));
         let mut from = stored_until.map_or(now - Duration::days(BACKFILL_DAYS), |t| {
             t - Duration::days(OVERLAP_DAYS)
@@ -743,8 +761,13 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                 from,
                 to,
                 remaining: MAX_BYTES_PER_DAY,
+                unreadable: 0,
             };
-            let bundle = match pull.bundle(&mut out).await {
+            let read = pull.bundle(&mut out).await;
+            if stored_until.is_none_or(|until| to > until) {
+                unreadable_new += pull.unreadable;
+            }
+            let bundle = match read {
                 Ok(bundle) => bundle,
                 Err(err) => {
                     // Days the vendor already stored: go on after them. The next poll's window starts
@@ -755,10 +778,35 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                         continue;
                     }
                     failed.push((provider, err));
-                    continue 'vendors;
+                    break;
                 }
             };
-            let Some(next) = store_day(ctx, source, &binding, cursor.as_ref(), provider, to, bundle, &mut out).await?
+            // Rows that do not read on days past the mark and no new usable row of the vendor yet: if this
+            // day stores none either, its clock starts in the commit that moves the mark past these rows.
+            // A vendor the cursor holds no health of yet gets it from this poll's report, as the end of
+            // the poll would write it.
+            let unreadable_start = connections
+                .get(provider)
+                .filter(|_| unreadable_new > 0 && out.new == new_before)
+                .map(|report| ConnectionHealth {
+                    seen_since: report.last_synced_at.is_none().then_some(now),
+                    failing_since: None,
+                    unreadable_since: Some(now),
+                    observed_at: Some(now),
+                    ..*report
+                });
+            let Some(next) = store_day(
+                ctx,
+                source,
+                &binding,
+                cursor.as_ref(),
+                provider,
+                to,
+                bundle,
+                unreadable_start,
+                &mut out,
+            )
+            .await?
             else {
                 // The binding changed while the day was read (rotated, deleted, switched off). This run
                 // read with the old one, so it must not count as a sync of the new one.
@@ -766,6 +814,12 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
             };
             cursor = Some(next);
             from = to;
+        }
+        // Judged for a vendor that then failed too, so a failure does not hide it.
+        if out.new > new_before {
+            stored.push(provider);
+        } else if unreadable_new > 0 {
+            unreadable.push(provider);
         }
     }
     // The connection report is useful even if every data endpoint failed. Save it under the
@@ -783,6 +837,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
             let mut health = ConnectionHealth {
                 seen_since: None,
                 failing_since: None,
+                unreadable_since: None,
                 observed_at: Some(now),
                 ..*report
             };
@@ -804,8 +859,22 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                         health.failing_since =
                             Some(known.and_then(|p| p.failing_since).filter(|_| !moved).unwrap_or(now));
                     }
+                    // Its cursor moves over days whose rows do not read, and its old rows leave the
+                    // re-read window: this clock goes on through polls that bring nothing new of it,
+                    // until one stores a new usable row of it.
+                    let kept = known.and_then(|p| p.unreadable_since);
+                    health.unreadable_since = if unreadable.contains(&vendor.as_str()) {
+                        Some(kept.unwrap_or(now))
+                    } else if stored.contains(&vendor.as_str()) {
+                        None
+                    } else {
+                        kept
+                    };
                 }
-                Status::Expired | Status::Revoked => health.failing_since = known.and_then(|p| p.failing_since),
+                Status::Expired | Status::Revoked => {
+                    health.failing_since = known.and_then(|p| p.failing_since);
+                    health.unreadable_since = known.and_then(|p| p.unreadable_since);
+                }
             }
             (vendor.clone(), health)
         })
@@ -913,7 +982,9 @@ async fn lock_live_binding(
 }
 
 /// Store one vendor's day and move its cursor to `to`, in one transaction. None when the binding
-/// changed since the poll read it: nothing is written then.
+/// changed since the poll read it: nothing is written then. `unreadable_start` starts the vendor's clock
+/// for rows that do not read, if it is not running, when the day stores no new usable row; it is the
+/// vendor's whole health when the cursor holds none yet.
 #[allow(clippy::too_many_arguments)]
 async fn store_day(
     ctx: &JobContext,
@@ -923,6 +994,7 @@ async fn store_day(
     provider: &str,
     to: DateTime<Utc>,
     bundle: Bundle,
+    unreadable_start: Option<ConnectionHealth>,
     out: &mut RunOutcome,
 ) -> Result<Option<Value>> {
     let mut tx = ctx.pool.begin().await?;
@@ -930,10 +1002,35 @@ async fn store_day(
         return Ok(None);
     }
     archive_new_rows(ctx, &mut tx, source, binding.profile, &bundle).await?;
+    let new_before = out.new;
     write(&mut tx, source, binding.profile, bundle, out).await?;
     let mut next = cursor.cloned().unwrap_or_else(|| json!({}));
     if mark(cursor, provider).is_none_or(|t| t < to) {
         next["providers"][provider] = json!(to);
+    }
+    // A new usable row ends the vendor's clock for rows that do not read, and a day past the mark with
+    // only such rows starts it, in the commit that moves the mark: if a later day of this poll fails,
+    // the next poll reads these rows again as known.
+    let unreadable_start = unreadable_start.filter(|_| out.new == new_before);
+    if let Some(health) = next
+        .get_mut(gaps::CURSOR_KEY)
+        .and_then(|c| c.get_mut(provider))
+        .and_then(Value::as_object_mut)
+    {
+        if out.new > new_before {
+            health.shift_remove("unreadable_since");
+        } else if let Some(start) = unreadable_start
+            && health.get("unreadable_since").is_none_or(Value::is_null)
+        {
+            health.insert("unreadable_since".into(), json!(start.unreadable_since));
+        }
+    } else if let Some(start) = unreadable_start
+        && let Some(observed) = next
+            .as_object_mut()
+            .map(|c| c.entry(gaps::CURSOR_KEY).or_insert_with(|| json!({})))
+            .and_then(Value::as_object_mut)
+    {
+        observed.insert(provider.into(), json!(start));
     }
     sqlx::query("update source set cursor = $2 where id = $1")
         .bind(source)

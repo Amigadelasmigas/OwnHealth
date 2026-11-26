@@ -101,6 +101,12 @@ pub(crate) struct ConnectionHealth {
     /// re-read of days already stored does not count. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_since: Option<DateTime<Utc>>,
+    /// The first poll that got rows of this vendor that do not read, on days past its stored mark, and
+    /// no new usable row of it. It goes on through polls that bring nothing new of the vendor, and ends
+    /// with the first stored day that holds a new usable row of it; a row read again for the overlap,
+    /// readable or not, is not new. OwnHealth sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreadable_since: Option<DateTime<Utc>>,
     /// The last poll whose report included this connection. When no newer report says anything about
     /// it, its gap is judged as of this poll, not as of a later one. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,10 +118,14 @@ impl ConnectionHealth {
         match self.status {
             Status::Expired | Status::Revoked => true,
             // Open Wearables may report a recent sync while OwnHealth cannot read that vendor's data.
-            Status::Active => [self.last_synced_at.or(self.seen_since), self.failing_since]
-                .into_iter()
-                .flatten()
-                .any(|since| now - since > provider.window),
+            Status::Active => [
+                self.last_synced_at.or(self.seen_since),
+                self.failing_since,
+                self.unreadable_since,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|since| now - since > provider.window),
             Status::Unknown => false,
         }
     }
@@ -190,7 +200,7 @@ pub(crate) fn register() {
         return;
     }
     sources::register_gap_check(super::KIND, openwearables_gap);
-    sources::register_gap_check("dexcom", dexcom_gap);
+    sources::register_gap_check_with("dexcom", dexcom_gap, sources::ItemFailures::Count);
 }
 
 #[cfg(test)]
@@ -231,6 +241,20 @@ mod tests {
     #[test]
     fn a_window_too_long_to_measure_is_refused() {
         for hours in [i64::MAX, i64::MAX / 3_600_000 + 1] {
+            let mut policy: Value = serde_json::from_str(SHIPPED).expect("the shipped policy is JSON");
+            policy["providers"]["polar"]["stale_hours"] = json!(hours);
+            let err = parse(&policy.to_string()).err().unwrap_or_default();
+            assert!(
+                err.starts_with(FILE) && err.contains("polar has no freshness window"),
+                "{hours}: {err}"
+            );
+        }
+    }
+
+    /// A window of zero or fewer hours would raise every vendor's alert at once; the policy is refused.
+    #[test]
+    fn a_window_of_zero_or_fewer_hours_is_refused() {
+        for hours in [0, -1] {
             let mut policy: Value = serde_json::from_str(SHIPPED).expect("the shipped policy is JSON");
             policy["providers"]["polar"]["stale_hours"] = json!(hours);
             let err = parse(&policy.to_string()).err().unwrap_or_default();

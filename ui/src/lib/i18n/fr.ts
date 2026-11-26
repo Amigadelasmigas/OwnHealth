@@ -1333,6 +1333,8 @@ export const fr: Table = {
 	i2_garmin_omitted_one: "{n} élément écarté",
 	i2_garmin_gps: "Les tracés GPS ont été écartés.",
 	i2_garmin_more: "Afficher plus de fichiers",
+	i2_garmin_unlisted: "{n} autres fichiers, non listés",
+	i2_garmin_unlisted_one: "{n} autre fichier, non listé",
 	i2_garmin_readings: "{n} mesures ajoutées",
 	i2_garmin_readings_one: "{n} mesure ajoutée",
 	i2_garmin_nothing_new: "Rien de nouveau : les {n} mesures étaient déjà là",

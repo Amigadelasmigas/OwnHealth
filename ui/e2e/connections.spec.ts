@@ -128,9 +128,19 @@ test('a person connects a record, sees a short grant, reconnects after the vendo
 	// disconnect: the vendor revokes, the tokens go, the card says so
 	await page.goto('/connections?lang=en');
 	await expect(card.locator('.pill')).toHaveText('OK');
+	// a new sync-gap alert closes with the connection, and the top bar's review total follows at once
+	sql(
+		`insert into review_item (household_id, profile_id, kind, ref_table, ref_id, payload) select household_id, id, 'source_gap', 'source', '${source}', '{"message":{"en":"Sync has stopped for LabNorte.","es":"Se ha interrumpido la sincronización de LabNorte."}}' from profile where id = '${profile}'`
+	);
+	await page.reload();
+	const total = page.locator('a.iconbtn[href="/import-review"] b.num');
+	await expect(card).toContainText('1 sync gap alert is open.');
+	const open = Number(await total.textContent());
+	expect(open).toBeGreaterThan(0);
 	await card.getByRole('button', { name: 'Disconnect' }).click();
 	await card.getByRole('group').getByRole('button', { name: 'Disconnect' }).click();
 	await expect(card).toContainText('Hospital LabNorte is disconnected, and the vendor revoked the access.');
+	await expect(total).toHaveText(String(open - 1));
 	await expect(card).toHaveAttribute('data-state', 'off');
 	await expect(card.locator('b[id^="con-"]')).toBeFocused(); // the button that had focus is gone
 	await expect(card.getByRole('button', { name: 'Disconnect' })).toHaveCount(0);

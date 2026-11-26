@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ApiError } from '#lib/api/core';
+	import { getMe } from '#lib/api';
 	import { disconnectConnector, hideConnection, listSourceHealth, reconnectConnector, type DisconnectOut } from '#lib/api/connections';
 	import ConfirmRow from '#lib/components/ConfirmRow.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
@@ -30,6 +31,7 @@
 		refreshUntilFirstPull,
 		renewsItself,
 		endedVendors,
+		latestReviewTotal,
 		mayManageConnections,
 		runWords,
 		shownConnections,
@@ -154,6 +156,10 @@
 			busy = null;
 		}
 		await load();
+		// a disconnect closes the connection's open sync alert: the top bar's review total follows
+		void latestReviewTotal(getMe, (n) => {
+			if (app.me) app.me.review_open = n;
+		});
 		// the Disconnect button is gone: keyboard focus goes to the card's name, or to the message above
 		// the list when the card is gone too
 		await tick();

@@ -120,7 +120,9 @@ pub async fn dashboard(rt: &Runtime, principal: &Principal, p: &str, q: &StatusP
         .await?;
     let lang = q.lang.as_deref().unwrap_or(&principal.lang);
     let as_of = q.as_of.unwrap_or_else(today_utc);
-    let out = ownhealth_rules::dashboard(&mut tx, perm.profile.id, as_of, lang, perm.read_scopes()).await?;
+    let mut out = ownhealth_rules::dashboard(&mut tx, perm.profile.id, as_of, lang, perm.read_scopes()).await?;
+    // what the review list shows this reader on the profile, never the items it may not see
+    out["review_open"] = json!(super::review::count_shown_on_profile(&mut tx, &perm).await?);
     audit(
         &mut tx,
         principal,

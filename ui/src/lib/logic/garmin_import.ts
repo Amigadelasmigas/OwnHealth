@@ -8,6 +8,9 @@ export type ActivityExportSummary = {
 	files_without_row?: number;
 	rows_left_out?: number;
 	not_imported: { member: string; reason: string }[];
+	/** Files left out past the list of their reason, counted rather than named (a month of watch
+	 * monitoring files with no readings). */
+	not_imported_more?: { reason: string; n: number }[];
 };
 
 /** The archive details of a job result or a document's flags. */
@@ -15,14 +18,29 @@ export function exportSummary(value: unknown): ActivityExportSummary | null {
 	const details = value as { garmin?: unknown; strava?: unknown; fitbit_takeout?: unknown } | null | undefined;
 	const summary = (details?.strava ?? details?.fitbit_takeout ?? details?.garmin) as Partial<ActivityExportSummary> | undefined;
 	if (typeof summary?.files_imported !== 'number' || !Array.isArray(summary.not_imported)) return null;
+	const more = unlisted(summary.not_imported_more);
 	return {
 		files_imported: summary.files_imported,
 		gps_left_out: summary.gps_left_out === true,
 		not_imported: summary.not_imported,
 		...(typeof summary.rows_without_file === 'number' && { rows_without_file: summary.rows_without_file }),
 		...(typeof summary.files_without_row === 'number' && { files_without_row: summary.files_without_row }),
-		...(rowsLeftOut(summary) > 0 && { rows_left_out: rowsLeftOut(summary) })
+		...(rowsLeftOut(summary) > 0 && { rows_left_out: rowsLeftOut(summary) }),
+		...(more.length > 0 && { not_imported_more: more })
 	};
+}
+
+/** The counted files of the server's `not_imported_more` (`{reason: files}`), by reason. */
+function unlisted(value: unknown): { reason: string; n: number }[] {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+	return Object.entries(value as Record<string, unknown>).flatMap(([reason, n]) =>
+		typeof n === 'number' && Number.isInteger(n) && n > 0 ? [{ reason, n }] : []
+	);
+}
+
+/** Every file left out: the ones listed by name and the ones counted. */
+export function omittedCount(summary: ActivityExportSummary): number {
+	return summary.not_imported.length + (summary.not_imported_more ?? []).reduce((sum, more) => sum + more.n, 0);
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);

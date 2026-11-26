@@ -7,6 +7,7 @@ mod lane_i;
 use http::StatusCode;
 use lane_i::{App, R, app, item, lab_document};
 use ownhealth_core::documents::{NewDocument, create_document};
+use ownhealth_core::review::{ReviewItemIn, create_item};
 use ownhealth_core::sources::{NewSource, create_source};
 use ownhealth_ingest_structured::fhir::import_pull;
 use serde_json::{Value, json};
@@ -576,5 +577,110 @@ async fn test_a_sync_gap_alert_shows_only_to_who_manages_the_connection() -> R {
     assert!(listed(&v, lucia), "{v}");
     let (s, v) = a.post("alex", &format!("/review/{lucia}/dismiss"), None).await?;
     assert_eq!(s, StatusCode::OK, "{v}");
+    Ok(())
+}
+
+/// The dashboard's `review_open` counts only what the review list shows the reader. Alex is Carmen's
+/// caregiver without read:records: a sync-gap alert (only who manages the profile sees it), a held
+/// imaging study and a proposed relative (both read:records) are not counted, a lab row is. Alex's
+/// own profile still counts all three, since Alex manages it with every scope; Sam, who only views
+/// it, is shown none. A household item counts as the list for the profile shows it.
+#[tokio::test]
+async fn test_the_dashboard_counts_only_the_review_items_the_reader_sees() -> R {
+    let a = app().await?;
+    alex_on_carmen(&a, &["read:summary", "read:labs"]).await?;
+    let read = |reader: &'static str, who: &'static str| {
+        let a = &a;
+        async move {
+            let (s, v) = a
+                .get(reader, &format!("/profiles/{who}/dashboard?as_of=2026-11-07&lang=en"))
+                .await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            anyhow::Ok(v["review_open"].clone())
+        }
+    };
+    let dashboard = |who: &'static str| read("alex", who);
+    let message = json!({"message": {"en": "Sync has stopped for Dexcom.", "es": "Se ha interrumpido la sincronización de Dexcom."}});
+    let study = json!({"patient_name": "ORTEGA^CARMEN", "study_description": "CT HEAD"});
+    let relative = json!({"name": "Rosa Ortega", "relationship": "mother"});
+    for (kind, payload) in [
+        ("source_gap", message),
+        (ownhealth_imaging::import::REVIEW_KIND, study),
+        (ownhealth_core::gedcom::KIND, relative),
+    ] {
+        item(&a, "carmen", kind, Some(payload.clone()), json!({})).await?;
+        assert_eq!(
+            dashboard("carmen").await?,
+            json!(0),
+            "{kind} counted for a reader who cannot see it"
+        );
+        item(&a, "alex", kind, Some(payload), json!({})).await?;
+    }
+    assert_eq!(dashboard("alex").await?, json!(3), "the owner sees every kind");
+    // sam only views Alex's profile and reviews nothing there, not even an item her scopes would show
+    let note = json!({"kind": "note", "text": "Ask about the LDL trend"});
+    item(&a, "alex", "agent_proposal", Some(note), json!({})).await?;
+    assert_eq!(read("sam", "alex").await?, json!(0));
+    assert_eq!(dashboard("alex").await?, json!(4));
+    // a household item counts where the review list for the profile shows it: for who reviews there
+    household_item(&a).await?;
+    assert_eq!(read("sam", "alex").await?, json!(0));
+    let (s, listed) = a.get("alex", "/review?profile=alex").await?;
+    assert_eq!(s, StatusCode::OK, "{listed}");
+    assert_eq!(listed["open"], json!(5));
+    assert_eq!(
+        dashboard("alex").await?,
+        listed["open"],
+        "the dashboard and the list disagree"
+    );
+    // positive control: a lab row Alex may read on Carmen counts
+    item(&a, "carmen", "candidate_row", None, json!({})).await?;
+    assert_eq!(dashboard("carmen").await?, json!(2));
+    Ok(())
+}
+
+/// An open item of the household itself, as a failed job with no profile files it.
+async fn household_item(a: &App) -> anyhow::Result<Uuid> {
+    let mut c = a.conn().await?;
+    Ok(create_item(
+        &mut c,
+        &ReviewItemIn {
+            kind: "job_failed".into(),
+            household_id: Some(a.family.household_id),
+            profile_id: None,
+            payload: json!({"kind": "extract", "error": "The file did not read."}),
+            reasons: vec!["x".into()],
+            ..Default::default()
+        },
+    )
+    .await?)
+}
+
+/// A household item shows only to who can review on some profile. Sam, left with her viewer grant on
+/// Alex's profile alone, is not shown it, cannot open or dismiss it, and does not count it.
+#[tokio::test]
+async fn test_a_household_item_shows_only_to_who_reviews_somewhere() -> R {
+    let a = app().await?;
+    let id = household_item(&a).await?;
+    sqlx::query("delete from profile_grant where user_id = $1 and profile_id <> $2")
+        .bind(a.family.user("sam"))
+        .bind(a.family.profile("alex"))
+        .execute(&a.rt.pool)
+        .await?;
+    let (s, listed) = a.get("sam", "/review").await?;
+    assert_eq!(s, StatusCode::OK, "{listed}");
+    assert!(!listed.to_string().contains(&id.to_string()), "{listed}");
+    assert_eq!(listed["open"], json!(0));
+    let (s, me) = a.get("sam", "/me").await?;
+    assert_eq!(s, StatusCode::OK, "{me}");
+    assert_eq!(me["review_open"], json!(0));
+    assert_eq!(a.get("sam", &format!("/review/{id}")).await?.0, StatusCode::NOT_FOUND);
+    let (s, v) = a.post("sam", &format!("/review/{id}/dismiss"), None).await?;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{v}");
+    assert_eq!(status_of(&a, id).await?, "open");
+    // positive control: Alex reviews on his profiles and is shown it
+    let (_, listed) = a.get("alex", "/review").await?;
+    assert!(listed.to_string().contains(&id.to_string()), "{listed}");
+    assert_eq!(a.get("alex", &format!("/review/{id}")).await?.0, StatusCode::OK);
     Ok(())
 }
