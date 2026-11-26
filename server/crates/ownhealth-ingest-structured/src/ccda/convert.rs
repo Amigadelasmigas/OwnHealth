@@ -536,13 +536,14 @@ fn coded(system: &str, code: &str) -> Value {
 }
 
 /// Sentence punctuation, quotes and brackets: at either end of a word they do not change the text.
-const EDGE_PUNCTUATION: [char; 23] = [
-    '.', ',', ';', ':', '!', '?', '¡', '¿', '…', '"', '\'', '«', '»', '“', '”', '‘', '’', '(', ')', '[', ']', '{', '}',
+/// Question and exclamation marks are not among them: "?Pneumonia" is shorthand for a suspected one.
+const EDGE_PUNCTUATION: [char; 19] = [
+    '.', ',', ';', ':', '…', '"', '\'', '«', '»', '“', '”', '‘', '’', '(', ')', '[', ']', '{', '}',
 ];
 
 /// Text as compared: lower case, one space between words, and the [`EDGE_PUNCTUATION`] at either end of
 /// a word dropped, so "Nonreactive." and "nonreactive" are one text. Punctuation inside a word ("1.5",
-/// "HIV-1") and signs that carry meaning ("<", "-", "+", "%") stay.
+/// "HIV-1") and signs that carry meaning ("<", "-", "+", "%", "?", "!") stay.
 fn normalized_text(text: &str) -> String {
     let mut normalized = String::new();
     for word in text

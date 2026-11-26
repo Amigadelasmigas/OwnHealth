@@ -4247,3 +4247,37 @@ fn pre1_an_activity_observation_with_a_reversed_period_keeps_only_its_start() ->
     }
     Ok(())
 }
+
+/// PRE-1.0 (C-M1): a question mark beside a coded name is clinical shorthand for "suspected", so an
+/// original text that differs from the display only by it is another text and waits in review. A
+/// full stop is still no other text.
+#[test]
+fn pre1_a_question_mark_beside_a_coded_problem_goes_to_review() -> R {
+    for (original, unread) in [
+        ("?Pneumonia", true),
+        ("Pneumonia?", true),
+        ("? Pneumonia", true),
+        ("¿Pneumonia?", true),
+        ("Pneumonia!", true),
+        ("Pneumonia.", false),
+        ("Pneumonia", false),
+    ] {
+        let c = convert(&document(&format!(
+            r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+               <entry><observation classCode="OBS" moodCode="EVN">
+                 <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+                 <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+                 <effectiveTime><low value="20210301"/></effectiveTime>
+                 <value xsi:type="CD" code="233604007" codeSystem="2.16.840.1.113883.6.96" displayName="Pneumonia"><originalText>{original}</originalText></value>
+               </observation></entry></section></component>"#
+        )))?;
+        assert_eq!(resources(&c, "Condition").len(), 1, "{original}");
+        let expected: Vec<String> = if unread {
+            vec!["value (original text kept in the uploaded file)".into()]
+        } else {
+            vec![]
+        };
+        assert_eq!(c.sections[0].not_read, expected, "{original}");
+    }
+    Ok(())
+}
