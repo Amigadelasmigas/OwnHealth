@@ -69,7 +69,9 @@ fn security_tag(code: &str) -> Option<&'static str> {
     })
 }
 
-fn category_of(code: &str) -> Option<&'static str> {
+/// Our observation category for a FHIR category code (`social-history` is a survey, `imaging` and
+/// `procedure` are exams); None for a code we do not read. An Observation with none is a lab value.
+pub fn category_of(code: &str) -> Option<&'static str> {
     Some(match code {
         "laboratory" => "laboratory",
         "vital-signs" => "vital-signs",

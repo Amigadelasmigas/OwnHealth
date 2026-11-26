@@ -1052,3 +1052,54 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn test_a_held_fhir_observation_takes_the_scope_of_its_imported_category() -> R {
+    let a = app().await?;
+    let doc = carmen_document(&a, "observaciones.json", json!({})).await?;
+    let held = |code: Option<&str>| {
+        let mut resource = json!({"resourceType": "Observation", "status": "cancelled", "code": {"text": "Peso"}});
+        if let Some(code) = code {
+            resource["category"] = json!([{"coding": [{"code": code}]}]);
+        }
+        json!({"projection": null, "note": "not-done", "resource_type": "Observation",
+               "json_pointer": "/entry/0/resource", "src": {"import_ref": "obs#1"}, "resource": resource})
+    };
+    let mut ids = Vec::new();
+    for code in [Some("social-history"), Some("imaging"), Some("procedure"), None] {
+        let id = item(&a, "carmen", "fhir_unmapped", Some(held(code)), json!({})).await?;
+        sqlx::query("update review_item set document_id = $1 where id = $2")
+            .bind(doc)
+            .bind(id)
+            .execute(&a.rt.pool)
+            .await?;
+        ids.push(id);
+    }
+    let shown = |grant: &'static [&'static str]| {
+        let a = &a;
+        let ids = ids.clone();
+        async move {
+            alex_on_carmen(a, grant).await?;
+            let mut listed = Vec::new();
+            for id in ids {
+                let one = a.get("alex", &format!("/review/{id}")).await?.0;
+                if one == StatusCode::OK {
+                    listed.push(id);
+                }
+            }
+            anyhow::Ok(listed)
+        }
+    };
+    assert_eq!(shown(&["read:summary", "read:labs"]).await?, [ids[3]], "labs only");
+    assert_eq!(
+        shown(&["read:summary", "read:vitals"]).await?,
+        ids[..3],
+        "vitals only"
+    );
+    Ok(())
+}
+
+/// L-JOBFAILDOC: a failed job of the household itself can name a document of a profile the reviewing
+/// reader cannot read. Sam reviews on her own profile, so she sees the household's item, but not the
+/// document of Carmen's it names, nor the error its import wrote. Alex, who reads Carmen's documents,
+/// gets both.

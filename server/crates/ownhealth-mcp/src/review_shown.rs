@@ -87,9 +87,11 @@ pub fn visible(item: &ReviewItem, perm: &Permission) -> bool {
 }
 
 /// A held FHIR resource (`fhir_unmapped` from a file: the item holds the `resource` as received) shows
-/// on the terms of the fact it would be: an Observation with the scope of each of its categories (as
-/// [`obs_scope`] maps them; read:labs without one), any other type with read:records, and with
-/// read:sensitive too when a security label or a social-history code makes it sensitive.
+/// on the terms of the fact it would be: an Observation with the scope of each of its categories, read
+/// as the importer reads them (`mapping::category_of`: `social-history` is a survey, `imaging` and
+/// `procedure` are exams) and mapped by [`obs_scope`], read:labs when none is one we read; any other
+/// type with read:records; and with read:sensitive too when a security label or a social-history code
+/// makes it sensitive.
 fn resource_shows(resource: &Value, perm: &Permission) -> bool {
     let mut scopes: Vec<&str> = Vec::new();
     if resource.get("resourceType").and_then(Value::as_str) == Some("Observation") {
@@ -102,7 +104,8 @@ fn resource_shows(resource: &Value, perm: &Permission) -> bool {
                 .filter_map(|c| c.get("coding").and_then(Value::as_array))
                 .flatten()
                 .filter_map(|c| c.get("code").and_then(Value::as_str))
-                .map(|code| obs_scope(Some(code))),
+                .filter_map(ownhealth_ingest_structured::fhir::mapping::category_of)
+                .map(|category| obs_scope(Some(category))),
         );
         if scopes.is_empty() {
             scopes.push(obs_scope(None));
