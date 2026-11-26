@@ -208,7 +208,8 @@ does the rest in your pull request.
 
 [.github/workflows/cite-links.yml](https://github.com/GeiserX/OwnHealth/blob/main/.github/workflows/cite-links.yml) runs
 [scripts/cite-links.sh](https://github.com/GeiserX/OwnHealth/blob/main/scripts/cite-links.sh) every Monday and on demand. It fetches every
-`https://` link in the YAML, JSON and TSV files under `data/`. A link is dead when its host does not
+`https://` link in the YAML, JSON, TSV and Markdown files under `data/`, and in the vendor terms pages
+under `docs/connectors/`. A link is dead when its host does not
 resolve or refuses the connection, or when it answers 404 or 410. Then the run goes red and one issue, "Dead links in the cited data
 files", lists each dead link and the files that cite it. The issue updates each week and closes when
 no link is dead. A site that refuses scripts (401, 403, 429, a 5xx or a timeout) is listed apart in

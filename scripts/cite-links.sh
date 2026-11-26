@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Check every https link that the cited data files name (the YAML, JSON and TSV files under data/:
-# `cite` fields, `citation` columns, source notes). Fetch each link once and print a Markdown report.
-# Exit 0 when every link answers, 1 when one is dead, and 2 when the check could not run (no links
-# found, no curl).
+# `cite` fields, `citation` columns, source notes) and every link of the connector pages under
+# docs/connectors/ (the vendors' terms each page quotes). Fetch each link once and print a Markdown
+# report. Exit 0 when every link answers, 1 when one is dead, and 2 when the check could not run (no
+# links found, no curl).
 #
-#   bash scripts/cite-links.sh            # the repo's data/
-#   bash scripts/cite-links.sh <dir>      # another tree, for example a copy with a broken link
+#   bash scripts/cite-links.sh                 # the repo's data/ and docs/connectors/
+#   bash scripts/cite-links.sh <dir>...        # other trees, for example a copy with a broken link
+#   bash scripts/cite-links.sh --list [dir]... # print the links a run would fetch, fetch nothing
 #
 # A link is dead when its host does not resolve or refuses the connection or the TLS handshake, or
 # when it answers 404 or 410. A link that answers 401, 403, 429 or a 5xx, or does not answer within
@@ -18,18 +20,30 @@
 # and snomedbrowser.org, where every snomed.info concept link ends, did it for all of them.
 set -uo pipefail
 
-dir=${1:-$(cd "$(dirname "$0")/.." && pwd)/data}
-[ -d "$dir" ] || { echo "cite-links: no directory $dir" >&2; exit 2; }
-command -v curl >/dev/null || { echo "cite-links: curl is not installed" >&2; exit 2; }
+root=$(cd "$(dirname "$0")/.." && pwd)
+only_list=0
+if [ "${1:-}" = --list ]; then only_list=1; shift; fi
+if [ "$#" -gt 0 ]; then dirs=("$@"); else dirs=("$root/data" "$root/docs/connectors"); fi
+for d in "${dirs[@]}"; do
+  [ -d "$d" ] || { echo "cite-links: no directory $d" >&2; exit 2; }
+done
 fake404='www.fda.gov snomedbrowser.org'
 ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+# The files a link can sit in: data files, and the Markdown of the connector pages.
+types=(--include='*.yaml' --include='*.yml' --include='*.json' --include='*.tsv' --include='*.md')
 
-files() { grep -rlF --include='*.yaml' --include='*.yml' --include='*.json' --include='*.tsv' -- "$1" "$dir"; }
+# A file's name in the report: its path from the repository root when it is inside it.
+name() { case "$1" in "$root"/*) printf '%s\n' "${1#"$root"/}" ;; *) printf '%s\n' "$1" ;; esac; }
+files() { grep -rlF "${types[@]}" -- "$1" "${dirs[@]}" | while IFS= read -r f; do name "$f"; done; }
 
-urls=$(grep -rhoE --include='*.yaml' --include='*.yml' --include='*.json' --include='*.tsv' \
-  "https://[^\"'[:space:],}<>|]+" "$dir" | sed -E 's/[.)]+$//' | sort -u)
+# A link ends at white space, a quote, a backtick or one of , } < > |, and loses a trailing . or )
+# (the end of a sentence, or a Markdown link's closing parenthesis).
+urls=$(grep -rhoE "${types[@]}" "https://[^\"'\`[:space:],}<>|]+" "${dirs[@]}" | sed -E 's/[.)]+$//' | sort -u)
 total=$(printf '%s\n' "$urls" | grep -c '^https://')
-[ "$total" -gt 0 ] || { echo "cite-links: no https links found under $dir" >&2; exit 2; }
+where=$(for d in "${dirs[@]}"; do name "$d"; done | sed 's|$|/|' | paste -sd, - | sed 's/,/, /g')
+[ "$total" -gt 0 ] || { echo "cite-links: no https links found under $where" >&2; exit 2; }
+if [ "$only_list" -eq 1 ]; then printf '%s\n' "$urls"; exit 0; fi
+command -v curl >/dev/null || { echo "cite-links: curl is not installed" >&2; exit 2; }
 
 dead='' unchecked=''
 while IFS= read -r url; do
@@ -53,14 +67,14 @@ while IFS= read -r url; do
       *) list=unchecked ;;
     esac
   fi
-  where=$(files "$url" | sed "s|^$dir/|data/|" | sort | paste -sd, - | sed 's/,/, /g')
-  line="| $url | $code | $where |"
+  used=$(files "$url" | sort | paste -sd, - | sed 's/,/, /g')
+  line="| $url | $code | $used |"
   if [ "$list" = dead ]; then dead+="$line"$'\n'; else unchecked+="$line"$'\n'; fi
 done <<<"$urls"
 
 n_dead=$(printf '%s' "$dead" | grep -c '^|')
 n_unchecked=$(printf '%s' "$unchecked" | grep -c '^|')
-echo "Checked $total links under data/: $n_dead dead, $n_unchecked could not be checked by a script."
+echo "Checked $total links under $where: $n_dead dead, $n_unchecked could not be checked by a script."
 if [ "$n_dead" -gt 0 ]; then
   printf '\n## Dead\n\n| Link | Answer | Used in |\n|---|---|---|\n%s' "$dead"
 fi

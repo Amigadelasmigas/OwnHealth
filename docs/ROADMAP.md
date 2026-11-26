@@ -320,7 +320,7 @@ Ships in 0.4.0. Measured exit criteria, and the test behind each deliverable: [v
 
 **MCP**
 - [ ] Agent session report, moved from v0.3: it needs a consent switch for logged sessions (rule 2 of "How we decide"), and `audit_event` does not yet record `not_assessed` counts or argument width.
-- [ ] Sidecar (Oura, Whoop, Polar, Withings) and native Dexcom metrics in `search_observations` and `get_trend`, each once its terms allow it (Wearables above), with a min/max envelope for long windows.
+- [ ] Sidecar (Oura, Whoop, Polar, Withings) and native Dexcom metrics in `search_observations` and `get_trend`, each once its terms allow it (Wearables above), with a min/max envelope for long windows. Polar is served; Oura, WHOOP, Withings and Dexcom stay withheld, each for the clause its page in [docs/connectors](connectors/README.md) names.
 
 **Ops/Distribution**
 - [ ] Upgrade path tested from every 0.x release to 1.0 with no data loss.
@@ -535,7 +535,7 @@ What does not move the roadmap: a feature a rival has, a request with no sample,
 | US SMART client strategy | bring-your-own client wizard vs also a shared project public client with a static relay page | We ship bring-your-own in v1.0. A shared client puts our name on the consent screen and needs a relay we run, so it stays open ([connectors.md section 7](design/connectors.md#7-us-smart-on-fhir-registration-strategy)). |
 | SHL ciphertext host | the instance itself vs a static or S3 host vs a reference share-host component we publish | Decided for 1.0: the instance serves its own links through a link-only public site block, because only a live server can count passcode attempts and keep the access log. A reference component stays open. |
 | Unofficial wearable libraries (python-garminconnect, pydexcom Share, Eight Sleep) | never vs community plugins with ToS warnings | Not in the core plan; fragile and ToS-risky. |
-| Oura and Withings terms | ship in v1.0 vs hold | We ship the connectors in v1.0 and show their data in the UI and over REST. Each vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban. Oura's 2026 agreement reportedly restricts AI processing (unverified); a Withings+ requirement for new accounts is reported (unverified). |
+| Oura and Withings terms | ship in v1.0 vs hold | We ship the connectors in v1.0 and show their data in the UI and over REST. Each vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban. Decided from the quoted terms: Oura's API agreement 4(d) bans its data as input to any AI model, so Oura stays withheld. Withings is withheld too: its terms (6.4) cover only the member who registered the household app, and other members' accounts fall under partner terms shown only at registration. Its terms (6.4.1) also ask for a Withings+ subscription to share data with third-party services, with some exceptions ([docs/connectors](connectors/README.md)). |
 | Emergency card timing | v1.0 vs earlier | We keep the ICE card in v1.0, next to SHL sharing. |
 | Notifications timing and library | v2 vs v0.3 with reminders; Apprise vs per-channel code | Reminders exist from v0.3 but deliver via ICS until v2. |
 | LOINC distribution | curated subset in repo vs install-time download | Depends on the Regenstrief notice terms for a public repo. |
