@@ -142,6 +142,7 @@
 		}
 	}
 
+	let meReads = 0;
 	async function disconnect(r: ConnectionRow) {
 		busy = r.id;
 		card = null;
@@ -155,10 +156,12 @@
 			busy = null;
 		}
 		await load();
-		// a disconnect closes the connection's open sync alert: the top bar's review total follows
+		// a disconnect closes the connection's open sync alert: the top bar's review total follows, from
+		// the latest read only when two disconnects overlap
+		const read = ++meReads;
 		getMe()
 			.then((m) => {
-				if (app.me) app.me.review_open = m.review_open;
+				if (read === meReads && app.me) app.me.review_open = m.review_open;
 			})
 			.catch(() => undefined);
 		// the Disconnect button is gone: keyboard focus goes to the card's name, or to the message above
