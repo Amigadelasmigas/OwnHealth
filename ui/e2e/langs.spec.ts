@@ -87,7 +87,8 @@ test('the gap letter offers every registry language by its code', async ({ page 
 });
 
 // Longer words must not push text out of its card: the glance card header, the biomarker list, the
-// buttons of a due item and the header picker, in every language, on a desktop and on a phone.
+// buttons of a due item and the header picker, in every language, on a desktop and on a phone. On the
+// phone the picker also keeps the beta tag visible, since a touch screen shows no tooltip.
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 
@@ -135,6 +136,21 @@ for (const l of LANGS) {
 		});
 		if (new Set(head.heights).size > 1) out.push(`picker: buttons of different heights ${head.heights}`);
 		if (head.av !== undefined && (head.av < head.top || head.av > head.bottom)) out.push(`picker: the avatar is not on its row (${head.av} outside ${head.top}-${head.bottom})`);
+		// a phone has no tooltip, so each beta language says beta in its button, readable and inside it
+		const tags = await page.locator('header.top .seg[role=group] button').evaluateAll((bs) =>
+			bs.map((b) => {
+				const s = b.querySelector('small');
+				const r = s?.getBoundingClientRect();
+				const o = b.getBoundingClientRect();
+				const shown = !!r && r.width >= 10 && r.height >= 7 && r.left >= o.left - 0.5 && r.right <= o.right + 0.5 && r.top >= o.top - 0.5 && r.bottom <= o.bottom + 0.5;
+				return { label: b.textContent?.trim() ?? '', tag: s?.textContent ?? '', shown };
+			})
+		);
+		for (const x of LANGS) {
+			const t = tags.find((g) => g.label.startsWith(x.label));
+			if (x.beta && !(t?.tag === 'beta' && t.shown)) out.push(`picker: ${x.label} does not show beta on a phone`);
+			if (!x.beta && t?.tag) out.push(`picker: ${x.label} says ${t.tag}`);
+		}
 		expect(out).toEqual([]);
 	});
 }
