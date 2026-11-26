@@ -3878,6 +3878,45 @@ async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
             r#"<code code="66621004" codeSystem="2.16.840.1.113883.6.1" displayName="Q other system"/>"#,
             &snomed_answer("160573003"),
         ),
+        // C-H1, U-C1: every finding under 285058000 "Finding relating to sexual activity"
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q active"/>"#,
+            &snomed_answer("228453005"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q multiple"/>"#,
+            &snomed_answer("228460004"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q single"/>"#,
+            &snomed_answer("228461000"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q abstinent"/>"#,
+            &snomed_answer("473022002"),
+        ),
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q weekly"/>"#,
+            &snomed_answer("162174005"),
+        ),
+        // a listed number under a local code system is no SNOMED CT answer
+        social_observation(
+            r#"<code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4" displayName="Q local answer"/>"#,
+            r#"<value xsi:type="CD" code="162171002" codeSystem="1.2.3"/>"#,
+        ),
+        // U-M1: a local question named in words, and an uncoded answer in words
+        social_observation(
+            r#"<code code="SH-SEXACT" codeSystem="1.2.3" displayName="Sexual activity"/>"#,
+            r#"<value xsi:type="ST">Active, two partners in the last year</value>"#,
+        ),
+        social_observation(
+            r#"<code code="SH-1" codeSystem="1.2.3" displayName="Q local words"/>"#,
+            r#"<value xsi:type="ST">Embarazada de 12 semanas</value>"#,
+        ),
+        social_observation(
+            r#"<code code="SH-2" codeSystem="1.2.3" displayName="Sex assigned at birth"/>"#,
+            r#"<value xsi:type="ST">Female</value>"#,
+        ),
     ]
     .concat();
     let bytes = social_history(&entries);
@@ -3886,19 +3925,28 @@ async fn pre1_sensitive_snomed_codes_protect_unlabelled_social_history() -> R {
     assert_eq!(
         sensitivity_by_name(&mut tx, doc).await?,
         BTreeMap::from([
+            ("Q abstinent".to_string(), json!(["sexual_health"])),
+            ("Q active".to_string(), json!(["sexual_health"])),
             ("Q activity".to_string(), json!(["sexual_health"])),
             ("Q answer translation".to_string(), json!(["sexual_health"])),
+            ("Q local answer".to_string(), json!([])),
+            ("Q local words".to_string(), json!(["reproductive"])),
+            ("Q multiple".to_string(), json!(["sexual_health"])),
             ("Q orientation".to_string(), json!(["sexual_health"])),
             ("Q other system".to_string(), json!([])),
             ("Q pregnancy".to_string(), json!(["reproductive"])),
+            ("Q single".to_string(), json!(["sexual_health"])),
             ("Q tobacco".to_string(), json!([])),
+            ("Q weekly".to_string(), json!(["sexual_health"])),
+            ("Sex assigned at birth".to_string(), json!([])),
+            ("Sexual activity".to_string(), json!(["sexual_health"])),
         ])
     );
     let flags: Value = sqlx::query_scalar("select flags from document where id = $1")
         .bind(doc)
         .fetch_one(&mut *tx)
         .await?;
-    assert_eq!(flags["sensitive"], 4, "{flags}");
+    assert_eq!(flags["sensitive"], 11, "{flags}");
     assert!(ownhealth_core::documents::document_is_sensitive(&mut tx, doc).await?);
     Ok(())
 }
