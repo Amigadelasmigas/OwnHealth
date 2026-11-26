@@ -826,3 +826,66 @@ async fn a_held_sensitive_record_or_relative_makes_its_file_sensitive() -> R {
     );
     Ok(())
 }
+
+/// PRE-1.0 (C-L2, C-L1): every FHIR import stores a smoking status whose SNOMED CT answer the
+/// calculators read, not only a C-CDA. Only the "implausible" text check is dropped: an answer whose
+/// printed text fails another value check still waits.
+#[tokio::test]
+async fn a_coded_smoking_status_from_a_fhir_file_is_stored() -> R {
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = fam.profile("alex");
+    let smoking = |id: &str, language: &str, text: &str, day: &str| {
+        json!({"resourceType": "Observation", "id": id, "status": "final", "language": language,
+            "category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "social-history"}]}],
+            "code": {"coding": [{"system": "http://loinc.org", "code": "72166-2", "display": "Tobacco smoking status"}]},
+            "subject": {"reference": "Patient/alex-rivera"}, "effectiveDateTime": day,
+            "valueCodeableConcept": {"coding": [{"system": "http://snomed.info/sct", "code": "449868002"}], "text": text}})
+    };
+    let ips: Value = serde_json::from_slice(&fhir_file("ips-alex.json"))?;
+    let patient = ips["entry"]
+        .as_array()
+        .and_then(|e| e.iter().find(|x| x["resource"]["resourceType"] == "Patient"))
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("patient"))?;
+    let bundle = |id: &str, r: Value| {
+        serde_json::to_vec(&json!({"resourceType": "Bundle", "id": id, "type": "collection",
+            "entry": [patient.clone(), {"fullUrl": format!("urn:uuid:{id}"), "resource": r}]}))
+        .unwrap_or_default()
+    };
+    let doc = store_doc(
+        &mut tx,
+        &env.blobs,
+        &fam,
+        "alex",
+        &bundle("smk", smoking("smk", "en", "Current every day smoker", "2026-03-01")),
+        "smoking.json",
+        JSON,
+    )
+    .await?;
+    let s = import_fhir(&mut tx, &env.blobs, doc).await?;
+    assert_eq!((s.accepted, s.queued), (1, 0), "{s:?}");
+    assert!(items(&mut tx, doc, None).await?.is_empty());
+    let stored: Vec<_> = obs(&mut tx, p)
+        .await?
+        .into_iter()
+        .filter(|o| o.document_id == Some(doc))
+        .collect();
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].loinc.as_deref(), Some("72166-2"));
+    // "1.200" in a Spanish resource reads two ways, on another day: that check stays
+    let doc = store_doc(
+        &mut tx,
+        &env.blobs,
+        &fam,
+        "alex",
+        &bundle("smk2", smoking("smk2", "es", "1.200", "2026-04-01")),
+        "smoking-es.json",
+        JSON,
+    )
+    .await?;
+    let s = import_fhir(&mut tx, &env.blobs, doc).await?;
+    assert_eq!((s.accepted, s.queued), (0, 1), "{s:?}");
+    Ok(())
+}

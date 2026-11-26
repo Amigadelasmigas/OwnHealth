@@ -3759,12 +3759,17 @@ fn round_10_a_cancelled_aborted_or_nullified_visit_waits_in_review() -> R {
 /// A Social History section with one Smoking Status observation answered with `code` (SNOMED CT),
 /// on the 15th of `month` in 2021 (a month apart, so no two answers conflict).
 fn smoking_status(code: &str, display: &str, month: usize) -> Vec<u8> {
+    smoking_status_in("2.16.840.1.113883.6.96", code, display, month)
+}
+
+/// [`smoking_status`] with its answer coded in `system`.
+fn smoking_status_in(system: &str, code: &str, display: &str, month: usize) -> Vec<u8> {
     social_history(&format!(
         r#"<entry><observation classCode="OBS" moodCode="EVN">
              <templateId root="2.16.840.1.113883.10.20.22.4.78"/>
              <code code="72166-2" codeSystem="2.16.840.1.113883.6.1" displayName="Tobacco smoking status"/>
              <statusCode code="completed"/><effectiveTime value="2021{month:02}15"/>
-             <value xsi:type="CD" code="{code}" codeSystem="2.16.840.1.113883.6.96" displayName="{display}"/>
+             <value xsi:type="CD" code="{code}" codeSystem="{system}" displayName="{display}"/>
            </observation></entry>"#
     ))
 }
@@ -3807,6 +3812,12 @@ async fn pre1_a_coded_smoking_status_is_stored_as_an_observation() -> R {
     // "unknown if ever smoked" is no status the calculators read: a person decides
     let bytes = smoking_status("266927001", "Unknown if ever smoked", 12);
     let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "unknown.xml", ccda::MIME).await?;
+    import_ccda(&mut tx, &env.blobs, doc).await?;
+    assert_eq!(open_items(&mut tx, doc, "candidate_row").await?.len(), 1);
+    assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
+    // a listed number under a local code system is no SNOMED CT answer: a person decides
+    let bytes = smoking_status_in("1.2.3", "449868002", "Current every day smoker", 11);
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "lucia", &bytes, "local.xml", ccda::MIME).await?;
     import_ccda(&mut tx, &env.blobs, doc).await?;
     assert_eq!(open_items(&mut tx, doc, "candidate_row").await?.len(), 1);
     assert!(stored(doc).fetch_all(&mut *tx).await?.is_empty());
@@ -4104,12 +4115,26 @@ fn pre1_a_negated_entry_whose_text_was_cut_is_not_a_no_known_list() -> R {
              </manufacturedMaterial></manufacturedProduct></consumable>
            </substanceAdministration></entry></section></component>"#
     ));
+    // the concept's own text was read, a translation's was cut
+    let translated = document(&format!(
+        r#"<component><section><templateId root="2.16.840.1.113883.10.20.22.2.5.1"/><title>Problems</title>
+           {narrative}
+           <entry><observation classCode="OBS" moodCode="EVN" negationInd="true">
+             <templateId root="2.16.840.1.113883.10.20.22.4.4"/>
+             <code code="55607006" codeSystem="2.16.840.1.113883.6.96"/><statusCode code="completed"/>
+             <effectiveTime><low value="20210301"/></effectiveTime>
+             <value xsi:type="CD" code="55607006" codeSystem="2.16.840.1.113883.6.96" displayName="Problem">
+               <originalText>Problem</originalText>
+               <translation code="x" codeSystem="1.2.3">{original}</translation></value>
+           </observation></entry></section></component>"#
+    ));
     for (rtype, held, bytes) in [
         (
             "AllergyIntolerance",
             "observation 2.16.840.1.113883.10.20.22.4.7",
             allergy,
         ),
+        ("Condition", "observation 2.16.840.1.113883.10.20.22.4.4", translated),
         ("Condition", "observation 2.16.840.1.113883.10.20.22.4.4", problem),
         (
             "MedicationStatement",
