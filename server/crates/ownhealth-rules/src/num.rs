@@ -66,6 +66,14 @@ pub const FORMATS: &[(&str, Format)] = &[
             count_group: ('.', 4),
         },
     ),
+    (
+        "it",
+        Format {
+            decimal: ',',
+            group: Some(('.', 5)),
+            count_group: ('.', 5),
+        },
+    ),
 ];
 
 /// The registry languages [`FORMATS`] has no row for.

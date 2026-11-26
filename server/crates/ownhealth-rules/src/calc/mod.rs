@@ -707,6 +707,7 @@ const AND: &[(&str, &str)] = &[
     ("de", " und "),
     ("fr", " et "),
     ("ca", " i "),
+    ("it", " e "),
 ];
 
 /// The registry languages the list word lacks.

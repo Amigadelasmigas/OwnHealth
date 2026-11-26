@@ -1,6 +1,6 @@
 system: cardiometabolic
 order: 1
-names: {en: Cardiometabolic, es: Cardiometabólico, de: "Kardiometabolisch", fr: "Cardiométabolique", ca: "Cardiometabòlic"}
+names: {en: Cardiometabolic, es: Cardiometabólico, de: "Kardiometabolisch", fr: "Cardiométabolique", ca: "Cardiometabòlic", it: "Cardiometabolico"}
 markers: [ldl_c, lpa, apob, hba1c, glucose]
 rules:
   - id: recency.lipids

@@ -1,160 +1,160 @@
 # The analyte names in the registry languages beyond es and en (groups.tsv holds name_en and name_es),
 # one row per alias_group of groups.tsv. Display text only: it stays outside terminology/ so a
 # translation leaves tables_hash as it is. A new language adds its column; tests/langs.rs names a gap.
-alias_group	de	fr	ca
-wbc	Leukozyten	Leucocytes	Leucòcits
-rbc	Erythrozyten	Hématies	Hematies
-hemoglobin	Hämoglobin	Hémoglobine	Hemoglobina
-hematocrit	Hämatokrit	Hématocrite	Hematòcrit
-mcv	MCV	VGM	VCM
-mch	MCH	TCMH	HCM
-mchc	MCHC	CCMH	CHCM
-rdw	RDW	IDR	ADE
-platelets	Thrombozyten	Plaquettes	Plaquetes
-mpv	Mittleres Thrombozytenvolumen	Volume plaquettaire moyen	Volum plaquetari mitjà
-neutrophils_pct	Neutrophile %	Neutrophiles %	Neutròfils %
-neutrophils_abs	Neutrophile	Neutrophiles	Neutròfils
-lymphocytes_pct	Lymphozyten %	Lymphocytes %	Limfòcits %
-lymphocytes_abs	Lymphozyten	Lymphocytes	Limfòcits
-monocytes_pct	Monozyten %	Monocytes %	Monòcits %
-monocytes_abs	Monozyten	Monocytes	Monòcits
-eosinophils_pct	Eosinophile %	Éosinophiles %	Eosinòfils %
-eosinophils_abs	Eosinophile	Éosinophiles	Eosinòfils
-basophils_pct	Basophile %	Basophiles %	Basòfils %
-basophils_abs	Basophile	Basophiles	Basòfils
-reticulocytes_pct	Retikulozyten %	Réticulocytes %	Reticulòcits %
-reticulocytes_abs	Retikulozyten	Réticulocytes	Reticulòcits
-esr	Blutsenkungsgeschwindigkeit	Vitesse de sédimentation	Velocitat de sedimentació
-pt	Prothrombinzeit	Temps de prothrombine	Temps de protrombina
-inr	INR	INR	INR
-aptt	aPTT	TCA	TTPa
-fibrinogen	Fibrinogen	Fibrinogène	Fibrinogen
-d_dimer	D-Dimere	D-dimères	Dímer D
-glucose	Glukose	Glucose	Glucosa
-glucose_blood	Glukose (Vollblut)	Glucose (sang total)	Glucosa (sang)
-hba1c	HbA1c	Hémoglobine glyquée (HbA1c)	Hemoglobina glicada (HbA1c)
-creatinine	Kreatinin	Créatinine	Creatinina
-cystatin_c	Cystatin C	Cystatine C	Cistatina C
-bun	Harnstoff-Stickstoff (BUN)	Azote uréique (BUN)	Nitrogen ureic (BUN)
-urea	Harnstoff	Urée	Urea
-uric_acid	Harnsäure	Acide urique	Àcid úric
-sodium	Natrium	Sodium	Sodi
-potassium	Kalium	Potassium	Potassi
-chloride	Chlorid	Chlore	Clor
-bicarbonate	Bikarbonat	Bicarbonates	Bicarbonat
-co2_total	Gesamt-CO2	CO2 total	CO2 total
-anion_gap	Anionenlücke	Trou anionique	Anió gap
-calcium	Calcium	Calcium	Calci
-calcium_ionized	Ionisiertes Calcium	Calcium ionisé	Calci iònic
-phosphate	Phosphat	Phosphore	Fòsfor
-magnesium	Magnesium	Magnésium	Magnesi
-total_protein	Gesamteiweiß	Protéines totales	Proteïnes totals
-albumin	Albumin	Albumine	Albúmina
-egfr	Geschätzte glomeruläre Filtrationsrate (eGFR)	Débit de filtration glomérulaire estimé (DFGe)	Filtrat glomerular estimat
-creatinine_clearance	Kreatinin-Clearance	Clairance de la créatinine	Aclariment de creatinina
-osmolality	Osmolalität	Osmolalité	Osmolalitat
-ldh	LDH	LDH	LDH
-lactate	Laktat	Lactates	Lactat
-crp	C-reaktives Protein	Protéine C réactive	Proteïna C reactiva
-crp_hs	Hochsensitives CRP	CRP ultrasensible	PCR ultrasensible
-ck	Kreatinkinase (CK)	Créatine kinase (CK)	Creatina cinasa (CK)
-amylase	Amylase	Amylase	Amilasa
-lipase	Lipase	Lipase	Lipasa
-ferritin	Ferritin	Ferritine	Ferritina
-iron	Eisen	Fer	Ferro
-tibc	Totale Eisenbindungskapazität	Capacité totale de fixation du fer	Capacitat total de fixació del ferro
-transferrin_saturation	Transferrinsättigung	Coefficient de saturation de la transferrine	Índex de saturació de transferrina
-transferrin	Transferrin	Transferrine	Transferrina
-folate	Folsäure	Folates	Àcid fòlic
-vitamin_b12	Vitamin B12	Vitamine B12	Vitamina B12
-vitamin_d_25oh	25-OH-Vitamin D	Vitamine D (25-OH)	Vitamina D (25-OH)
-tsh	TSH	TSH	TSH
-ft4	Freies T4	T4 libre	T4 lliure
-ft3	Freies T3	T3 libre	T3 lliure
-t4_total	Gesamt-T4	T4 totale	T4 total
-t3_total	Gesamt-T3	T3 totale	T3 total
-tpo_ab	TPO-Antikörper	Anticorps anti-TPO	Anticossos antiperoxidasa (anti-TPO)
-tg_ab	Thyreoglobulin-Antikörper	Anticorps anti-thyroglobuline	Anticossos antitiroglobulina
-thyroglobulin	Thyreoglobulin	Thyroglobuline	Tiroglobulina
-total_cholesterol	Gesamtcholesterin	Cholestérol total	Colesterol total
-hdl_c	HDL-Cholesterin	Cholestérol HDL	Colesterol HDL
-ldl_c	LDL-Cholesterin	Cholestérol LDL	Colesterol LDL
-triglycerides	Triglyceride	Triglycérides	Triglicèrids
-non_hdl_c	Non-HDL-Cholesterin	Cholestérol non-HDL	Colesterol no HDL
-chol_hdl_ratio	Quotient Gesamt-/HDL-Cholesterin	Rapport cholestérol total/HDL	Índex colesterol total/HDL
-vldl_c	VLDL-Cholesterin	Cholestérol VLDL	Colesterol VLDL
-bp_systolic	Systolischer Blutdruck	Pression artérielle systolique	Pressió arterial sistòlica
-smoking_status	Rauchstatus	Statut tabagique	Tabaquisme
-lpa	Lipoprotein(a)	Lipoprotéine (a)	Lipoproteïna (a)
-apob	Apolipoprotein B	Apolipoprotéine B	Apolipoproteïna B
-apoa1	Apolipoprotein A-I	Apolipoprotéine A1	Apolipoproteïna A1
-alt	ALT (GPT)	ALAT (ALT)	ALT (GPT)
-ast	AST (GOT)	ASAT (AST)	AST (GOT)
-ggt	Gamma-GT	GGT	GGT
-alp	Alkalische Phosphatase	Phosphatases alcalines	Fosfatasa alcalina
-bilirubin_total	Gesamtbilirubin	Bilirubine totale	Bilirubina total
-bilirubin_direct	Direktes Bilirubin	Bilirubine conjuguée	Bilirubina directa
-bilirubin_indirect	Indirektes Bilirubin	Bilirubine libre	Bilirubina indirecta
-urine_acr	Albumin-Kreatinin-Quotient im Urin	Rapport albumine/créatinine urinaire	Quocient albúmina/creatinina en orina
-urine_creatinine	Kreatinin im Urin	Créatinine urinaire	Creatinina en orina
-urine_albumin	Albumin im Urin	Albumine urinaire	Albúmina en orina
-urine_protein	Eiweiß im Urin	Protéines urinaires	Proteïnes en orina
-urine_protein_24h	Eiweiß im 24-h-Urin	Protéinurie des 24 h	Proteïnes en orina de 24 h
-urine_sg	Spezifisches Gewicht des Urins	Densité urinaire	Densitat urinària
-urine_ph	Urin-pH	pH urinaire	pH en orina
-urine_protein_strip	Eiweiß im Urin (Teststreifen)	Protéines urinaires (bandelette)	Proteïnes en orina (tira)
-urine_glucose_strip	Glukose im Urin (Teststreifen)	Glucose urinaire (bandelette)	Glucosa en orina (tira)
-urine_ketones_strip	Ketonkörper im Urin (Teststreifen)	Corps cétoniques urinaires (bandelette)	Cossos cetònics en orina (tira)
-urine_blood_strip	Blut im Urin (Teststreifen)	Sang dans les urines (bandelette)	Hemoglobina en orina (tira)
-urine_leukocyte_esterase	Leukozytenesterase (Teststreifen)	Leucocytes urinaires (bandelette)	Leucòcits en orina (tira)
-urine_nitrite	Nitrit im Urin	Nitrites urinaires	Nitrits en orina
-urine_bilirubin_strip	Bilirubin im Urin	Bilirubine urinaire	Bilirubina en orina
-urine_urobilinogen	Urobilinogen	Urobilinogène	Urobilinogen
-urine_wbc_hpf	Leukozyten pro Gesichtsfeld	Leucocytes par champ	Leucòcits per camp
-urine_rbc_hpf	Erythrozyten pro Gesichtsfeld	Hématies par champ	Hematies per camp
-urine_sodium	Natrium im Urin	Sodium urinaire	Sodi en orina
-urine_volume_24h	24-h-Urinvolumen	Volume urinaire des 24 h	Volum d'orina de 24 h
-testosterone	Testosteron	Testostérone	Testosterona
-testosterone_free	Freies Testosteron	Testostérone libre	Testosterona lliure
-estradiol	Östradiol	Œstradiol	Estradiol
-progesterone	Progesteron	Progestérone	Progesterona
-fsh	FSH	FSH	FSH
-lh	LH	LH	LH
-prolactin	Prolaktin	Prolactine	Prolactina
-cortisol	Cortisol	Cortisol	Cortisol
-dhea_s	DHEA-Sulfat	Sulfate de DHEA	DHEA sulfat
-shbg	SHBG	SHBG	SHBG
-insulin	Insulin	Insuline	Insulina
-igf1	IGF-1	IGF-1	IGF-1
-pth	Parathormon (PTH)	Parathormone (PTH)	Parathormona (PTH)
-hydroxyprogesterone_17	17-OH-Progesteron	17-OH progestérone	17-OH progesterona
-hcg_beta	Beta-hCG	Bêta-hCG	Beta-hCG
-amh	Anti-Müller-Hormon	Hormone antimüllérienne	Hormona antimülleriana
-psa	PSA	PSA	PSA
-psa_free	Freies PSA	PSA libre	PSA lliure
-homocysteine	Homocystein	Homocystéine	Homocisteïna
-procalcitonin	Procalcitonin	Procalcitonine	Procalcitonina
-rheumatoid_factor	Rheumafaktor	Facteur rhumatoïde	Factor reumatoide
-ige_total	Gesamt-IgE	IgE totales	IgE total
-igg	IgG	IgG	IgG
-iga	IgA	IgA	IgA
-igm	IgM	IgM	IgM
-nt_probnp	NT-proBNP	NT-proBNP	NT-proBNP
-bnp	BNP	BNP	BNP
-troponin_i_hs	Hochsensitives Troponin I	Troponine I ultrasensible	Troponina I ultrasensible
-troponin_t_hs	Hochsensitives Troponin T	Troponine T ultrasensible	Troponina T ultrasensible
-cea	CEA	ACE	CEA
-ca125	CA 125	CA 125	CA 125
-ca19_9	CA 19-9	CA 19-9	CA 19-9
-ca15_3	CA 15-3	CA 15-3	CA 15-3
-afp	Alpha-Fetoprotein	Alpha-fœtoprotéine	Alfafetoproteïna
-hbsag	Hepatitis-B-Oberflächenantigen (HBsAg)	Antigène HBs (AgHBs)	Antigen de superfície de l'hepatitis B (HBsAg)
-hcv_ab	Hepatitis-C-Antikörper	Anticorps anti-VHC	Anticossos contra l'hepatitis C
-ph_arterial	Arterieller pH	pH artériel	pH arterial
-pco2_arterial	Arterieller pCO2	pCO2 artérielle	pCO2 arterial
-po2_arterial	Arterieller pO2	pO2 artérielle	pO2 arterial
-ammonia	Ammoniak	Ammoniac	Amoni
-zinc	Zink	Zinc	Zinc
-copper	Kupfer	Cuivre	Coure
-sodium_blood	Natrium (Vollblut)	Sodium (sang total)	Sodi (sang)
-potassium_blood	Kalium (Vollblut)	Potassium (sang total)	Potassi (sang)
+alias_group	de	fr	ca	it
+wbc	Leukozyten	Leucocytes	Leucòcits	Leucociti
+rbc	Erythrozyten	Hématies	Hematies	Eritrociti
+hemoglobin	Hämoglobin	Hémoglobine	Hemoglobina	Emoglobina
+hematocrit	Hämatokrit	Hématocrite	Hematòcrit	Ematocrito
+mcv	MCV	VGM	VCM	MCV
+mch	MCH	TCMH	HCM	MCH
+mchc	MCHC	CCMH	CHCM	MCHC
+rdw	RDW	IDR	ADE	RDW
+platelets	Thrombozyten	Plaquettes	Plaquetes	Piastrine
+mpv	Mittleres Thrombozytenvolumen	Volume plaquettaire moyen	Volum plaquetari mitjà	Volume piastrinico medio
+neutrophils_pct	Neutrophile %	Neutrophiles %	Neutròfils %	Neutrofili %
+neutrophils_abs	Neutrophile	Neutrophiles	Neutròfils	Neutrofili
+lymphocytes_pct	Lymphozyten %	Lymphocytes %	Limfòcits %	Linfociti %
+lymphocytes_abs	Lymphozyten	Lymphocytes	Limfòcits	Linfociti
+monocytes_pct	Monozyten %	Monocytes %	Monòcits %	Monociti %
+monocytes_abs	Monozyten	Monocytes	Monòcits	Monociti
+eosinophils_pct	Eosinophile %	Éosinophiles %	Eosinòfils %	Eosinofili %
+eosinophils_abs	Eosinophile	Éosinophiles	Eosinòfils	Eosinofili
+basophils_pct	Basophile %	Basophiles %	Basòfils %	Basofili %
+basophils_abs	Basophile	Basophiles	Basòfils	Basofili
+reticulocytes_pct	Retikulozyten %	Réticulocytes %	Reticulòcits %	Reticolociti %
+reticulocytes_abs	Retikulozyten	Réticulocytes	Reticulòcits	Reticolociti
+esr	Blutsenkungsgeschwindigkeit	Vitesse de sédimentation	Velocitat de sedimentació	Velocità di eritrosedimentazione
+pt	Prothrombinzeit	Temps de prothrombine	Temps de protrombina	Tempo di protrombina
+inr	INR	INR	INR	INR
+aptt	aPTT	TCA	TTPa	aPTT
+fibrinogen	Fibrinogen	Fibrinogène	Fibrinogen	Fibrinogeno
+d_dimer	D-Dimere	D-dimères	Dímer D	D-dimero
+glucose	Glukose	Glucose	Glucosa	Glucosio
+glucose_blood	Glukose (Vollblut)	Glucose (sang total)	Glucosa (sang)	Glucosio (sangue intero)
+hba1c	HbA1c	Hémoglobine glyquée (HbA1c)	Hemoglobina glicada (HbA1c)	Emoglobina glicata (HbA1c)
+creatinine	Kreatinin	Créatinine	Creatinina	Creatinina
+cystatin_c	Cystatin C	Cystatine C	Cistatina C	Cistatina C
+bun	Harnstoff-Stickstoff (BUN)	Azote uréique (BUN)	Nitrogen ureic (BUN)	Azoto ureico (BUN)
+urea	Harnstoff	Urée	Urea	Urea
+uric_acid	Harnsäure	Acide urique	Àcid úric	Acido urico
+sodium	Natrium	Sodium	Sodi	Sodio
+potassium	Kalium	Potassium	Potassi	Potassio
+chloride	Chlorid	Chlore	Clor	Cloro
+bicarbonate	Bikarbonat	Bicarbonates	Bicarbonat	Bicarbonato
+co2_total	Gesamt-CO2	CO2 total	CO2 total	CO2 totale
+anion_gap	Anionenlücke	Trou anionique	Anió gap	Gap anionico
+calcium	Calcium	Calcium	Calci	Calcio
+calcium_ionized	Ionisiertes Calcium	Calcium ionisé	Calci iònic	Calcio ionizzato
+phosphate	Phosphat	Phosphore	Fòsfor	Fosforo
+magnesium	Magnesium	Magnésium	Magnesi	Magnesio
+total_protein	Gesamteiweiß	Protéines totales	Proteïnes totals	Proteine totali
+albumin	Albumin	Albumine	Albúmina	Albumina
+egfr	Geschätzte glomeruläre Filtrationsrate (eGFR)	Débit de filtration glomérulaire estimé (DFGe)	Filtrat glomerular estimat	Velocità di filtrazione glomerulare stimata (eGFR)
+creatinine_clearance	Kreatinin-Clearance	Clairance de la créatinine	Aclariment de creatinina	Clearance della creatinina
+osmolality	Osmolalität	Osmolalité	Osmolalitat	Osmolalità
+ldh	LDH	LDH	LDH	LDH
+lactate	Laktat	Lactates	Lactat	Lattato
+crp	C-reaktives Protein	Protéine C réactive	Proteïna C reactiva	Proteina C reattiva
+crp_hs	Hochsensitives CRP	CRP ultrasensible	PCR ultrasensible	PCR ad alta sensibilità
+ck	Kreatinkinase (CK)	Créatine kinase (CK)	Creatina cinasa (CK)	Creatinchinasi (CK)
+amylase	Amylase	Amylase	Amilasa	Amilasi
+lipase	Lipase	Lipase	Lipasa	Lipasi
+ferritin	Ferritin	Ferritine	Ferritina	Ferritina
+iron	Eisen	Fer	Ferro	Ferro
+tibc	Totale Eisenbindungskapazität	Capacité totale de fixation du fer	Capacitat total de fixació del ferro	Capacità ferrolegante totale
+transferrin_saturation	Transferrinsättigung	Coefficient de saturation de la transferrine	Índex de saturació de transferrina	Saturazione della transferrina
+transferrin	Transferrin	Transferrine	Transferrina	Transferrina
+folate	Folsäure	Folates	Àcid fòlic	Folati
+vitamin_b12	Vitamin B12	Vitamine B12	Vitamina B12	Vitamina B12
+vitamin_d_25oh	25-OH-Vitamin D	Vitamine D (25-OH)	Vitamina D (25-OH)	Vitamina D (25-OH)
+tsh	TSH	TSH	TSH	TSH
+ft4	Freies T4	T4 libre	T4 lliure	T4 libera
+ft3	Freies T3	T3 libre	T3 lliure	T3 libera
+t4_total	Gesamt-T4	T4 totale	T4 total	T4 totale
+t3_total	Gesamt-T3	T3 totale	T3 total	T3 totale
+tpo_ab	TPO-Antikörper	Anticorps anti-TPO	Anticossos antiperoxidasa (anti-TPO)	Anticorpi anti-TPO
+tg_ab	Thyreoglobulin-Antikörper	Anticorps anti-thyroglobuline	Anticossos antitiroglobulina	Anticorpi anti-tireoglobulina
+thyroglobulin	Thyreoglobulin	Thyroglobuline	Tiroglobulina	Tireoglobulina
+total_cholesterol	Gesamtcholesterin	Cholestérol total	Colesterol total	Colesterolo totale
+hdl_c	HDL-Cholesterin	Cholestérol HDL	Colesterol HDL	Colesterolo HDL
+ldl_c	LDL-Cholesterin	Cholestérol LDL	Colesterol LDL	Colesterolo LDL
+triglycerides	Triglyceride	Triglycérides	Triglicèrids	Trigliceridi
+non_hdl_c	Non-HDL-Cholesterin	Cholestérol non-HDL	Colesterol no HDL	Colesterolo non HDL
+chol_hdl_ratio	Quotient Gesamt-/HDL-Cholesterin	Rapport cholestérol total/HDL	Índex colesterol total/HDL	Rapporto colesterolo totale/HDL
+vldl_c	VLDL-Cholesterin	Cholestérol VLDL	Colesterol VLDL	Colesterolo VLDL
+bp_systolic	Systolischer Blutdruck	Pression artérielle systolique	Pressió arterial sistòlica	Pressione arteriosa sistolica
+smoking_status	Rauchstatus	Statut tabagique	Tabaquisme	Abitudine al fumo
+lpa	Lipoprotein(a)	Lipoprotéine (a)	Lipoproteïna (a)	Lipoproteina (a)
+apob	Apolipoprotein B	Apolipoprotéine B	Apolipoproteïna B	Apolipoproteina B
+apoa1	Apolipoprotein A-I	Apolipoprotéine A1	Apolipoproteïna A1	Apolipoproteina A1
+alt	ALT (GPT)	ALAT (ALT)	ALT (GPT)	ALT (GPT)
+ast	AST (GOT)	ASAT (AST)	AST (GOT)	AST (GOT)
+ggt	Gamma-GT	GGT	GGT	GGT
+alp	Alkalische Phosphatase	Phosphatases alcalines	Fosfatasa alcalina	Fosfatasi alcalina
+bilirubin_total	Gesamtbilirubin	Bilirubine totale	Bilirubina total	Bilirubina totale
+bilirubin_direct	Direktes Bilirubin	Bilirubine conjuguée	Bilirubina directa	Bilirubina diretta
+bilirubin_indirect	Indirektes Bilirubin	Bilirubine libre	Bilirubina indirecta	Bilirubina indiretta
+urine_acr	Albumin-Kreatinin-Quotient im Urin	Rapport albumine/créatinine urinaire	Quocient albúmina/creatinina en orina	Rapporto albumina/creatinina urinario
+urine_creatinine	Kreatinin im Urin	Créatinine urinaire	Creatinina en orina	Creatinina urinaria
+urine_albumin	Albumin im Urin	Albumine urinaire	Albúmina en orina	Albumina urinaria
+urine_protein	Eiweiß im Urin	Protéines urinaires	Proteïnes en orina	Proteine urinarie
+urine_protein_24h	Eiweiß im 24-h-Urin	Protéinurie des 24 h	Proteïnes en orina de 24 h	Proteinuria delle 24 ore
+urine_sg	Spezifisches Gewicht des Urins	Densité urinaire	Densitat urinària	Peso specifico delle urine
+urine_ph	Urin-pH	pH urinaire	pH en orina	pH urinario
+urine_protein_strip	Eiweiß im Urin (Teststreifen)	Protéines urinaires (bandelette)	Proteïnes en orina (tira)	Proteine urinarie (striscia)
+urine_glucose_strip	Glukose im Urin (Teststreifen)	Glucose urinaire (bandelette)	Glucosa en orina (tira)	Glucosio urinario (striscia)
+urine_ketones_strip	Ketonkörper im Urin (Teststreifen)	Corps cétoniques urinaires (bandelette)	Cossos cetònics en orina (tira)	Chetoni urinari (striscia)
+urine_blood_strip	Blut im Urin (Teststreifen)	Sang dans les urines (bandelette)	Hemoglobina en orina (tira)	Sangue nelle urine (striscia)
+urine_leukocyte_esterase	Leukozytenesterase (Teststreifen)	Leucocytes urinaires (bandelette)	Leucòcits en orina (tira)	Esterasi leucocitaria (striscia)
+urine_nitrite	Nitrit im Urin	Nitrites urinaires	Nitrits en orina	Nitriti urinari
+urine_bilirubin_strip	Bilirubin im Urin	Bilirubine urinaire	Bilirubina en orina	Bilirubina urinaria
+urine_urobilinogen	Urobilinogen	Urobilinogène	Urobilinogen	Urobilinogeno
+urine_wbc_hpf	Leukozyten pro Gesichtsfeld	Leucocytes par champ	Leucòcits per camp	Leucociti per campo
+urine_rbc_hpf	Erythrozyten pro Gesichtsfeld	Hématies par champ	Hematies per camp	Eritrociti per campo
+urine_sodium	Natrium im Urin	Sodium urinaire	Sodi en orina	Sodio urinario
+urine_volume_24h	24-h-Urinvolumen	Volume urinaire des 24 h	Volum d'orina de 24 h	Volume urinario delle 24 ore
+testosterone	Testosteron	Testostérone	Testosterona	Testosterone
+testosterone_free	Freies Testosteron	Testostérone libre	Testosterona lliure	Testosterone libero
+estradiol	Östradiol	Œstradiol	Estradiol	Estradiolo
+progesterone	Progesteron	Progestérone	Progesterona	Progesterone
+fsh	FSH	FSH	FSH	FSH
+lh	LH	LH	LH	LH
+prolactin	Prolaktin	Prolactine	Prolactina	Prolattina
+cortisol	Cortisol	Cortisol	Cortisol	Cortisolo
+dhea_s	DHEA-Sulfat	Sulfate de DHEA	DHEA sulfat	DHEA solfato
+shbg	SHBG	SHBG	SHBG	SHBG
+insulin	Insulin	Insuline	Insulina	Insulina
+igf1	IGF-1	IGF-1	IGF-1	IGF-1
+pth	Parathormon (PTH)	Parathormone (PTH)	Parathormona (PTH)	Paratormone (PTH)
+hydroxyprogesterone_17	17-OH-Progesteron	17-OH progestérone	17-OH progesterona	17-OH progesterone
+hcg_beta	Beta-hCG	Bêta-hCG	Beta-hCG	Beta-hCG
+amh	Anti-Müller-Hormon	Hormone antimüllérienne	Hormona antimülleriana	Ormone antimülleriano
+psa	PSA	PSA	PSA	PSA
+psa_free	Freies PSA	PSA libre	PSA lliure	PSA libero
+homocysteine	Homocystein	Homocystéine	Homocisteïna	Omocisteina
+procalcitonin	Procalcitonin	Procalcitonine	Procalcitonina	Procalcitonina
+rheumatoid_factor	Rheumafaktor	Facteur rhumatoïde	Factor reumatoide	Fattore reumatoide
+ige_total	Gesamt-IgE	IgE totales	IgE total	IgE totali
+igg	IgG	IgG	IgG	IgG
+iga	IgA	IgA	IgA	IgA
+igm	IgM	IgM	IgM	IgM
+nt_probnp	NT-proBNP	NT-proBNP	NT-proBNP	NT-proBNP
+bnp	BNP	BNP	BNP	BNP
+troponin_i_hs	Hochsensitives Troponin I	Troponine I ultrasensible	Troponina I ultrasensible	Troponina I ad alta sensibilità
+troponin_t_hs	Hochsensitives Troponin T	Troponine T ultrasensible	Troponina T ultrasensible	Troponina T ad alta sensibilità
+cea	CEA	ACE	CEA	CEA
+ca125	CA 125	CA 125	CA 125	CA 125
+ca19_9	CA 19-9	CA 19-9	CA 19-9	CA 19-9
+ca15_3	CA 15-3	CA 15-3	CA 15-3	CA 15-3
+afp	Alpha-Fetoprotein	Alpha-fœtoprotéine	Alfafetoproteïna	Alfa-fetoproteina
+hbsag	Hepatitis-B-Oberflächenantigen (HBsAg)	Antigène HBs (AgHBs)	Antigen de superfície de l'hepatitis B (HBsAg)	Antigene di superficie dell'epatite B (HBsAg)
+hcv_ab	Hepatitis-C-Antikörper	Anticorps anti-VHC	Anticossos contra l'hepatitis C	Anticorpi anti-HCV
+ph_arterial	Arterieller pH	pH artériel	pH arterial	pH arterioso
+pco2_arterial	Arterieller pCO2	pCO2 artérielle	pCO2 arterial	pCO2 arteriosa
+po2_arterial	Arterieller pO2	pO2 artérielle	pO2 arterial	pO2 arteriosa
+ammonia	Ammoniak	Ammoniac	Amoni	Ammoniaca
+zinc	Zink	Zinc	Zinc	Zinco
+copper	Kupfer	Cuivre	Coure	Rame
+sodium_blood	Natrium (Vollblut)	Sodium (sang total)	Sodi (sang)	Sodio (sangue intero)
+potassium_blood	Kalium (Vollblut)	Potassium (sang total)	Potassi (sang)	Potassio (sangue intero)

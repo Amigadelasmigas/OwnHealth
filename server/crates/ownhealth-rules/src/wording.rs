@@ -21,7 +21,7 @@ pub struct Patterns {
 
 /// The per-language table. A language joins `ownhealth_core::langs::LANGS` only with its own entry
 /// here (`missing_patterns`, tested in `tests/langs.rs`).
-pub const PATTERNS: [Patterns; 5] = [
+pub const PATTERNS: [Patterns; 6] = [
     Patterns {
         lang: "en",
         anywhere: &[
@@ -257,6 +257,20 @@ pub const PATTERNS: [Patterns; 5] = [
             "aneu",
         ],
     },
+    Patterns {
+        lang: "it",
+        anywhere: &[
+            r"\b(?:devi|dovete|dovresti|dovreste|dovrebbe|dovrebbero)\b",
+            r"\bbisogna\b",
+            r"\bnon (?:prendere|assumere|sospendere|usare)\b",
+        ],
+        start_verbs: &[
+            "prendi", "prenda", "assumi", "assuma", "smetti", "smetta", "sospendi", "sospenda", "evita", "eviti",
+            "inizia", "cominci", "aumenta", "aumenti", "riduci", "riduca", "chiedi", "chieda", "parla", "parli",
+            "chiama", "chiami", "vai", "vada", "mangia", "mangi", "bevi", "beva", "misuri", "ripeti", "ripeta",
+            "consulta", "consulti", "contatta",
+        ],
+    },
 ];
 
 /// The languages of `langs` with no patterns of their own.
@@ -356,7 +370,8 @@ mod tests {
                 ("es", 4, 45),
                 ("de", 3, 40),
                 ("fr", 4, 25),
-                ("ca", 5, 31)
+                ("ca", 5, 31),
+                ("it", 3, 34)
             ]
         );
     }
@@ -413,6 +428,25 @@ mod tests {
         for fine in [
             "El colesterol LDL és per sobre de l'interval del laboratori.",
             "Aquest valor ve de l'informe de març.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// Italian advice is caught, Italian description is not.
+    #[test]
+    fn italian_imperatives_are_caught() {
+        for advice in [
+            "Prendi 20 mg al giorno.",
+            "Dovresti ridurre il sale.",
+            "Bisogna ripetere l'esame.",
+            "Non assumere ibuprofene.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "L'LDL è sopra l'intervallo del laboratorio.",
+            "Questo valore viene dal referto di marzo.",
         ] {
             assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
         }

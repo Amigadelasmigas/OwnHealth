@@ -17,7 +17,7 @@
 version: "summary-specialties 0.3.0"
 rows:
   - id: gp
-    names: {en: General practice, es: Medicina general, de: "Allgemeinmedizin", fr: "Médecine générale", ca: "Medicina general"}
+    names: {en: General practice, es: Medicina general, de: "Allgemeinmedizin", fr: "Médecine générale", ca: "Medicina general", it: "Medicina generale"}
     markers: [ldl_c, hba1c, glucose, egfr, creatinine, urine_acr, alt, ast, ggt, tsh, hemoglobin, ferritin, vitamin_d_25oh, vitamin_b12, crp_hs]
     cite: https://github.com/GeiserX/OwnHealth/blob/main/docs/ROADMAP.md#v03-insight
     basis: app_default
@@ -26,25 +26,25 @@ rows:
       due: [screening, vaccine, lab]
       family: [fam.ascvd, fam.crc, fam.hboc, fam.variant, fam.same_side]
   - id: cardiology
-    names: {en: Cardiology, es: Cardiología, de: "Kardiologie", fr: "Cardiologie", ca: "Cardiologia"}
+    names: {en: Cardiology, es: Cardiología, de: "Kardiologie", fr: "Cardiologie", ca: "Cardiologia", it: "Cardiologia"}
     markers: [ldl_c, apob, lpa, hba1c, glucose, crp_hs, egfr, creatinine, urine_acr, alt, ast]
     cite: https://doi.org/10.1093/eurheartj/ehz455
     slots:
       calculators: [score2, score2_op, prevent_cvd, prevent_ascvd, ckd_epi_2021_cr]
       family: [fam.ascvd]
   - id: endocrinology
-    names: {en: Endocrinology, es: Endocrinología, de: "Endokrinologie", fr: "Endocrinologie", ca: "Endocrinologia"}
+    names: {en: Endocrinology, es: Endocrinología, de: "Endokrinologie", fr: "Endocrinologie", ca: "Endocrinologia", it: "Endocrinologia"}
     markers: [hba1c, glucose, tsh, ft4, ldl_c, egfr, creatinine, urine_acr, vitamin_d_25oh, vitamin_b12, magnesium]
     cite: https://diabetesjournals.org/care/issue/49/Supplement_1
     slots:
       calculators: [homa_ir, ckd_epi_2021_cr]
   - id: hematology
-    names: {en: Hematology, es: Hematología, de: "Hämatologie", fr: "Hématologie", ca: "Hematologia"}
+    names: {en: Hematology, es: Hematología, de: "Hämatologie", fr: "Hématologie", ca: "Hematologia", it: "Ematologia"}
     markers: [hemoglobin, mcv, platelets, wbc, ferritin, vitamin_b12, crp_hs, creatinine, alt]
     cite: https://github.com/GeiserX/OwnHealth/blob/main/docs/ROADMAP.md#v03-insight
     basis: app_default
   - id: ips
-    names: {en: International Patient Summary (IPS), es: Resumen internacional del paciente (IPS), de: "Internationale Patientenkurzakte (IPS)", fr: "Résumé international du patient (IPS)", ca: "Resum internacional del pacient (IPS)"}
+    names: {en: International Patient Summary (IPS), es: Resumen internacional del paciente (IPS), de: "Internationale Patientenkurzakte (IPS)", fr: "Résumé international du patient (IPS)", ca: "Resum internacional del pacient (IPS)", it: "Patient Summary internazionale (IPS)"}
     markers: [ldl_c, hba1c, glucose, egfr, creatinine, urine_acr, alt, ast, ggt, tsh, hemoglobin, ferritin, vitamin_d_25oh, vitamin_b12, crp_hs]
     cite: https://hl7.org/fhir/uv/ips/
     basis: app_default

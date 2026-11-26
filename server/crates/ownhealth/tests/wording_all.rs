@@ -86,6 +86,7 @@ const UI_TABLES: &[&str] = &[
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/de.ts")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/fr.ts")),
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/ca.ts")),
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../ui/src/lib/i18n/it.ts")),
 ];
 
 fn fitbit_takeout_words() -> anyhow::Result<Vec<Value>> {

@@ -234,8 +234,48 @@ const CA: Words = Words {
     ],
 };
 
+const IT: Words = Words {
+    draw: "Esami di laboratorio · {n} risultati",
+    draw1: "Esami di laboratorio · 1 risultato",
+    flagged: "{n} segnalati dal laboratorio",
+    flagged1: "1 segnalato dal laboratorio",
+    started: "Inizio di {name}",
+    stopped: "Fine di {name}",
+    genome: "Dati genomici importati",
+    visit: "Visita medica",
+    imaging: "Esame di diagnostica per immagini",
+    doc_types: &[
+        ("discharge", "Lettera di dimissione"),
+        ("imaging_report", "Referto di diagnostica per immagini"),
+        ("prescription", "Ricetta"),
+        ("ecg", "ECG"),
+    ],
+    document: "Documento",
+    enums: &[
+        ("confirmed", "confermato"),
+        ("provisional", "provvisorio"),
+        ("unconfirmed", "non confermato"),
+        ("differential", "differenziale"),
+        ("refuted", "escluso"),
+        ("entered-in-error", "inserito per errore"),
+        ("active", "attivo"),
+        ("paused", "in pausa"),
+        ("on-hold", "in pausa"),
+        ("stopped", "sospeso"),
+        ("completed", "completato"),
+        ("intended", "previsto"),
+    ],
+};
+
 /// The words of every registry language, read with `langs::pick`.
-const WORDS: &[(&str, &Words)] = &[("es", &ES), ("en", &EN), ("de", &DE), ("fr", &FR), ("ca", &CA)];
+const WORDS: &[(&str, &Words)] = &[
+    ("es", &ES),
+    ("en", &EN),
+    ("de", &DE),
+    ("fr", &FR),
+    ("ca", &CA),
+    ("it", &IT),
+];
 
 /// The registry languages the timeline's words lack (`tests/langs.rs`).
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {

@@ -627,6 +627,30 @@ const LIMITS: &[(&str, &Limits)] = &[
             ],
         },
     ),
+    (
+        "it",
+        &Limits {
+            point: [
+                "1 punto è {what} (LOINC {bare}).",
+                "{n} punti sono {what} (LOINC {bare}).",
+            ],
+            own_name: true,
+            methods: &[
+                ("calculated", ", calcolato"),
+                ("direct", ", misura diretta"),
+                ("fasting", ", a digiuno"),
+            ],
+            ranges: "I laboratori usano intervalli di riferimento diversi.",
+            switched: "Gli ultimi due risultati provengono da un altro metodo o laboratorio, quindi la variazione non viene confrontata con il valore di riferimento della variazione.",
+            converted: "I valori stampati in {from} sono mostrati convertiti in {to}{how}.",
+            molar: " con la massa molare di {species} ({g} g/mol)",
+            formula: true,
+            skipped: [
+                "1 valore in un'unità non convertibile in {t} non viene tracciato.",
+                "{n} valori in un'unità non convertibile in {t} non vengono tracciati.",
+            ],
+        },
+    ),
 ];
 
 /// The registry languages the trend's limitation lines lack (`tests/langs.rs`).

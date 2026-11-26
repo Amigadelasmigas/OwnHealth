@@ -59,6 +59,7 @@ pub struct Relationship {
     pub de: String,
     pub fr: String,
     pub ca: String,
+    pub it: String,
     pub generation: i32,
     pub side: String,
     pub degree: i32,
@@ -79,11 +80,13 @@ pub struct ConditionKind {
     pub de: String,
     pub fr: String,
     pub ca: String,
+    pub it: String,
     pub short_en: String,
     pub short_es: String,
     pub short_de: String,
     pub short_fr: String,
     pub short_ca: String,
+    pub short_it: String,
     pub group: String,
     pub code: Option<String>,
     pub cite: String,
@@ -116,7 +119,10 @@ impl Relationship {
     /// The name in each language the catalog carries, for `langs::pick`.
     pub fn names(&self) -> Vec<(&'static str, &str)> {
         let es_en = [("es", &self.es), ("en", &self.en)];
-        rows(es_en, &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca)])
+        rows(
+            es_en,
+            &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca), ("it", &self.it)],
+        )
     }
 
     /// The `text` of the FHIR relationship we store: English, whatever language the person reads.
@@ -129,7 +135,10 @@ impl ConditionKind {
     /// The name in each language the catalog carries, for `langs::pick`.
     pub fn names(&self) -> Vec<(&'static str, &str)> {
         let es_en = [("es", &self.es), ("en", &self.en)];
-        rows(es_en, &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca)])
+        rows(
+            es_en,
+            &[("de", &self.de), ("fr", &self.fr), ("ca", &self.ca), ("it", &self.it)],
+        )
     }
 
     /// The short name (the pedigree's label) in each language, for `langs::pick`.
@@ -137,7 +146,12 @@ impl ConditionKind {
         let es_en = [("es", &self.short_es), ("en", &self.short_en)];
         rows(
             es_en,
-            &[("de", &self.short_de), ("fr", &self.short_fr), ("ca", &self.short_ca)],
+            &[
+                ("de", &self.short_de),
+                ("fr", &self.short_fr),
+                ("ca", &self.short_ca),
+                ("it", &self.short_it),
+            ],
         )
     }
 
