@@ -2622,3 +2622,45 @@ async fn a_new_score_without_a_value_is_no_progress() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+/// An open alert filed by a clock that ran far ahead is still judged by its later passes. A pass whose
+/// clock is older than the newest of them leaves the alert alone, as for any other alert.
+#[tokio::test]
+async fn an_open_far_future_alert_still_orders_the_passes_after_it() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(365)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    // the clock is right again and Polar is still in its gap: this pass keeps the alert
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(2)).await?;
+    assert_eq!(open_gaps(&env, id).await?, [item]);
+    // Polar syncs, and a pass with an older clock than the last one comes late: it changes nothing
+    synced(a + Duration::days(2) - Duration::minutes(30)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(2) - Duration::hours(1)).await?;
+    assert_eq!(open_gaps(&env, id).await?, [item], "a late pass overrode a newer one");
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(2) + Duration::hours(1)).await?;
+    assert_eq!(
+        alert_reason(&env, item).await?,
+        ("dismissed".into(), Some("sync_recovered".into()), true)
+    );
+    Ok(())
+}
