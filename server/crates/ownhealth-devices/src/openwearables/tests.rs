@@ -2494,6 +2494,8 @@ async fn new_rows_that_do_not_read_start_the_clock_after_good_days() -> anyhow::
     {
         let mut fake = env.fake();
         fake.connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+        let mut bad = bad;
+        bad["timestamp"] = json!(Utc::now());
         fake.rows.push(bad);
     }
     let before = Utc::now();
@@ -2556,6 +2558,40 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     assert!(same(kept), "{kept:?}");
     sources::scheduler_tick(&env.ctx).await?;
     assert_eq!(open_gaps(&env, id).await?.len(), 1);
+    Ok(())
+}
+
+/// WHOOP stores a good row and also has a row 3 days old that does not read. The next poll brings nothing
+/// new of WHOOP and only reads that old row again: a re-read of days WHOOP already stored is not news,
+/// so no clock starts.
+#[tokio::test]
+async fn an_old_row_that_does_not_read_starts_no_clock_on_a_quiet_poll() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    {
+        let mut fake = env.fake();
+        let now = Utc::now();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        let mut old = fake
+            .rows
+            .iter()
+            .find(|r| r["source"]["provider"] == "whoop")
+            .cloned()
+            .expect("whoop");
+        old["timestamp"] = json!(now - Duration::days(3));
+        old["value"] = json!("n/a");
+        fake.rows.push(old);
+    }
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(unreadable_since(&env, id, "whoop").await?, None);
+    env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(
+        unreadable_since(&env, id, "whoop").await?,
+        None,
+        "a re-read of an old row that does not read started the clock"
+    );
     Ok(())
 }
 

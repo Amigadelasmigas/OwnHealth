@@ -737,7 +737,9 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
     // A vendor that stored a new usable row (a sample or score that was not stored yet): something of it
     // arrives. A re-read of rows already stored is not news.
     let mut stored = Vec::new();
-    // A vendor that sent rows of its own that do not read, and no new usable row: nothing of it arrives.
+    // A vendor that sent rows that do not read on days past its stored mark, and no new usable row:
+    // nothing of it arrives. Its rows that do not read on days it already stored are read again for the
+    // overlap; that is not news.
     let mut unreadable = Vec::new();
     for &provider in &active {
         let new_before = out.new;
@@ -762,7 +764,9 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                 unreadable: 0,
             };
             let read = pull.bundle(&mut out).await;
-            unreadable_new += pull.unreadable;
+            if stored_until.is_none_or(|until| to > until) {
+                unreadable_new += pull.unreadable;
+            }
             let bundle = match read {
                 Ok(bundle) => bundle,
                 Err(err) => {

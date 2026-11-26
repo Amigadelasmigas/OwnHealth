@@ -101,9 +101,10 @@ pub(crate) struct ConnectionHealth {
     /// re-read of days already stored does not count. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_since: Option<DateTime<Utc>>,
-    /// The first poll that got rows of this vendor that do not read and no new usable row of it. It
-    /// goes on through polls that bring nothing new of the vendor, and ends at the first poll that
-    /// stores a new usable row of it; a stored row read again is not new. OwnHealth sets it.
+    /// The first poll that got rows of this vendor that do not read, on days past its stored mark, and
+    /// no new usable row of it. It goes on through polls that bring nothing new of the vendor, and ends
+    /// with the first stored day that holds a new usable row of it; a row read again for the overlap,
+    /// readable or not, is not new. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unreadable_since: Option<DateTime<Utc>>,
     /// The last poll whose report included this connection. When no newer report says anything about
