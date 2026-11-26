@@ -2331,7 +2331,7 @@ async fn review_counts_hold_only_what_the_list_shows() -> R {
     let review = sam.get("/api/review").await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
     assert_eq!(review.json["items"], json!([]), "{:?}", review.json);
-    assert_eq!(review.json["withheld"], 1, "{:?}", review.json);
+    assert!(review.json.get("withheld").is_none(), "{:?}", review.json);
     assert_eq!(review.json["open"], 0, "{:?}", review.json);
     assert_eq!(sam.get("/api/me").await?.json["review_open"], 0);
 
@@ -2357,20 +2357,20 @@ async fn round8_counting_held_studies_through_break_glass_records_a_use_with_no_
     let path = "/api/review?profile=alex&limit=0";
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 0, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 0}));
 
     let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:records"])).await?;
     let before = record_uses(&b, id).await?;
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 1, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 1}));
     let after = record_uses(&b, id).await?;
     assert_eq!(after, (before.0 + 1, before.1 + 1));
 
     b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 1, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 1}));
     assert_eq!(record_uses(&b, id).await?, after);
     Ok(())
 }

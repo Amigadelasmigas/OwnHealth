@@ -480,10 +480,10 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     for i in &mut out {
         pydantic_datetimes(i, &["decided_at", "created_at"]);
     }
+    // no count of the items left out: it would tell the caller that hidden items exist
     Ok(Json(json!({
         "items": out,
         "open": open,
-        "withheld": items.len() - shown.len(),
     })))
 }
 

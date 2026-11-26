@@ -109,8 +109,9 @@ async fn test_caregiver_without_read_sensitive_cannot_see_a_sensitive_held_value
         .map(|i| i["id"].clone())
         .collect();
     assert!(ids.contains(&json!(plain)) && !ids.contains(&json!(hidden)), "{ids:?}");
-    assert_eq!(listed["withheld"], json!(1));
-    // the count holds what the list shows: the withheld item is not one Alex can review
+    // nor how many items it hides from him
+    assert!(listed.get("withheld").is_none(), "{listed}");
+    // the count holds what the list shows: the hidden item is not one Alex can review
     assert_eq!(listed["open"], json!(1));
     let (s, v) = a.get("alex", &format!("/review/{hidden}")).await?;
     assert_eq!(s, StatusCode::NOT_FOUND);
@@ -444,7 +445,7 @@ async fn test_a_pull_summary_shows_only_to_who_can_open_its_bundle() -> R {
     assert_eq!(v["detail"]["code"], "insufficient_scope");
     let (_, queue) = a.get("alex", "/review?profile=carmen").await?;
     assert!(!listed(&queue), "{queue}");
-    assert_eq!(queue["withheld"], json!(1));
+    assert!(queue.get("withheld").is_none(), "{queue}");
     assert_eq!(
         a.get("alex", &format!("/review/{summary}")).await?.0,
         StatusCode::NOT_FOUND
@@ -553,16 +554,17 @@ async fn test_a_sync_gap_alert_shows_only_to_who_manages_the_connection() -> R {
     let (s, v) = a.get("alex", "/review?profile=carmen").await?;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(!listed(&v, carmen), "{v}");
-    // the hidden alert is not counted as withheld, so the list does not reveal that it exists
+    // the list gives no count of hidden items, so it does not reveal that the alert exists
     let (s, v) = a.get("alex", "/review?profile=carmen&kind=source_gap").await?;
     assert_eq!(s, StatusCode::OK, "{v}");
-    assert_eq!(v["withheld"], json!(0), "{v}");
+    assert_eq!(v["items"], json!([]), "{v}");
+    assert!(v.get("withheld").is_none(), "{v}");
     // nor does it take a page slot from an item Alex reviews
     let row = item(&a, "carmen", "candidate_row", None, json!({})).await?;
     let (s, v) = a.get("alex", "/review?profile=carmen&limit=1").await?;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert!(listed(&v, row), "{v}");
-    assert_eq!(v["withheld"], json!(0), "{v}");
+    assert!(v.get("withheld").is_none(), "{v}");
     assert_eq!(
         a.get("alex", &format!("/review/{carmen}")).await?.0,
         StatusCode::NOT_FOUND

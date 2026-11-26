@@ -557,7 +557,7 @@ async fn hidden_imaging_items_do_not_count_as_withheld() -> R {
     narrow(&a, "alex", "carmen", &["read:summary", "read:labs"]).await?;
     let (status, body) = a.get("alex", "/review?profile=carmen&kind=imaging_study").await?;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({"items": [], "open": 0, "withheld": 0}));
+    assert_eq!(body, json!({"items": [], "open": 0}));
     Ok(())
 }
 
