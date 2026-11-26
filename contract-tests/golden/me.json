@@ -11,6 +11,7 @@
     "[]": {
       "age": "int",
       "break_glass": "bool",
+      "can_manage": "bool",
       "country": "string",
       "display_name": "string",
       "genome_sensitive_ui": "bool",

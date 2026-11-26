@@ -80,10 +80,11 @@ test('the source form refuses plain http for a public address unless the LAN box
 
 test('only profiles a person manages can own a source', () => {
 	const ps = [
-		{ id: 'a', role: 'owner' },
-		{ id: 's', role: 'viewer' },
-		{ id: 'l', role: 'guardian' },
-		{ id: 'c', role: 'caregiver' }
+		{ id: 'a', role: 'owner', can_manage: true },
+		{ id: 's', role: 'viewer', can_manage: false },
+		{ id: 'l', role: 'guardian', can_manage: true },
+		{ id: 't', role: 'guardian', can_manage: false },
+		{ id: 'c', role: 'caregiver', can_manage: false }
 	];
 	assert.deepEqual(
 		manageable(ps).map((p) => p.id),

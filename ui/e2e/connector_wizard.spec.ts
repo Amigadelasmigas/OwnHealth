@@ -23,7 +23,7 @@ function collectPageErrors(page: Page): string[] {
 /** A fresh client secret per run: no secret literal in the repository. */
 const freshSecret = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join('');
 
-const CLIENT_IDS = ['e2e-healow', 'e2e-medicare', 'e2e-oracle'];
+const CLIENT_IDS = ['e2e-healow', 'e2e-medicare', 'e2e-oracle', 'e2e-delete-en', 'e2e-delete-es'];
 const SCOPES_V2 =
 	'openid fhirUser launch/patient offline_access patient/Patient.rs patient/AllergyIntolerance.rs patient/Condition.rs patient/DiagnosticReport.rs patient/DocumentReference.rs patient/Encounter.rs patient/Immunization.rs patient/Medication.rs patient/MedicationRequest.rs patient/Observation.rs patient/Procedure.rs';
 
@@ -81,11 +81,11 @@ test('a person adds a SMART vendor from the directory, saves the client and conn
 	await expect(vendors.filter({ hasText: 'not verified live' })).toHaveCount(8);
 
 	// a public vendor asks for no secret
-	await page.getByText('Oracle Health', { exact: true }).click();
+	await page.locator('label[data-vendor="oracle"]').click();
 	await expect(page.locator('[data-vendor="oracle"]')).toContainText('Public app (client id only)');
 	await expect(page.getByText('An access token lasts 570 seconds.')).toBeVisible();
 
-	await page.getByText('eClinicalWorks (healow)', { exact: true }).click();
+	await page.locator('label[data-vendor="healow"]').click();
 	await expect(page.getByText('No real account has connected through this vendor yet.')).toBeVisible();
 	// opening a directory vendor kept the household's one directory, switched off
 	expect(sql("select count(*) || ' ' || bool_or(enabled) from source s join profile p on p.household_id = s.household_id where p.slug = 'alex' and s.kind = 'brands'")).toBe('1 false');
@@ -165,14 +165,14 @@ test('Medicare through the wizard, in Spanish, with the client saved once and re
 	await expect(page.locator('.vd').filter({ hasText: 'sin verificar en real' })).toHaveCount(8);
 
 	// the SMART client saved in English is found again for the same server
-	await page.getByText('eClinicalWorks (healow)', { exact: true }).click();
+	await page.locator('label[data-vendor="healow"]').click();
 	await page.getByText('Otra dirección de servidor', { exact: true }).click();
 	await page.getByLabel('La dirección base FHIR que da el centro').fill(fake);
 	await expect(page.getByText('Hay un cliente guardado para este servidor: e2e-healow. Su secreto está sellado.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Conectar en eClinicalWorks (healow)' })).toBeVisible();
 
 	// Blue Button: the vendor's own servers, production first
-	await page.getByText('CMS Blue Button 2.0', { exact: true }).click();
+	await page.locator('label[data-vendor="bluebutton"]').click();
 	await expect(page.getByRole('radio', { name: 'https://api.bluebutton.cms.gov/v3/fhir' })).toBeChecked();
 	await expect(page.getByTestId('cw-scopes')).toHaveText('launch/patient patient/Patient.rs patient/Coverage.rs patient/ExplanationOfBenefit.rs');
 	await expect(page.getByText('Cada token de renovación sirve una sola vez; OwnHealth guarda el nuevo al momento.')).toBeVisible();
@@ -208,7 +208,7 @@ test('Medicare through the wizard, in Spanish, with the client saved once and re
 test('a late directory answer does not fill the list of the vendor picked after it', async ({ page }) => {
 	const errors = collectPageErrors(page);
 	await page.goto('/connections/add?lang=en');
-	await page.getByText('eClinicalWorks (healow)', { exact: true }).click();
+	await page.locator('label[data-vendor="healow"]').click();
 	// hold the search answer until the person has moved on to Epic
 	let release = () => {};
 	const held = new Promise<void>((r) => (release = r));
@@ -219,7 +219,7 @@ test('a late directory answer does not fill the list of the vendor picked after 
 	await page.getByLabel('Hospital or clinic name').fill('LabNorte');
 	const answer = page.waitForResponse((r) => r.url().includes('/api/brands?'));
 	await page.getByRole('button', { name: 'Search' }).click();
-	await page.getByText('Epic', { exact: true }).click();
+	await page.locator('label[data-vendor="epic"]').click();
 	await expect(page.getByLabel('Hospital or clinic name')).toHaveValue('');
 	release();
 	await answer;
@@ -238,7 +238,7 @@ test('a late directory answer does not fill the list of the vendor picked after 
 test('the SMART wizard distinguishes a missing configuration from an outage in both languages', async ({ page }) => {
 	const errors = collectPageErrors(page);
 	await page.goto('/connections/add?lang=en');
-	await page.getByText('Oracle Health', { exact: true }).click();
+	await page.locator('label[data-vendor="oracle"]').click();
 	await page.getByText('Another server address', { exact: true }).click();
 	// a page of the right host, but not the FHIR base: no SMART document there
 	await page.getByLabel('The FHIR base address the facility gives').fill(`${fake}/es`);
@@ -256,7 +256,7 @@ test('the SMART wizard distinguishes a missing configuration from an outage in b
 			'Conectar en Oracle Health', 'No se pudo contactar con el servidor del proveedor. Inténtalo más tarde.']
 	]) {
 		await page.goto(`/connections/add?lang=${lang}`);
-		await page.getByText('Oracle Health', { exact: true }).click();
+		await page.locator('label[data-vendor="oracle"]').click();
 		await page.getByText(another, { exact: true }).click();
 		await page.getByLabel(address).fill(`${fake}/down-${lang}`);
 		await page.getByRole('button', { name: connect }).click();
@@ -267,14 +267,14 @@ test('the SMART wizard distinguishes a missing configuration from an outage in b
 	expect(errors).toEqual([]);
 });
 
-/** A new member of the household who only views Alex, signed in with a password. */
-async function viewer(browser: Browser) {
+/** A new member of the household with one grant on Alex, signed in with a password. */
+async function member(browser: Browser, role: 'viewer' | 'guardian') {
 	const headers = { Origin: app };
 	const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
 	const invite = await owner.request.post('/api/household/invites', { headers, data: { display_name: `Pat Rivera ${Date.now()}`, locale: 'en' } });
 	expect(invite.status()).toBe(201);
 	const { user_id, code } = await invite.json();
-	const grant = await owner.request.put('/api/grants', { headers, data: { user_id, profile: 'alex', role: 'viewer' } });
+	const grant = await owner.request.put('/api/grants', { headers, data: { user_id, profile: 'alex', role } });
 	expect(grant.status(), await grant.text()).toBe(200);
 	await owner.close();
 	const ctx = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
@@ -284,7 +284,7 @@ async function viewer(browser: Browser) {
 }
 
 test('a person who only views a record gets no Add connection button, and the wizard says who connects', async ({ browser }) => {
-	const ctx = await viewer(browser);
+	const ctx = await member(browser, 'viewer');
 	const page = await ctx.newPage();
 	const errors = collectPageErrors(page);
 	await page.goto('/connections?lang=en');
@@ -293,8 +293,142 @@ test('a person who only views a record gets no Add connection button, and the wi
 	await expect(page.getByRole('link', { name: 'Add connection' })).toHaveCount(0);
 	// a typed address reaches the wizard, which says who may connect instead of "not shared"
 	await page.goto('/connections/add?lang=en');
-	await expect(page.getByText('Only an owner or guardian of a profile connects its records.')).toBeVisible();
+	await expect(page.getByText('You can connect records for profiles you manage.')).toBeVisible();
 	await expect(page.getByText('Not shared with you')).toHaveCount(0);
 	expect(errors).toEqual([]);
 	await ctx.close();
+});
+
+test('a guardian can set up connections only for unclaimed profiles', async ({ browser }) => {
+	const ctx = await member(browser, 'guardian');
+	const page = await ctx.newPage();
+	try {
+		await page.goto('/connections?lang=en');
+		await expect(page.getByRole('heading', { name: 'Connections', level: 1 })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Add connection' })).toHaveCount(0);
+		await page.goto('/connections/wearables?lang=en');
+		await expect(page.getByText('You can set up wearables for profiles you manage.')).toBeVisible();
+		await page.goto('/connections/add?lang=en');
+		await expect(page.getByText('You can connect records for profiles you manage.')).toBeVisible();
+
+		// Alex has a login. Give this member a second grant on Lucía, who has yet to claim her profile.
+		const owner = await browser.newContext({ baseURL: app, colorScheme: 'dark' });
+		try {
+			const { user } = await (await ctx.request.get('/api/me')).json();
+			const grant = await owner.request.put('/api/grants', {
+				headers: { Origin: app },
+				data: { user_id: user.id, profile: 'lucia', role: 'guardian' }
+			});
+			expect(grant.status(), await grant.text()).toBe(200);
+		} finally {
+			await owner.close();
+		}
+		await page.goto('/connections?lang=en');
+		await expect(page.getByRole('link', { name: 'Set up a wearable' })).toBeVisible();
+		await page.getByRole('link', { name: 'Add connection' }).click();
+		await page.locator('label[data-vendor="healow"]').click();
+		await page.getByText('Another server address', { exact: true }).click();
+		await page.getByLabel('The FHIR base address the facility gives').fill(fake);
+		const whose = page.getByLabel('Whose record');
+		await expect(whose.locator('option')).toHaveText(['Lucía Rivera']);
+	} finally {
+		await ctx.close();
+	}
+});
+
+for (const language of ['en', 'es'] as const) {
+	const words = language === 'en'
+		? { list: 'Saved clients', remove: 'Delete client', cancel: 'Cancel', done: 'Client deleted.', busy: 'Disconnect the connections that use this client before deleting it.' }
+		: { list: 'Clientes guardados', remove: 'Eliminar cliente', cancel: 'Cancelar', done: 'Cliente eliminado.', busy: 'Desconecta las conexiones que usan este cliente antes de eliminarlo.' };
+
+	test(`the wizard deletes an unused client and keeps a connected one in ${language}`, async ({ page }) => {
+		const secret = freshSecret();
+		const clientId = `e2e-delete-${language}`;
+		const issuer = `https://mistyped-${language}.labnorte.example/fhir`;
+		await page.goto(`/connections/add?lang=${language}`);
+		const saved = await page.request.post('/api/connectors/clients', {
+			headers: { Origin: app },
+			data: { vendor: 'healow', issuer, client_id: clientId, client_secret: secret }
+		});
+		expect(saved.status()).toBe(201);
+		const { client } = await saved.json();
+		const sealedId = sql(`select client_secret_id from connector_client where id = '${client.id}'`);
+		await page.reload();
+
+		const list = page.getByRole('region', { name: words.list });
+		const row = list.getByRole('listitem').filter({ hasText: clientId });
+		await expect(row).toContainText(issuer);
+		await expect(page.locator('body')).not.toContainText(secret);
+		await row.getByRole('button', { name: words.remove }).click();
+		await row.getByRole('button', { name: words.cancel }).click();
+		await expect(row.getByRole('button', { name: words.remove })).toBeFocused();
+
+		const staleTab = await page.context().newPage();
+		await staleTab.goto('/connections/add?lang=' + language);
+		const staleRow = staleTab.getByRole('listitem').filter({ hasText: clientId });
+		await staleRow.getByRole('button', { name: words.remove }).click();
+
+		await row.getByRole('button', { name: words.remove }).click();
+		if (process.env.OWNHEALTH_E2E_SHOTS) {
+			await list.screenshot({ path: `${process.env.OWNHEALTH_E2E_SHOTS}/saved-client-${language}.png` });
+		}
+		await row.getByRole('button', { name: words.remove }).click();
+		const done = list.getByRole('status').filter({ hasText: words.done });
+		await expect(done).toBeFocused();
+		await expect(row).toHaveCount(0);
+		expect(sql(`select count(*) from secret where id = '${sealedId}'`)).toBe('0');
+		const gone = staleTab.waitForResponse((r) =>
+			r.url().endsWith('/api/connectors/clients/' + client.id) && r.request().method() === 'DELETE'
+		);
+		await staleRow.getByRole('button', { name: words.remove }).click();
+		expect((await gone).status()).toBe(404);
+		await expect(staleTab.getByRole('status').filter({ hasText: words.done })).toBeFocused();
+		await expect(staleRow).toHaveCount(0);
+		await staleTab.close();
+
+
+		const connected = list.getByRole('listitem').filter({ hasText: 'e2e-healow' });
+		await connected.getByRole('button', { name: words.remove }).click();
+		await connected.getByRole('button', { name: words.remove }).click();
+		await expect(connected.getByRole('alert')).toHaveText(words.busy);
+		await expect(connected).toBeVisible();
+	});
+}
+
+test('deleting a client lets a person hide its switched-off connection and keeps its imports', async ({ page }) => {
+	const issuer = 'https://old.labnorte.example/fhir';
+	const label = 'Historic LabNorte Clinic';
+	const headers = { Origin: app };
+	const saved = await page.request.post('/api/connectors/clients', {
+		headers,
+		data: { vendor: 'oracle', issuer, client_id: 'e2e-orphan' }
+	});
+	expect(saved.status()).toBe(201);
+	const { client } = await saved.json();
+	let source: string | undefined;
+	try {
+		source = sql(`insert into source (household_id, profile_id, kind, label, enabled, connector_client_id)
+			select household_id, id, 'smart', '${label}', false, '${client.id}' from profile where slug = 'alex' returning id`);
+		sql(`insert into source_item (source_id, external_id) values ('${source}', 'previous-import')`);
+		await page.goto('/connections?lang=en');
+		const card = page.getByRole('article', { name: label });
+		await expect(card.getByRole('button', { name: 'Reconnect' })).toBeVisible();
+		expect((await page.request.delete('/api/connectors/clients/' + client.id, { headers })).status()).toBe(200);
+		await page.reload();
+		await expect(card).toContainText('This client was deleted. Add a new connection to connect again.');
+		await expect(card.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+		await card.getByRole('button', { name: 'Hide connection' }).click();
+		await expect(card).toHaveCount(0);
+		// the cards come with the health rows, after the heading: check once the server's rows are shown
+		const rows = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/inboxes/health' && r.request().method() === 'GET');
+		await page.reload();
+		expect((await rows).ok()).toBe(true);
+		await expect(page.getByText('Loading…')).toHaveCount(0);
+		await expect(card).toHaveCount(0);
+		expect(sql(`select count(*) from source_item where source_id = '${source}' and external_id = 'previous-import'`)).toBe('1');
+	} finally {
+		if (source) sql(`delete from source where id = '${source}'`);
+		sql(`delete from connector_client where id = '${client.id}'`);
+	}
 });
