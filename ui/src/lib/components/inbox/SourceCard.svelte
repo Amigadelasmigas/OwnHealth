@@ -7,7 +7,9 @@
 	import ConfirmRow from '#lib/components/ConfirmRow.svelte';
 	import Switch from '#lib/components/pages2/Switch.svelte';
 	import { ago, stamp } from '#lib/components/pages2/fmt';
+	import { dict } from '#lib/i18n/dict';
 	import { i18n, t } from '#lib/i18n/index.svelte';
+	import { runWords } from '#lib/logic/connections';
 	import { afterColon } from '#lib/logic/format';
 	import { POLL_KINDS, PROFILE_KINDS, hasAuthserv, sourceStatus, sourceWhere, tokenButtonKey } from '#lib/logic/inbox';
 	import SenderRules from './SenderRules.svelte';
@@ -44,6 +46,8 @@
 	// A paused source has no fresh data: it shows No data (one of the five status words); the switch says paused.
 	const pillWord = $derived(status === 'off' ? 'fu_st_nodata' : 'fu_st_' + status);
 	const runs = new Loader<SourceRun[]>();
+	// a run problem, kept in English by the server, in the reader's language when its code has words
+	const runText = (text: string) => runWords(text, (k) => k in dict.en, tf) ?? text;
 	let open = $state<'' | 'runs' | 'senders'>('');
 	let confirming = $state(false);
 	// Replacing a live token cuts off whatever uses it, so it waits for a second click.
@@ -119,7 +123,7 @@
 	{:else if status === 'partial'}
 		<div class="note" role="status" style="color:var(--watch);overflow-wrap:anywhere">
 			⚠ {tp('fu_partial_n', source.last_run_problems ?? 0)}
-			{#if source.last_run_problem}<span class="mono">{source.last_run_problem}</span>{/if}
+			{#if source.last_run_problem}<span class="mono">{runText(source.last_run_problem)}</span>{/if}
 		</div>
 	{:else if status === 'stale'}
 		<div class="note" style="color:var(--stale)">{t('fu_stale_d')}</div>
@@ -168,7 +172,7 @@
 								<tr><td colspan="4" class="dim">{tp('fu_run_skipped', skipped.length)} <span class="mono">{skipped.join(', ')}</span></td></tr>
 							{/if}
 							{#if r.error || r.errors.length}
-								<tr><td colspan="4" class="mono err2">{[r.error, ...r.errors.map((e) => `${e.code}: ${e.message}`)].filter(Boolean).join(' · ')}</td></tr>
+								<tr><td colspan="4" class="mono err2">{[r.error, ...r.errors.map((e) => runText(`${e.code}: ${e.message}`))].filter(Boolean).join(' · ')}</td></tr>
 							{/if}
 						{:else}
 							<tr><td class="dim">{t('fu_runs_none')}</td></tr>

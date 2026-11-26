@@ -82,6 +82,7 @@ const TERM_WORDS: &[&str] = &[
 
 #[allow(clippy::expect_used)]
 fn re(pattern: &str) -> Regex {
+    // Only the fixed patterns in this module call this helper.
     Regex::new(pattern).expect("a constant regex compiles")
 }
 
@@ -89,6 +90,7 @@ static SCHEMA_DOC: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(SCHEM
 
 #[allow(clippy::expect_used)]
 static VALIDATOR: LazyLock<Validator> = LazyLock::new(|| {
+    // SCHEMA_DOC comes from the build-time schema covered by the schema tests.
     jsonschema::draft202012::options()
         .should_validate_formats(false)
         .build(&SCHEMA_DOC)

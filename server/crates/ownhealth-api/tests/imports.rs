@@ -1851,3 +1851,53 @@ async fn assert_export_operations_wait_for_the_lock(kind: &str, flag: &str, byte
     replay?;
     Ok(())
 }
+
+#[tokio::test]
+async fn a_failed_fitbit_export_still_lists_omissions_to_people_with_read_wearables() -> R {
+    use std::io::{Cursor, Write};
+
+    let a = app().await?;
+    ownhealth_devices::register();
+    let member = "Takeout/Fitbit/Global Export Data/heart_rate-2024-07-04.json";
+    let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    archive.start_file(member, zip::write::SimpleFileOptions::default())?;
+    archive.write_all(b"[]")?;
+    let bytes = archive.finish()?.into_inner();
+    let (status, upload) = a
+        .upload("alex", &[("profile", "alex")], &[("empty.zip", &bytes)])
+        .await?;
+    assert_eq!(status, StatusCode::OK, "{upload}");
+    let job = upload["items"][0]["job_id"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("no job: {upload}"))?;
+    let kinds = [ownhealth_devices::takeout_fitbit::JOB.to_string()];
+    ownhealth_core::jobs::drain(&a.rt.job_context(), "core", 1, Some(&kinds)).await?;
+    let uri = format!("/jobs?ids={job}");
+    let (status, listed) = a.get("alex", &uri).await?;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let failed = &listed["jobs"][0];
+    assert_eq!(failed["state"], "dead", "{failed}");
+    assert_eq!(failed["last_error"], "PermanentJobError: fitbit_takeout_no_readings");
+    assert_eq!(
+        failed["result"]["fitbit_takeout"],
+        json!({"files_imported": 0, "not_imported": [{"member": member, "reason": "no_readings"}], "rows_left_out": 0}),
+        "{failed}"
+    );
+    assert!(failed["result"].get("document_id").is_none());
+
+    let alex = a.family.profile("alex");
+    let sam = a.family.profile("sam");
+    sqlx::query(
+        "update profile_grant set categories = array_remove(categories, 'read:wearables') \
+         where user_id = (select user_id from profile where id = $1) and profile_id = $2",
+    )
+    .bind(sam)
+    .bind(alex)
+    .execute(&a.rt.pool)
+    .await?;
+    let (status, restricted) = a.get("sam", &uri).await?;
+    assert_eq!(status, StatusCode::OK, "{restricted}");
+    assert_eq!(restricted["jobs"][0]["state"], "dead", "{restricted}");
+    assert!(restricted["jobs"][0]["result"].is_null(), "{restricted}");
+    Ok(())
+}

@@ -350,10 +350,10 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
       {"date": "2023-03-21", "value": 88, "unit": "mg/dL", "canonical": 88, "range": "<130", "src": "src_2c1"},
       {"date": "2023-10-04", "value": 92, "unit": "mg/dL", "canonical": 92, "method": "direct", "src": "src_3c8"},
       {"date": "2024-05-22", "value": 84, "unit": "mg/dL", "canonical": 84, "method": "direct", "src": "src_3d2"},
-      {"date": "2025-01-20", "value": 79, "unit": "mg/dL", "canonical": 79, "range": "<130", "src": "src_a05"},
-      {"date": "2025-09-08", "value": 101, "unit": "mg/dL", "canonical": 101, "range": "<130", "src": "src_a07"},
+      {"date": "2025-01-20", "value": 79, "unit": "mg/dL", "canonical": 79, "range": "<130", "src": "src_a04"},
+      {"date": "2025-09-08", "value": 101, "unit": "mg/dL", "canonical": 101, "range": "<130", "src": "src_a06"},
       {"date": "2026-03-02", "value": 118, "unit": "mg/dL", "canonical": 118, "range": "<130", "src": "src_9f3"},
-      {"date": "2026-09-14", "value": 97, "unit": "mg/dL", "canonical": 97, "range": "<130", "src": "src_a12"}
+      {"date": "2026-09-14", "value": 97, "unit": "mg/dL", "canonical": 97, "range": "<130", "src": "src_a11"}
     ],
     "stats": {"n": 9, "trend": "no significant trend", "last_vs_previous_pct": -18,
               "rcv_pct": 16, "exceeds_rcv": true, "method": "Mann-Kendall, Theil-Sen slope"},
@@ -566,7 +566,7 @@ Output:
 ```json
 {
   "data": {
-    "src_id": "src_a12", "status": "current",
+    "src_id": "src_a11", "status": "current",
     "document": {"id": "doc_2026-09-14_lab1", "kind": "lab_report", "provider": "lab (private, ES)",
                  "received_via": "upload", "sha256": "9e1c…", "pages": 3},
     "location": {"page": 2, "bbox": [72.1, 410.5, 520.0, 424.8], "units": "pt"},
@@ -574,7 +574,7 @@ Output:
     "derived": {"loinc": "13457-7", "ucum": "mg/dL", "canonical": 97},
     "extraction": {"method": "text_layer+table_rule", "parser": "generic-table 0.1.0", "confidence": 0.99,
                    "accepted": "auto", "accepted_at": "2026-09-15"},
-    "crop_url": "https://health.example.lan/ui/doc/doc_2026-09-14_lab1/p/2?box=src_a12",
+    "crop_url": "https://health.example.lan/ui/doc/doc_2026-09-14_lab1/p/2?box=src_a11",
     "text": null
   }
 }
@@ -769,7 +769,7 @@ Trends survive every mode because intervals are kept. The docs say plainly: what
 - **Sensitive categories:** mental health, reproductive health, sexual health. Facts are tagged at import (code lists per category plus manual tags). Without `read:sensitive` they are left out of every tool and counted in `withheld.sensitive`.
 - **Genome sensitive findings:** APOE e4, ACMG SF cancer and cardiac genes, predictive repeat-expansion loci (the list in genomics.md section 7). The profile has two separate switches, `genome.sensitive.ui` and `genome.sensitive.agents`, both off by default; only the agents switch matters here. An agent sees a sensitive genome finding only when that switch is on and the token holds both `read:genome` and `read:sensitive`. Otherwise the finding is counted in `withheld.sensitive` and never described.
 - **Lookups follow the same gate.** `lookup_variant` on a position or region inside a sensitive gene returns `withheld_sensitive` and no genotype unless the gate above is open, so a raw lookup (for example rs429358 for APOE) cannot bypass it. Regions that overlap such a gene are clipped and the clip is reported. The gene spans are one fixed list, the same for every profile, so neither a withheld answer nor a clip depends on what the person carries; the importer refuses a sensitive fact that cites a position outside them (genomics.md section 2.2, rule 9).
-- **Vendor terms:** `data/connectors/providers.yaml` names, per wearable provider, whether agents may read its data. A withheld provider (Oura, Whoop, Polar, Withings and native Dexcom, until their connector pages quote terms with no AI ban) is left out of every tool, resource, pack marker and calculator, and a provider the file does not name is withheld too. `search_observations` and `get_trend` count the days they left out in `withheld.vendor_terms` and add one limitation line, and such an answer never says `not_measured`; the key is absent when nothing was left out. The count never names the vendor. Only the Wearables page and its REST routes read every provider.
+- **Vendor terms:** `data/connectors/providers.yaml` names, per wearable provider, whether agents may read its data. A withheld provider (Oura, WHOOP, Withings and native Dexcom; each page in [docs/connectors](../connectors/README.md) names the clause) is left out of every tool, resource, pack marker and calculator, and a provider the file does not name is withheld too. `search_observations` and `get_trend` count the days they left out in `withheld.vendor_terms` and add one limitation line, and such an answer never says `not_measured`; the key is absent when nothing was left out. The count never names the vendor. Only the Wearables page and its REST routes read every provider.
 - **Raw genome:** `read:genome_raw` only, daily cap, every lookup audited with the position queried.
 - **Minors:** a profile with a birth date under the configured age of majority (default 18, configurable; per household or per profile is open, genomics.md open decision 3) is managed through `guardian` grants. Adult-onset findings, sensitive findings, carrier status and PRS for adult-onset conditions are withheld for minors whatever the scopes and switches, and counted in `withheld.minor_rule`. PGx and childhood-onset actionable findings are shown, because they guide a child's prescriptions and care. Some PGx results also imply carrier status (a nonfunctional `DPYD` allele is both). That is a deliberate clinical exception: the PGx finding is shown with its diplotype, phenotype and drug guidance, and the carrier finding for the same variant stays withheld, so no answer names the inherited condition or a carrier state. `lookup_variant` follows the same rule for a minor: a position or region inside a sensitive or carrier-panel gene returns `withheld_minor` and no genotype, and regions are clipped the same way as for sensitive genes. These are fixed lists, so the answer is the same for every minor and does not reveal which findings this child has. Withholding wins where a gene is both PGx and carrier-panel: the PGx answer then comes only from `get_genome_findings` and `check_drug`, never from a raw lookup. Positions in other PGx genes and in genes with childhood-onset actionable findings are answered as usual. On reaching the age, the profile asks its person to claim it; guardian grants then need the person's approval.
 

@@ -60,6 +60,7 @@ fn main() -> anyhow::Result<()> {
             .as_ref()
             .is_some_and(|w| (x0 - w.x1).abs() <= 1.5 && (top - w.top).abs() <= 3.0);
         if gap_ok {
+            // gap_ok is true only when cur has a word.
             let w = cur.as_mut().expect("checked");
             w.text.push(c);
             w.x1 = x1;

@@ -44,6 +44,7 @@ const PRS_POSITION_KEYS: [&str; 4] = ["percentile", "z_norm1", "z_norm2", "z_sco
 
 #[allow(clippy::expect_used)]
 static NORMAL_PHENOTYPE: LazyLock<Regex> = LazyLock::new(|| {
+    // The pattern is a source literal.
     Regex::new(r"(?i)^(normal|normal metabolizer|normal function|typical|extensive)").expect("a constant regex")
 });
 

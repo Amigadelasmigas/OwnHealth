@@ -9,6 +9,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 #[allow(clippy::unwrap_used)]
+// These patterns are source literals.
 static SLUG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9_-]{1,40}$|^me$").unwrap());
 #[allow(clippy::unwrap_used)]
 static SPECIALTY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\w\s-]+$").unwrap());

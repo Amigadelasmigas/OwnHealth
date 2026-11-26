@@ -33,6 +33,7 @@ use crate::services::ProposedRow;
 const LIMITATION: &str = "Nothing is saved until a person confirms it in the review queue.";
 
 #[allow(clippy::unwrap_used)]
+// These validation patterns are source literals.
 static SRC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^src_[a-z0-9_]+$").unwrap());
 #[allow(clippy::unwrap_used)]
 static DOC_RE: LazyLock<Regex> =

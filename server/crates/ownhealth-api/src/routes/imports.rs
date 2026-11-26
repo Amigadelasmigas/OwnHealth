@@ -13,7 +13,7 @@
 //! Files are spooled to disk while the form is read, then land in the blob store once the caller may
 //! import on the profile; the dispatcher creates documents and enqueues each lane's import job.
 //!
-//! A job's `result` counts what its import brought. The result of a wearables import
+//! A job's `result` counts what its import brought or lists files a failed import left out. The result of a wearables import
 //! ([`WEARABLE_JOBS`]) is shown only to a caller who may read wearables on that profile; anyone else
 //! with a grant there sees the job with `result: null`.
 

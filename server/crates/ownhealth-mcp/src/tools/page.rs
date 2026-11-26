@@ -38,6 +38,7 @@ pub const IMAGE_MAX_PX: u32 = 1600;
 pub const DEFAULT_PAGES_PER_DAY: i64 = 300;
 
 #[allow(clippy::unwrap_used)] // a literal
+// The pattern is a source literal.
 static DOC_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^doc_[0-9a-z-]+_([0-9a-f]{8})$").unwrap());
 
 fn schema() -> Value {

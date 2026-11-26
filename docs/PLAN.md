@@ -213,7 +213,7 @@ Scopes: any of `read:genome`, `read:records`, `read:labs`; parts the token canno
   "current_medications": [{"name": "Cenobamate 50 mg", "since": "2026-04-01", "src": ["src_m05"]}],
   "phenoconversion": [{"gene": "CYP2C19", "by": "Cenobamate 50 mg",
                        "text": "Cenobamate is a moderate CYP2C19 inhibitor. CPIC has no conversion rule for CYP2C19; effect not computed."}],
-  "relevant_labs": [{"analyte": "Platelets", "value": 231, "unit": "10*9/L", "date": "2026-09-14", "src": ["src_a12"]}],
+  "relevant_labs": [{"analyte": "Platelets", "value": 231, "unit": "10*9/L", "date": "2026-09-14", "src": ["src_a14"]}],
   "not_assessed": ["drug-drug interactions (no open-licence source configured)"],
   "advice": "Discuss with your prescriber.",
   "db_versions": {"cpic": "2026-09", "owngenome_facts": "ownhealth.genome-facts/v1"}
@@ -235,10 +235,10 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
     {"date": "2023-03-21", "value": 88, "src": "src_2c1"},
     {"date": "2023-10-04", "value": 92, "method": "direct", "src": "src_3c8"},
     {"date": "2024-05-22", "value": 84, "method": "direct", "src": "src_3d2"},
-    {"date": "2025-01-20", "value": 79, "src": "src_a05"},
-    {"date": "2025-09-08", "value": 101, "src": "src_a07"},
+    {"date": "2025-01-20", "value": 79, "src": "src_a04"},
+    {"date": "2025-09-08", "value": 101, "src": "src_a06"},
     {"date": "2026-03-02", "value": 118, "src": "src_9f3"},
-    {"date": "2026-09-14", "value": 97, "src": "src_a12"}
+    {"date": "2026-09-14", "value": 97, "src": "src_a11"}
   ],
   "trend": {"method": "Mann-Kendall", "significant": false},
   "notes": ["2023-10-04 and 2024-05-22 are direct LDL (LOINC 18262-6); the method change is marked.",
@@ -246,7 +246,7 @@ get_trend(profile="alex", code="LOINC:13457-7", window="P5Y")
 }
 ```
 
-When the agent wants to show the person where 97 came from, it calls `get_source("src_a12")` and gets the document id, page 2, the bounding box and a crop URL. Any free text in that answer is marked `trust: untrusted_text`.
+When the agent wants to show the person where 97 came from, it calls `get_source("src_a11")` and gets the document id, page 2, the bounding box and a crop URL. Any free text in that answer is marked `trust: untrusted_text`.
 
 ## The deterministic current state
 
@@ -276,7 +276,7 @@ The hashed state body (`ownhealth.state/v1`) is frozen within a rule-pack versio
 | Prompt injection through imported documents | A lab PDF from the email inbox carries hidden text telling the agent to send the genome to a URL, or to write false values | Free text marked `trust: untrusted_text`; raw text behind `read:documents_text`, off by default; no MCP tool shares or exports; every agent write lands in the review queue, which shows what the agent read (from the audit log); allowlisted inbox senders, the rest quarantined; test fixtures with white-on-white text, metadata text and OCR-only text |
 | EU Medical Device Regulation (MDR) Rule 11, MDCG 2019-11 | Calculators and PGx flags count as medical device software if placed on the market in a commercial activity | Intended purpose stated as record keeping and display of published formulas with citations; PGx quotes guidelines, "discuss with your prescriber"; today non-commercial, with no hosted or paid version (a change in that status or in the intended purpose needs a fresh assessment). Whether a non-commercial open-source project is outside MDR is unverified |
 | Agent output reaches the model vendor | Whatever a tool returns goes to the client's model provider | Scopes per category; `read:sensitive` and `read:genome_raw` off by default; per-token rate limit and daily egress budget; daily cap on variant lookups; the docs say this plainly |
-| Vendor terms | Strava's June 2026 API policy bans feeding its data to AI or MCP; Oura's 2026 API and MCP agreement may restrict similar use (unverified) | No Strava API connector, bulk export import only; a vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban; unofficial connectors (Garmin login scraping and similar) never in core |
+| Vendor terms | Strava's June 2026 API policy bans feeding its data to AI or MCP; Oura's API agreement bans its data as input to any AI model, and WHOOP's API terms ban using its data to develop any AI application | No Strava API connector, bulk export import only; a vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban; unofficial connectors (Garmin login scraping and similar) never in core |
 | Terminology licences | Shipping SNOMED CT or ATC breaks their terms; LOINC needs its notice | LOINC shipped with the Regenstrief notice; SNOMED CT bring-your-own; ATC not redistributed; codes are optional enrichment, the printed value stays the truth |
 | Data loss | Disk failure, a bad migration, a wrong merge | Immutable content-addressed blobs; corrections as new rows; restic backups with scheduled restore tests in v0.1; FHIR export at any time |
 | Silent wrong values | A unit converts wrongly, an OCR digit flips | Printed value kept; UCUM conversion checked; plausible-range check; value grounded in the page word layer; low confidence goes to review |

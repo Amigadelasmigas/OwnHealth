@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 use crate::RefRange;
 use crate::tables::{fold, strip_chars};
 
+// All invocations use fixed patterns defined in this module.
 macro_rules! re {
     ($name:ident, $pat:expr) => {
         static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new(&$pat).expect("static regex"));

@@ -83,3 +83,15 @@ test('a C-CDA file refused for too many label copies says so in the person\'s la
 	const long = 'the file carries a security label longer than a real one (a code over 64 characters or a code system over 128)';
 	assert.equal(errKey(null, `not a readable C-CDA document: ${long}`, has), 'err_ccda_unreadable');
 });
+
+test('a C-CDA refusal that names a certificate tag still says to get a new copy of the file', () => {
+	const has = (k: string) => k in en;
+	// F69-m5: the parser names the tag it choked on; a tag with certificate, tls or handshake in it is
+	// no connection error
+	for (const tag of ['certificate', 'tls', 'handshake']) {
+		const why = `PermanentJobError: not a readable C-CDA document: the XML is not well formed: expected '${tag}' tag`;
+		assert.equal(errKey(null, why, has), 'err_ccda_unreadable', tag);
+	}
+	// a real TLS failure still reads as one
+	assert.equal(errKey(null, 'RuntimeError: invalid peer certificate: UnknownIssuer', has), 'err_tls');
+});

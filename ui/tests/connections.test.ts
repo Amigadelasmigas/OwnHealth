@@ -194,6 +194,21 @@ test('an oversized page has its own words in English and Spanish', () => {
 	);
 });
 
+test('Health Auto Export points dated ahead point at the phone clock in the Inbox and on Connections', () => {
+	const problem = 'points_ahead: 3 points dated more than a day ahead';
+	assert.equal(
+		runWords(problem, hasKey, sayIn('en')),
+		"Readings dated more than a day ahead were left out (3). Check the phone's clock."
+	);
+	assert.equal(
+		runWords(problem, hasKey, sayIn('es')),
+		'Se dejaron fuera lecturas con fecha de más de un día en el futuro (3). Revisa la hora del teléfono.'
+	);
+	// the Inbox card says the same words on its partial line and in its Runs panel
+	const card = readFileSync(new URL('../src/lib/components/inbox/SourceCard.svelte', import.meta.url), 'utf8');
+	assert.equal(card.match(/runText\(/g)?.length, 2, 'the partial line and the Runs panel');
+});
+
 test('a poller stop or problem reads in es and en, with its FHIR type, status and count', () => {
 	const es = sayIn('es');
 	assert.equal(

@@ -4,7 +4,9 @@
 //!    everything else on a hospital CD (the viewer, `autorun.inf`, readme files) is counted and left
 //!    out, and so is `DICOMDIR`, the disc's own index. A file with the magic that does not read is
 //!    counted as damaged. Deflated data sets and different files that share a SOPInstanceUID
-//!    fail the upload before any POST. Files are grouped by StudyInstanceUID.
+//!    fail the upload before any POST. A copy of a repeated image that does not read in full is
+//!    counted as damaged, and nothing of its header reaches the study: a copy that reads stands for
+//!    the image. Files are grouped by StudyInstanceUID.
 //! 2. For each study, under the one StudyInstanceUID lock every Orthanc writer takes
 //!    ([`ownhealth_core::orthanc::lock_study`]): a study another profile holds, a second patient under
 //!    one UID, or a UID Orthanc already holds under another patient goes to review, and nothing of it
@@ -33,7 +35,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::io::{self, Read, Seek, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -180,12 +182,48 @@ impl Scan {
     }
 }
 
-// The ZIP reader reports a bad CRC as InvalidData. The import skips such damaged content.
+/// A failed read of the stored upload, not damage in it: only that kind of failure may heal on a retry.
 fn entry_io_failed(error: &ZipError) -> bool {
-    matches!(error, ZipError::Io(e) if e.kind() != io::ErrorKind::InvalidData)
+    matches!(error, ZipError::Io(e) if !decoder_damage(e))
 }
 
-fn read_entry(zip: &mut zip::ZipArchive<BlobReader>, i: usize, limit: u64) -> Result<Vec<u8>, ZipError> {
+/// The kinds the ZIP reader gives damaged member bytes: a bad CRC (InvalidData), a corrupt deflate
+/// stream (InvalidInput) and a cut one (UnexpectedEof). The upload never changes, so these never heal.
+fn decoder_damage(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput | io::ErrorKind::UnexpectedEof
+    )
+}
+
+/// The stored upload as the ZIP reader sees it. A storage error of a damage kind (a sealed block
+/// that fails its check is InvalidData) becomes `Other`, so it counts as a failed read, not damage.
+#[derive(Debug)]
+struct ZipSource(BlobReader);
+
+type Archive = zip::ZipArchive<ZipSource>;
+
+fn storage_error(error: io::Error) -> io::Error {
+    if decoder_damage(&error) {
+        io::Error::other(error)
+    } else {
+        error
+    }
+}
+
+impl Read for ZipSource {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf).map_err(storage_error)
+    }
+}
+
+impl Seek for ZipSource {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        self.0.seek(to).map_err(storage_error)
+    }
+}
+
+fn read_entry(zip: &mut Archive, i: usize, limit: u64) -> Result<Vec<u8>, ZipError> {
     let entry = zip.by_index(i)?;
     let mut out = Vec::new();
     entry.take(limit).read_to_end(&mut out)?;
@@ -197,14 +235,14 @@ pub fn scan(reader: BlobReader) -> Result<Scan, JobError> {
     scan_archive(&mut open_archive(reader)?)
 }
 
-fn open_archive(reader: BlobReader) -> Result<zip::ZipArchive<BlobReader>, JobError> {
-    zip::ZipArchive::new(reader).map_err(|e| match e {
+fn open_archive(reader: BlobReader) -> Result<Archive, JobError> {
+    zip::ZipArchive::new(ZipSource(reader)).map_err(|e| match e {
         zip::result::ZipError::Io(_) => JobError::retry(format!("the upload zip could not be read: {e}")),
         _ => JobError::permanent(format!("the upload is not a zip that reads: {e}")),
     })
 }
 
-fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError> {
+fn scan_archive(zip: &mut Archive) -> Result<Scan, JobError> {
     if zip.len() > MAX_ENTRIES {
         return Err(JobError::permanent(format!(
             "the upload holds {} files, more than {MAX_ENTRIES}",
@@ -212,7 +250,11 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
         )));
     }
     let mut s = Scan::default();
-    let mut sops = BTreeMap::new();
+    // By SOP Instance UID: the member that stands for it (none while every copy so far was damaged),
+    // and the hash of its bytes once read in full.
+    let mut sops: BTreeMap<String, (Option<usize>, Option<[u8; 32]>)> = BTreeMap::new();
+    // Members that stood for a SOP and turned out damaged: their studies are built again without them.
+    let mut dropped = BTreeSet::new();
     for i in 0..zip.len() {
         let (is_dir, size) = match zip.by_index_raw(i) {
             Ok(e) => (e.is_dir(), e.size()),
@@ -230,7 +272,7 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             s.too_large += 1;
             continue;
         }
-        let mut head = match read_entry(zip, i, HEAD_BYTES) {
+        let head = match read_entry(zip, i, HEAD_BYTES) {
             Ok(head) => head,
             Err(e) => {
                 s.note_entry_error(&e);
@@ -241,30 +283,42 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             s.not_dicom += 1;
             continue;
         }
-        let mut header = read_header(&head);
-        if matches!(header, Err(Part10Error::Corrupt(_))) && head.len() as u64 == HEAD_BYTES {
-            // a header that does not end in the first bytes: read further, as far as the cap
-            match read_entry(zip, i, MAX_HEADER_BYTES) {
-                Ok(more) => head = more,
-                Err(e) => {
-                    s.note_entry_error(&e);
-                    continue;
-                }
+        let header = match header_of(zip, i, head) {
+            Ok(header) => header,
+            Err(e) => {
+                s.note_entry_error(&e);
+                continue;
             }
-            header = read_header(&head);
-        }
+        };
         match header {
             Ok(h) if h.is_directory() => s.directories += 1,
             Ok(h) => {
-                let (first, digest) = sops.entry(h.sop_instance_uid.clone()).or_insert((i, None));
-                if *first != i {
-                    let original = match digest {
-                        Some(hash) => *hash,
-                        None => *digest.insert(entry_hash(zip, *first)?),
-                    };
-                    if original != entry_hash(zip, i)? {
+                let Some((standing, digest)) = sops.get_mut(&h.sop_instance_uid) else {
+                    sops.insert(h.sop_instance_uid.clone(), (Some(i), None));
+                    add(&mut s, i, h);
+                    continue;
+                };
+                // The member that stands for the SOP is read in full once, when a second copy comes.
+                if let (Some(first), None) = (*standing, *digest) {
+                    match entry_hash(zip, first)? {
+                        Some(hash) => *digest = Some(hash),
+                        None => {
+                            dropped.insert(first);
+                            s.damaged += 1;
+                            *standing = None;
+                        }
+                    }
+                }
+                let Some(copy) = entry_hash(zip, i)? else {
+                    s.damaged += 1;
+                    continue;
+                };
+                match *digest {
+                    Some(original) if original != copy => {
                         return Err(JobError::permanent("different files share a DICOM SOP Instance UID"));
                     }
+                    Some(_) => {}
+                    None => (*standing, *digest) = (Some(i), Some(copy)),
                 }
                 add(&mut s, i, h);
             }
@@ -272,28 +326,76 @@ fn scan_archive(zip: &mut zip::ZipArchive<BlobReader>) -> Result<Scan, JobError>
             Err(_) => s.damaged += 1,
         }
     }
+    if !dropped.is_empty() {
+        rebuild_without(zip, &mut s, &dropped)?;
+    }
     Ok(s)
 }
 
+/// The header of a member that starts with the PS3.10 magic, from its first bytes, read further up to
+/// the cap when it does not end there.
+fn header_of(zip: &mut Archive, i: usize, head: Vec<u8>) -> Result<Result<Header, Part10Error>, ZipError> {
+    let header = read_header(&head);
+    if matches!(header, Err(Part10Error::Corrupt(_))) && head.len() as u64 == HEAD_BYTES {
+        return Ok(read_header(&read_entry(zip, i, MAX_HEADER_BYTES)?));
+    }
+    Ok(header)
+}
+
+/// Builds again, from the headers of the members that stay, every study a dropped member added to:
+/// a damaged copy can carry a header that reads, and nothing of it may reach the study. Damage is
+/// rare, so the headers are read again instead of kept for every member.
+fn rebuild_without(zip: &mut Archive, s: &mut Scan, dropped: &BTreeSet<usize>) -> Result<(), JobError> {
+    let touched: Vec<String> = s
+        .studies
+        .iter()
+        .filter(|(_, study)| study.entries.iter().any(|e| dropped.contains(&e.index)))
+        .map(|(uid, _)| uid.clone())
+        .collect();
+    for uid in touched {
+        let Some(study) = s.studies.remove(&uid) else {
+            continue;
+        };
+        for entry in study.entries.iter().filter(|e| !dropped.contains(&e.index)) {
+            // It read a moment ago, so a failure now is a failed read of the stored upload.
+            let again = read_entry(zip, entry.index, HEAD_BYTES).and_then(|head| header_of(zip, entry.index, head));
+            match again {
+                Ok(Ok(h)) => add(s, entry.index, h),
+                Ok(Err(e)) => return Err(JobError::retry(format!("a DICOM header did not read again: {e}"))),
+                Err(e) => return Err(JobError::retry(format!("a DICOM entry could not be read again: {e}"))),
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Only repeated SOPs require a full read during the scan. Verify the ZIP CRC and compare hashes
-/// of the original bytes before any study is sent.
-fn entry_hash(zip: &mut zip::ZipArchive<BlobReader>, index: usize) -> Result<[u8; 32], JobError> {
-    let read_error = |error: ZipError| {
-        let message = format!("a duplicate DICOM entry could not be read: {error}");
+/// of the original bytes before any study is sent. A copy that does not read in full is damaged
+/// (`None`); a failed read of the stored upload retries.
+fn entry_hash(zip: &mut Archive, index: usize) -> Result<Option<[u8; 32]>, JobError> {
+    let damaged = |error: ZipError| {
         if entry_io_failed(&error) {
-            JobError::retry(message)
+            Err(JobError::retry(format!(
+                "a duplicate DICOM entry could not be read: {error}"
+            )))
         } else {
-            JobError::permanent(message)
+            Ok(None)
         }
     };
-    let entry = zip.by_index(index).map_err(read_error)?;
+    let entry = match zip.by_index(index) {
+        Ok(entry) => entry,
+        Err(error) => return damaged(error),
+    };
     let expected = entry.size();
     let mut entry = entry.take(MAX_FILE_BYTES + 1);
     let mut digest = Sha256::new();
     let mut count = 0;
     let mut buf = [0; FILE_CHUNK];
     loop {
-        let n = entry.read(&mut buf).map_err(|e| read_error(e.into()))?;
+        let n = match entry.read(&mut buf) {
+            Ok(n) => n,
+            Err(error) => return damaged(error.into()),
+        };
         if n == 0 {
             break;
         }
@@ -301,9 +403,9 @@ fn entry_hash(zip: &mut zip::ZipArchive<BlobReader>, index: usize) -> Result<[u8
         digest.update(&buf[..n]);
     }
     if count != expected || count > MAX_FILE_BYTES {
-        return Err(JobError::permanent("a duplicate DICOM entry could not be read"));
+        return Ok(None);
     }
-    Ok(digest.finalize().into())
+    Ok(Some(digest.finalize().into()))
 }
 
 fn add(s: &mut Scan, i: usize, h: Header) {
@@ -520,7 +622,7 @@ pub async fn run(ctx: JobContext, job: Job) -> HandlerResult {
 
 /// One ZIP directory for the job. Only blocking tasks touch the seekable reader.
 pub(crate) struct StudyFiles {
-    zip: Arc<Mutex<zip::ZipArchive<BlobReader>>>,
+    zip: Arc<Mutex<Archive>>,
     dir: PathBuf,
 }
 
@@ -566,7 +668,7 @@ impl StudyFiles {
 }
 
 /// Validate the ZIP CRC before a POST. Release each unlinked spool before opening the next one.
-fn stage(zip: &Mutex<zip::ZipArchive<BlobReader>>, dir: &Path, index: usize) -> Result<Option<Staged>, JobError> {
+fn stage(zip: &Mutex<Archive>, dir: &Path, index: usize) -> Result<Option<Staged>, JobError> {
     let mut zip = zip.lock().map_err(|_| JobError::retry("the zip reader stopped"))?;
     let Ok(entry) = zip.by_index(index) else {
         return Ok(None);
@@ -1361,7 +1463,8 @@ async fn to_review_item(
         "study_date": da(&study.study_date).map(|d| d.to_string()),
         "description": Some(study.description.as_str()).filter(|d| !d.is_empty()),
         "series": study.series.len(),
-        "instances": study.entries.len(),
+        // identical copies of one image count once
+        "instances": study.sops.len(),
         "filename": import.filename,
     });
     let reasons = vec![why.to_string()];
@@ -1445,6 +1548,20 @@ pub async fn accept(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damaged_member_bytes_are_damage_and_a_storage_error_of_the_same_kind_is_a_failed_read() {
+        for kind in [
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            assert!(!entry_io_failed(&ZipError::Io(kind.into())), "{kind:?}");
+            let storage = storage_error(kind.into());
+            assert_eq!(storage.kind(), io::ErrorKind::Other);
+            assert!(entry_io_failed(&ZipError::Io(storage)), "{kind:?}");
+        }
+    }
 
     #[test]
     fn a_report_that_cannot_be_read_retries_and_one_with_no_pdf_is_handled() {

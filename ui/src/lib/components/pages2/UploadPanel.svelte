@@ -154,7 +154,7 @@
 					{@const n = d && j?.state === 'done' ? rowsOf(d) : 0}
 					{@const cgm = j?.state === 'done' ? cgmLines(j.result) : null}
 					{@const fit = j?.state === 'done' ? fitLines(j.result) : null}
-					{@const archive = j?.state === 'done' ? exportSummary(j.result) : null}
+					{@const archive = j && isActivityExportJob(j.kind) && TERMINAL.has(j.state) ? exportSummary(j.result) : null}
 					<tr>
 						<td class="fname">{#if d && (j?.state === 'done' || i.duplicate)}<a href="?doc={d}">{i.filename}</a>{:else}{i.filename}{/if}</td>
 						<td class="dim" title={i.kind}>{t('i2_ik_' + i.kind) !== 'i2_ik_' + i.kind ? t('i2_ik_' + i.kind) : i.kind}</td>
@@ -163,7 +163,7 @@
 					</tr>
 					{#if fit}<tr><td colspan="4"><FitResult lines={fit} label={i.filename} /></td></tr>
 					{:else if fitHidden(j)}<tr><td colspan="4" class="dim" style="font-size:12px">{t('i2_fit_hidden')}</td></tr>{/if}
-					{#if archive}<tr><td colspan="4"><GarminResult summary={archive} readings={garminReadings(j?.result)} /></td></tr>{/if}
+					{#if archive}<tr><td colspan="4"><GarminResult summary={archive} readings={j?.state === 'done' ? garminReadings(j.result) : null} /></td></tr>{/if}
 					{#if cgm}
 						<tr>
 							<td colspan="4">

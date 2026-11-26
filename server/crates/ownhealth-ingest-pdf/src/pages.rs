@@ -239,6 +239,7 @@ fn png_rgb(rgba: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+// These three patterns are source literals.
 static NUM_KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[-+]?\d+(?:[.,' ]\d+)*$").expect("pattern"));
 static NUM_SEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.,' ]").expect("pattern"));
 static ALNUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[a-z0-9]+").expect("pattern"));

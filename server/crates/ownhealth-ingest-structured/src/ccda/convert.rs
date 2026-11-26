@@ -1,4 +1,4 @@
-//! The mapping: the header to a Patient and a Composition, and the six core sections to FHIR R4
+//! The mapping: the header to a Patient and a Composition, and coded sections to FHIR R4
 //! resources the FHIR importer already reads (`crate::fhir::mapping`).
 //!
 //! | Section (templateId `2.16.840.1.113883.10.20.22.2.x`) | Entry | FHIR |
@@ -9,6 +9,10 @@
 //! | Immunizations (`2`, `2.1`) | Immunization Activity (`EVN`, not active) | Immunization |
 //! | Results (`3`, `3.1`) | Result Organizer and its Result Observations | DiagnosticReport plus Observations |
 //! | Vital Signs (`4`, `4.1`) | Vital Signs Organizer and its observations | Observations |
+//! | Encounters (`22`, `22.1`) | Encounter Activity and its indications | Encounter (indications as `reasonCode`) |
+//! | Procedures (`7`, `7.1`) | Procedure Activity Procedure, Act and Observation | Procedure or Observation |
+//! | Notes (`65`) | Note Activity and narrative-only Notes sections | Kept in the XML, counted in review |
+//! | Social History (`17`, `17.2`) | Smoking status and other Social History observations, not pregnancy or sexual orientation | Observations |
 //!
 //! Differences from Medplum, each on purpose:
 //! - Resource ids come from the C-CDA `id` (a hash of root and extension), or from the entry's bytes
@@ -49,6 +53,14 @@
 //!   (`INT`), another mood or an active one is listed as not read.
 //! - A Results organizer is a DiagnosticReport with the Observations as its results; a Vital Signs
 //!   organizer only groups, so its observations come alone.
+//! - An Encounter's indications are its `reasonCode`, never Conditions: a Condition would claim a
+//!   clinical status the visit does not give. A procedure that is negated, cancelled or `new`, a
+//!   visit or activity observation that is aborted, cancelled or nullified, an activity whose status
+//!   code is no ActStatus this reads, and a Social History observation coded as a pregnancy or
+//!   sexual orientation question (in its code or a translation) are listed as not read. So is an
+//!   activity bound that is no date, or an end before the start (the period keeps what reads).
+//! - Section text that no `<reference>` points into (a paragraph, list, table or loose words at the
+//!   top of the section's `text`) is listed with its word count, even when every entry reads.
 //! - Every section, entry or part the converter does not read is listed in the section's report, and
 //!   the importer turns it into a review item. Nothing is thrown away and nothing throws.
 
@@ -64,6 +76,8 @@ use super::xml::{self, attr, child, children, elements, has_template, is_true, p
 use crate::fhir::Entry;
 use crate::fhir::mapping::{ABSENT_UNKNOWN, LOINC, UCUM};
 
+mod activities;
+
 /// One of the sections this version reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Section {
@@ -73,40 +87,60 @@ pub enum Section {
     Results,
     VitalSigns,
     Immunizations,
+    Encounters,
+    Procedures,
+    Notes,
+    SocialHistory,
 }
 
 /// (section, templateId roots, LOINC section code). A section without one of those templateIds is
 /// still read when its code is the LOINC code of the section.
-const SECTIONS: [(Section, [&str; 2], &str); 6] = [
+const SECTIONS: &[(Section, &[&str], &str)] = &[
     (
         Section::Allergies,
-        ["2.16.840.1.113883.10.20.22.2.6", "2.16.840.1.113883.10.20.22.2.6.1"],
+        &["2.16.840.1.113883.10.20.22.2.6", "2.16.840.1.113883.10.20.22.2.6.1"],
         "48765-2",
     ),
     (
         Section::Medications,
-        ["2.16.840.1.113883.10.20.22.2.1", "2.16.840.1.113883.10.20.22.2.1.1"],
+        &["2.16.840.1.113883.10.20.22.2.1", "2.16.840.1.113883.10.20.22.2.1.1"],
         "10160-0",
     ),
     (
         Section::Problems,
-        ["2.16.840.1.113883.10.20.22.2.5", "2.16.840.1.113883.10.20.22.2.5.1"],
+        &["2.16.840.1.113883.10.20.22.2.5", "2.16.840.1.113883.10.20.22.2.5.1"],
         "11450-4",
     ),
     (
         Section::Results,
-        ["2.16.840.1.113883.10.20.22.2.3", "2.16.840.1.113883.10.20.22.2.3.1"],
+        &["2.16.840.1.113883.10.20.22.2.3", "2.16.840.1.113883.10.20.22.2.3.1"],
         "30954-2",
     ),
     (
         Section::VitalSigns,
-        ["2.16.840.1.113883.10.20.22.2.4", "2.16.840.1.113883.10.20.22.2.4.1"],
+        &["2.16.840.1.113883.10.20.22.2.4", "2.16.840.1.113883.10.20.22.2.4.1"],
         "8716-3",
     ),
     (
         Section::Immunizations,
-        ["2.16.840.1.113883.10.20.22.2.2", "2.16.840.1.113883.10.20.22.2.2.1"],
+        &["2.16.840.1.113883.10.20.22.2.2", "2.16.840.1.113883.10.20.22.2.2.1"],
         "11369-6",
+    ),
+    (
+        Section::Encounters,
+        &["2.16.840.1.113883.10.20.22.2.22", "2.16.840.1.113883.10.20.22.2.22.1"],
+        "46240-8",
+    ),
+    (
+        Section::Procedures,
+        &["2.16.840.1.113883.10.20.22.2.7", "2.16.840.1.113883.10.20.22.2.7.1"],
+        "47519-4",
+    ),
+    (Section::Notes, &["2.16.840.1.113883.10.20.22.2.65"], "11488-4"),
+    (
+        Section::SocialHistory,
+        &["2.16.840.1.113883.10.20.22.2.17", "2.16.840.1.113883.10.20.22.2.17.2"],
+        "29762-2",
     ),
 ];
 
@@ -129,6 +163,10 @@ impl Section {
             Section::Results => "results",
             Section::VitalSigns => "vital_signs",
             Section::Immunizations => "immunizations",
+            Section::Encounters => "encounters",
+            Section::Procedures => "procedures",
+            Section::Notes => "notes",
+            Section::SocialHistory => "social_history",
         }
     }
 }
@@ -148,6 +186,8 @@ pub struct SectionReport {
     pub entries: usize,
     /// FHIR resources made from it, by type.
     pub resources: BTreeMap<String, usize>,
+    /// Notes available in the stored XML, with no clinical resource made from them.
+    pub stored_notes: usize,
     /// One line per entry, or part of an entry, that was not read (`observation 2.16.840...`).
     pub not_read: Vec<String>,
     /// The section has narrative text of its own and does not say it has no information (no
@@ -159,6 +199,8 @@ pub struct SectionReport {
 pub struct Converted {
     /// The document's own title.
     pub title: Option<String>,
+    /// Parts of the document header kept only in the uploaded file.
+    pub header_not_read: Vec<String>,
     /// Patient and Composition first, then every resource in document order.
     pub entries: Vec<Entry>,
     pub sections: Vec<SectionReport>,
@@ -200,12 +242,25 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
             add_labels(&mut doc_labels, entry_labels(entry));
         }
     }
+    let narrative = xml::narrative_ids(&doc);
+    // the narrative elements a `<reference>` points at, so text no entry points at is counted
+    let referenced = root
+        .descendants()
+        .filter(|n| n.has_tag_name((xml::NS, "reference")))
+        .filter_map(|n| attr(n, "value"))
+        .filter_map(|v| narrative.get(v.trim_start_matches('#')))
+        .map(|n| n.id())
+        .collect();
     let mut c = Conv {
         text: &text,
-        narrative: xml::narrative_ids(&doc),
+        narrative,
+        referenced,
         read: HashMap::new(),
         source_labels: HashMap::new(),
         narrative_labels: Vec::new(),
+        unread_concepts: Vec::new(),
+        read_originals: HashSet::new(),
+        held: HashSet::new(),
         ids: HashMap::new(),
         patient: None,
         labels: doc_labels.clone(),
@@ -214,6 +269,10 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
         out: Vec::new(),
     };
     c.header(root);
+    let header_not_read: Vec<String> = std::mem::take(&mut c.unread_concepts)
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect();
     let mut sections = Vec::new();
     // sections and their subsections in document order, with a stack instead of recursion; each
     // subsection inherits the labels of the section around it
@@ -245,6 +304,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted> {
     }
     Ok(Converted {
         title: child(root, "title").and_then(xml::text),
+        header_not_read,
         entries: c.out,
         sections,
     })
@@ -381,7 +441,8 @@ pub fn fhir_datetime(ts: &str) -> Option<String> {
         None | Some("+0000" | "-0000") => "Z".to_string(),
         Some(z) => {
             let (h, m) = (z.get(1..3)?, z.get(3..5)?);
-            if !in_range(h, 0, 14) || !in_range(m, 0, 59) {
+            // FHIR offsets run to 14:00 at most
+            if !in_range(h, 0, 14) || !in_range(m, 0, 59) || (h == "14" && m != "00") {
                 return None;
             }
             format!("{}:{}", z.get(..3)?, m)
@@ -405,6 +466,49 @@ fn ts(n: Option<Node<'_, '_>>) -> Option<String> {
         .and_then(fhir_datetime)
 }
 
+/// A point is the start of a period. An interval can have either bound.
+fn period(n: Option<Node<'_, '_>>) -> Option<Value> {
+    let mut r = Map::new();
+    put(&mut r, "start", ts(n).map(Value::String));
+    put(&mut r, "end", bound(n, "high").map(Value::String));
+    (!r.is_empty()).then_some(Value::Object(r))
+}
+
+/// An activity period with any reversed end dropped and listed for review. A bound written but no
+/// date is listed too, and the period keeps the bound that reads.
+fn ordered_period(n: Option<Node<'_, '_>>, of: Node<'_, '_>, rep: &mut SectionReport) -> Option<Value> {
+    let no_date = |b: Option<Node<'_, '_>>| {
+        b.and_then(|b| attr(b, "value"))
+            .is_some_and(|v| fhir_datetime(v).is_none())
+    };
+    if no_date(n) || no_date(n.and_then(|n| child(n, "low"))) {
+        rep.not_read.push(format!("{} (start is not a date)", describe(of)));
+    }
+    if no_date(n.and_then(|n| child(n, "high"))) {
+        rep.not_read.push(format!("{} (end is not a date)", describe(of)));
+    }
+    let mut p = period(n)?;
+    let date = |key: &str| p.get(key).and_then(Value::as_str);
+    if let (Some(start), Some(end)) = (date("start"), date("end")) {
+        let reversed = match (
+            chrono::DateTime::parse_from_rfc3339(start),
+            chrono::DateTime::parse_from_rfc3339(end),
+        ) {
+            (Ok(start), Ok(end)) => end < start,
+            _ => {
+                // Compare the date parts at the precision both bounds have.
+                let len = start.len().min(end.len()).min(10);
+                end.as_bytes()[..len] < start.as_bytes()[..len]
+            }
+        };
+        if reversed && let Value::Object(m) = &mut p {
+            m.shift_remove("end");
+            rep.not_read.push(format!("{} (ends before it starts)", describe(of)));
+        }
+    }
+    Some(p)
+}
+
 fn bound(n: Option<Node<'_, '_>>, which: &'static str) -> Option<String> {
     child(n?, which).and_then(|b| attr(b, "value")).and_then(fhir_datetime)
 }
@@ -419,6 +523,17 @@ fn put(r: &mut Map<String, Value>, key: &str, v: Option<Value>) {
 
 fn coded(system: &str, code: &str) -> Value {
     json!({"coding": [{"system": system, "code": code}]})
+}
+
+fn normalized_text(text: &str) -> String {
+    let mut normalized = String::new();
+    for word in text.split_whitespace() {
+        if !normalized.is_empty() {
+            normalized.push(' ');
+        }
+        normalized.push_str(&word.to_lowercase());
+    }
+    normalized
 }
 
 fn status_of<'a>(n: Node<'a, '_>) -> Option<&'a str> {
@@ -543,7 +658,7 @@ const OBSERVATION_CATEGORY: &str = "http://terminology.hl7.org/CodeSystem/observ
 // ---------------------------------------------------------------- converter ----
 
 enum ObservationValue {
-    Read(&'static str, Value),
+    Read(&'static str, Value, bool),
     Missing,
     Unsupported,
 }
@@ -552,13 +667,22 @@ struct Conv<'a, 'i> {
     /// The whole file, so an entry without an `id` is known by its bytes.
     text: &'i str,
     narrative: HashMap<&'a str, Node<'a, 'i>>,
+    /// The narrative elements a `<reference>` of the document points at.
+    referenced: HashSet<NodeId>,
     /// The text of each narrative element a reference read, so a narrative many entries point at is
     /// read once.
-    read: HashMap<NodeId, Option<String>>,
+    read: HashMap<NodeId, xml::NarrativeText>,
     /// Each referenced section or entry's own labels, shared by all targets inside it.
     source_labels: HashMap<NodeId, Vec<Value>>,
     /// Labels of the narrative used to build the current resource.
     narrative_labels: Vec<Value>,
+    /// Omitted original text in the header or the current section, with the `originalText` and the
+    /// elements around it: a notice inside an element held whole is counted with that hold.
+    unread_concepts: Vec<(Vec<NodeId>, String)>,
+    /// Every `originalText` a coded concept read or compared with what it kept.
+    read_originals: HashSet<NodeId>,
+    /// Elements sent to review whole: the original text inside them is counted with them.
+    held: HashSet<NodeId>,
     /// `<type>/<id>` given so far, to tell apart entries of one file that share an `id`.
     ids: HashMap<String, usize>,
     patient: Option<String>,
@@ -653,52 +777,106 @@ impl<'a, 'i> Conv<'a, 'i> {
         (!out.is_empty()).then_some(Value::Array(out))
     }
 
+    /// Sends a whole element to review: the line that lists it.
+    fn hold(&mut self, el: Node<'_, '_>) -> String {
+        self.held.insert(el.id());
+        describe(el)
+    }
+
+    /// Lists the original text written inside an entry element that no coded concept read: a method,
+    /// a target site, an interpretation. Its words exist only in the uploaded file. A bare reference
+    /// adds no words of its own (they are in the section narrative), and text inside a part already
+    /// held whole is counted with that part.
+    fn unread_original_texts(&mut self, el: Node<'_, '_>, rep: &mut SectionReport) {
+        for original in el.descendants().filter(|n| n.has_tag_name((xml::NS, "originalText"))) {
+            if self.read_originals.contains(&original.id())
+                || !original
+                    .descendants()
+                    .any(|n| n.is_text() && n.text().is_some_and(|t| !t.trim().is_empty()))
+            {
+                continue;
+            }
+            let mut counted = false;
+            for n in std::iter::successors(Some(original), Node::parent_element) {
+                if self.held.contains(&n.id()) || activities::is_note_activity(n) || is_security_observation(n) {
+                    counted = true;
+                }
+                if counted || n == el {
+                    break;
+                }
+            }
+            if !counted {
+                let parent = original
+                    .parent_element()
+                    .map_or("originalText", |p| p.tag_name().name());
+                rep.not_read
+                    .push(format!("{parent} (original text kept in the uploaded file)"));
+            }
+        }
+    }
+
     fn subject(&self) -> Option<Value> {
         self.patient.as_ref().map(|p| json!({"reference": p}))
     }
 
-    /// The text an element holds: the narrative its `<reference value="#x"/>` points at, then any
-    /// words written beside the reference ("2 puffs QID PRN wheezing"), within the bound of a text
-    /// ([`xml::joined`]); else its own.
-    fn narrative_of(&mut self, n: Node<'_, '_>) -> Option<String> {
-        let own = xml::text(n);
-        if let Some(r) = child(n, "reference").and_then(|r| attr(r, "value"))
-            && let Some(&target) = self.narrative.get(r.trim_start_matches('#'))
-            && let Some(t) = self
-                .read
-                .entry(target.id())
-                .or_insert_with(|| xml::text(target))
-                .clone()
+    fn referenced_narrative(&mut self, n: Node<'_, '_>) -> Option<(Node<'a, 'i>, &xml::NarrativeText)> {
+        let reference = child(n, "reference").and_then(|r| attr(r, "value"))?;
+        let &target = self.narrative.get(reference.trim_start_matches('#'))?;
+        let text = self.read.entry(target.id()).or_insert_with(|| xml::read_text(target));
+        Some((target, text))
+    }
+
+    /// Bounded text from the referenced narrative followed by any local words. Either scan can
+    /// hit a limit before finding text. The truncation flag also covers a cut when joining them.
+    fn narrative_of(&mut self, n: Node<'_, '_>) -> xml::NarrativeText {
+        let mut local = xml::read_text(n);
+        let Some((target, text)) = self.referenced_narrative(n) else {
+            return local;
+        };
+        local.truncated |= text.truncated;
+        let Some(referenced) = text.value.clone() else {
+            return local;
+        };
+        // The target can be in a later section or under a restricted parent section.
+        for sec in
+            std::iter::successors(Some(target), Node::parent_element).filter(|n| n.has_tag_name((xml::NS, "section")))
         {
-            // The target can be in a later section or under a restricted parent section.
-            for sec in std::iter::successors(Some(target), Node::parent_element)
-                .filter(|n| n.has_tag_name((xml::NS, "section")))
-            {
-                let labels = self
-                    .source_labels
-                    .entry(sec.id())
-                    .or_insert_with(|| section_labels(sec));
-                if !labels.is_empty() {
-                    add_labels(&mut self.narrative_labels, labels.iter().cloned());
-                }
+            let labels = self
+                .source_labels
+                .entry(sec.id())
+                .or_insert_with(|| section_labels(sec));
+            if !labels.is_empty() {
+                add_labels(&mut self.narrative_labels, labels.iter().cloned());
             }
-            if let Some(entry) =
-                std::iter::successors(Some(target), Node::parent_element).find(|n| n.has_tag_name((xml::NS, "entry")))
-            {
-                let labels = self
-                    .source_labels
-                    .entry(entry.id())
-                    .or_insert_with(|| entry_labels(entry));
-                if !labels.is_empty() {
-                    add_labels(&mut self.narrative_labels, labels.iter().cloned());
-                }
-            }
-            return Some(match own {
-                Some(o) if !t.contains(&o) => xml::joined(&t, &o),
-                _ => t,
-            });
         }
-        own
+        if let Some(entry) =
+            std::iter::successors(Some(target), Node::parent_element).find(|n| n.has_tag_name((xml::NS, "entry")))
+        {
+            let labels = self
+                .source_labels
+                .entry(entry.id())
+                .or_insert_with(|| entry_labels(entry));
+            if !labels.is_empty() {
+                add_labels(&mut self.narrative_labels, labels.iter().cloned());
+            }
+        }
+        local.value = Some(match local.value {
+            // a local label inside a narrative word ("reactive" in "nonreactive") is a label of its own
+            Some(own) if normalized_text(&referenced) != normalized_text(&own) => {
+                local.truncated |= xml::joined_cuts(&referenced, &own);
+                xml::joined(&referenced, &own)
+            }
+            _ => referenced,
+        });
+        local
+    }
+
+    fn reported_narrative(&mut self, n: Node<'_, '_>, field: &str, rep: &mut SectionReport) -> xml::NarrativeText {
+        let text = self.narrative_of(n);
+        if text.truncated {
+            rep.not_read.push(format!("{field} (text scan limit reached)"));
+        }
+        text
     }
 
     fn coding(n: Node<'_, '_>) -> Option<Value> {
@@ -714,10 +892,9 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some(Value::Object(c))
     }
 
-    /// A CD as a CodeableConcept: its code and translations, and a text (displayName, else the
-    /// original text). `skip` leaves codes out (the generic "substance" of a negated allergy).
-    fn concept_without(&mut self, n: Option<Node<'_, '_>>, skip: &[&str]) -> Option<Value> {
-        let n = n?;
+    /// A CD as a CodeableConcept: its code and translations, and a text. `skip` leaves codes out
+    /// (the generic "substance" of a negated allergy). Only encounter types prefer original text.
+    fn concept_data(&mut self, n: Node<'_, '_>, skip: &[&str], prefer_original: bool) -> Option<Value> {
         let keep = |c: &Node<'_, '_>| attr(*c, "code").is_none_or(|code| !skip.contains(&code));
         let mut codings: Vec<Value> = std::iter::once(n)
             .filter(keep)
@@ -727,8 +904,10 @@ impl<'a, 'i> Conv<'a, 'i> {
         codings.dedup();
         let own_display = attr(n, "displayName").filter(|_| keep(&n));
         let text = own_display
+            .filter(|_| !prefer_original)
             .map(String::from)
-            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o)));
+            .or_else(|| child(n, "originalText").and_then(|o| self.narrative_of(o).value))
+            .or_else(|| own_display.map(String::from));
         if codings.is_empty() && text.is_none() {
             return None;
         }
@@ -741,14 +920,50 @@ impl<'a, 'i> Conv<'a, 'i> {
     }
 
     fn concept(&mut self, n: Option<Node<'_, '_>>) -> Option<Value> {
-        self.concept_without(n, &[])
+        self.reported_concept(n, &[], false)
+    }
+
+    fn reported_concept(&mut self, n: Option<Node<'_, '_>>, skip: &[&str], prefer_original: bool) -> Option<Value> {
+        let n = n?;
+        let concept = self.concept_data(n, skip, prefer_original);
+        let originals: Vec<_> = std::iter::once(n)
+            .chain(children(n, "translation"))
+            .filter_map(|code| Some((code.tag_name().name(), child(code, "originalText")?)))
+            .collect();
+        if !originals.is_empty() {
+            // Compare the original even if its scan found no words and there is no concept.
+            let kept = concept.as_ref().unwrap_or(&Value::Null);
+            let displays: HashSet<_> = kept["text"]
+                .as_str()
+                .into_iter()
+                .chain(
+                    kept["coding"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|coding| coding["display"].as_str()),
+                )
+                .map(normalized_text)
+                .collect();
+            for (field, original) in originals {
+                self.read_originals.insert(original.id());
+                if self.unread_original_text(original, &displays) {
+                    let around = std::iter::successors(Some(original), Node::parent_element)
+                        .map(|n| n.id())
+                        .collect();
+                    self.unread_concepts
+                        .push((around, format!("{field} (original text kept in the uploaded file)")));
+                }
+            }
+        }
+        concept
     }
 
     /// Whether a negated entry's concept names nothing: absent, null, or only a generic concept. The
     /// original text of a generic code ("Problem" pointing at "no known problems") names nothing either.
     fn names_nothing(&mut self, n: Option<Node<'_, '_>>) -> bool {
         let generic = n.and_then(|n| attr(n, "code")).is_some_and(|c| GENERIC.contains(&c));
-        match self.concept_without(n, &GENERIC) {
+        match n.and_then(|n| self.concept_data(n, &GENERIC, false)) {
             None => true,
             Some(cc) => generic && cc.get("coding").is_none(),
         }
@@ -861,7 +1076,12 @@ impl<'a, 'i> Conv<'a, 'i> {
             code: child(sec, "code").and_then(|c| attr(c, "code")).map(String::from),
             kind: Section::of(sec),
             entries: entries.len(),
-            narrative: attr(sec, "nullFlavor").is_none() && child(sec, "text").and_then(xml::text).is_some(),
+            // A text cut before its first word still holds narrative the converter did not read.
+            narrative: attr(sec, "nullFlavor").is_none()
+                && child(sec, "text").is_some_and(|t| {
+                    let text = xml::read_text(t);
+                    text.value.is_some() || text.truncated
+                }),
             pointer,
             ..SectionReport::default()
         };
@@ -876,12 +1096,18 @@ impl<'a, 'i> Conv<'a, 'i> {
                 break; // the file is refused once its sections stop
             }
             let at = format!("{}/entry/{j}", rep.pointer);
+            if elements(entry).next().is_none() {
+                rep.not_read.push("entry (no activity)".into());
+                continue;
+            }
+            rep.stored_notes += entry.descendants().filter(|n| activities::is_note_activity(*n)).count();
             self.labels = labels.clone();
             add_labels(&mut self.labels, entry_labels(entry));
             for (k, el) in elements(entry).enumerate() {
                 let at = if k == 0 { at.clone() } else { format!("{at}/{k}") };
-                if is_security_observation(el) {
-                    continue; // read above, as a label of the section
+                self.narrative_labels.clear();
+                if is_security_observation(el) || activities::is_note_activity(el) {
+                    continue; // counted above as a label or a stored note
                 }
                 let read = match (kind, el.tag_name().name()) {
                     (Section::Allergies, "act") => self.allergy_concern(el, &at, &mut rep),
@@ -889,7 +1115,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                         self.allergy(el, None, &at, &mut rep);
                         true
                     }
-                    (Section::Problems, "act") => self.concern(el, &at, &mut rep, Self::problem),
+                    (Section::Problems, "act") => self.problem_concern(el, &at, &mut rep),
                     (Section::Problems, "observation") => {
                         self.problem(el, None, &at, &mut rep);
                         true
@@ -907,29 +1133,62 @@ impl<'a, 'i> Conv<'a, 'i> {
                     (Section::VitalSigns, "observation") => {
                         self.observation(el, None, "vital-signs", &at, &mut rep).is_some()
                     }
+                    (Section::Encounters, "encounter") => self.encounter(el, &at, &mut rep),
+                    (Section::Procedures, "procedure" | "act") => self.procedure(el, &at, &mut rep),
+                    (Section::Procedures | Section::SocialHistory, "observation") => {
+                        self.activity_observation(el, &at, &mut rep)
+                    }
                     _ => false,
                 };
-                if !read {
-                    rep.not_read.push(describe(el));
+                if read {
+                    self.unread_original_texts(el, &mut rep);
+                } else {
+                    rep.not_read.push(self.hold(el));
                 }
             }
         }
+        if kind == Section::Notes && rep.narrative && rep.stored_notes == 0 {
+            rep.stored_notes = 1;
+        } else if rep.narrative
+            && rep.entries > 0
+            && let Some(words) = child(sec, "text")
+                .map(|t| self.unreferenced_words(t))
+                .filter(|w| *w > 0)
+        {
+            let unit = if words == 1 { "word" } else { "words" };
+            rep.not_read
+                .push(format!("section text no entry points at ({words} {unit})"));
+        }
         self.labels = self.doc_labels.clone();
+        for (around, line) in std::mem::take(&mut self.unread_concepts) {
+            if !around.iter().any(|id| self.held.contains(id)) {
+                rep.not_read.push(line);
+            }
+        }
         (rep, labels)
     }
 
+    /// Words in the blocks of a section's text that no `<reference>` points into: a paragraph, list,
+    /// table or loose words at the top of the text that hold no referenced element. A block that holds
+    /// one shows an entry read with it; any other block was read by nothing.
+    fn unreferenced_words(&self, text: Node<'_, '_>) -> usize {
+        if self.referenced.contains(&text.id()) {
+            return 0;
+        }
+        text.children()
+            .filter(|block| !block.descendants().any(|n| self.referenced.contains(&n.id())))
+            .flat_map(|block| block.descendants())
+            .filter_map(|n| n.is_text().then(|| n.text()).flatten())
+            .map(|t| t.split_whitespace().count())
+            .sum()
+    }
+
     /// A problem concern act: one Condition per SUBJ observation. False when it holds none.
-    fn concern(
-        &mut self,
-        act: Node<'_, '_>,
-        at: &str,
-        rep: &mut SectionReport,
-        each: fn(&mut Self, Node<'_, '_>, Option<Node<'_, '_>>, &str, &mut SectionReport),
-    ) -> bool {
+    fn problem_concern(&mut self, act: Node<'_, '_>, at: &str, rep: &mut SectionReport) -> bool {
         let subjects: Vec<Node<'_, '_>> = related(act, Some("SUBJ")).collect();
         for (i, obs) in subjects.iter().enumerate() {
             let at = if i == 0 { at.to_string() } else { format!("{at}#{i}") };
-            each(self, *obs, Some(act), &at, rep);
+            self.problem(*obs, Some(act), &at, rep);
         }
         !subjects.is_empty()
     }
@@ -946,7 +1205,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             if roots.is_empty() || roots.contains(&ALLERGY_OBSERVATION) {
                 allergies.push(obs);
             } else if !(roots.contains(&SEVERITY_OBSERVATION) && severity_of(obs).is_some()) {
-                left.push(describe(obs));
+                left.push(self.hold(obs));
             }
         }
         for (i, obs) in allergies.iter().enumerate() {
@@ -1012,7 +1271,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 json!([{
                     "url": "http://hl7.org/fhir/StructureDefinition/allergyintolerance-substanceExposureRisk",
                     "extension": [
-                        {"url": "substance", "valueCodeableConcept": self.concept_without(allergen, &GENERIC)},
+                        {"url": "substance", "valueCodeableConcept": self.reported_concept(allergen, &GENERIC, false)},
                         {"url": "exposureRisk", "valueCodeableConcept": coded(
                             "http://terminology.hl7.org/CodeSystem/allerg-intol-substance-exp-risk",
                             "no-known-reaction-risk")},
@@ -1063,7 +1322,13 @@ impl<'a, 'i> Conv<'a, 'i> {
         self.push(Some(rep), at, Value::Object(r));
     }
 
-    fn problem(&mut self, obs: Node<'_, '_>, act: Option<Node<'_, '_>>, at: &str, rep: &mut SectionReport) {
+    fn problem(
+        &mut self,
+        obs: Node<'_, '_>,
+        act: Option<Node<'_, '_>>,
+        at: &str,
+        rep: &mut SectionReport,
+    ) -> Option<String> {
         let negated = is_true(obs, "negationInd");
         let value = child(obs, "value");
         let nodes: Vec<Node<'_, '_>> = act.into_iter().chain([obs]).collect();
@@ -1077,8 +1342,8 @@ impl<'a, 'i> Conv<'a, 'i> {
             // con-4: an abated condition is never active. The status observation and the end date
             // disagree, so a person decides
             rep.not_read
-                .push(format!("{} (status active with an end date)", describe(obs)));
-            return;
+                .push(format!("{} (status active with an end date)", self.hold(obs)));
+            return None;
         }
         let nothing = negated && self.names_nothing(value);
         let verification = if nullified {
@@ -1105,10 +1370,15 @@ impl<'a, 'i> Conv<'a, 'i> {
                 verification,
             ),
         );
+        let (category, display) = if rep.kind == Some(Section::Encounters) {
+            ("encounter-diagnosis", "Encounter Diagnosis")
+        } else {
+            ("problem-list-item", "Problem List Item")
+        };
         r.insert(
             "category".into(),
             json!([{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-category",
-                "code": "problem-list-item", "display": "Problem List Item"}]}]),
+                "code": category, "display": display}]}]),
         );
         if nothing {
             r.insert("code".into(), absent("no-known-problems", "no known problems"));
@@ -1129,6 +1399,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             .or_else(|| author_time(obs));
         put(&mut r, "recordedDate", recorded.map(Value::String));
         self.push(Some(rep), at, Value::Object(r));
+        Some(id)
     }
 
     fn material<'b, 'j>(sa: Node<'b, 'j>) -> Option<Node<'b, 'j>> {
@@ -1219,7 +1490,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             .find(|s| has_template(*s, &["2.16.840.1.113883.10.20.22.4.147"]))
             .and_then(|s| child(s, "text"))
             .or_else(|| child(sa, "text"))
-            .and_then(|t| self.narrative_of(t));
+            .and_then(|t| self.reported_narrative(t, "medication instructions", rep).value);
         put(&mut dosage, "text", sig.map(Value::String));
         put(&mut dosage, "timing", repeat.map(|rp| json!({"repeat": rp})));
         put(&mut dosage, "route", self.concept(child(sa, "routeCode")));
@@ -1242,7 +1513,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             {
                 as_needed = Some(cc);
             } else {
-                unread.push(describe(criterion));
+                unread.push(self.hold(criterion));
             }
         }
         put(&mut dosage, "asNeededCodeableConcept", as_needed);
@@ -1261,7 +1532,8 @@ impl<'a, 'i> Conv<'a, 'i> {
         self.push(Some(rep), at, Value::Object(r));
         // a supply order or a dispense of the medicine is no record this version reads
         for supply in children(sa, "entryRelationship").flat_map(|er| children(er, "supply")) {
-            rep.not_read.push(describe(supply));
+            let line = self.hold(supply);
+            rep.not_read.push(line);
         }
         rep.not_read.extend(unread);
     }
@@ -1350,7 +1622,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 };
                 match id {
                     Some(id) => refs.push(json!({"reference": format!("Observation/{id}")})),
-                    None => rep.not_read.push(describe(el)),
+                    None => rep.not_read.push(self.hold(el)),
                 }
             }
         }
@@ -1406,7 +1678,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                 if read {
                     any = true;
                 } else {
-                    rep.not_read.push(describe(el));
+                    rep.not_read.push(self.hold(el));
                 }
             }
         }
@@ -1432,12 +1704,24 @@ impl<'a, 'i> Conv<'a, 'i> {
         r.insert("category".into(), json!([coded(OBSERVATION_CATEGORY, category)]));
         r.insert("code".into(), code);
         put(&mut r, "subject", self.subject());
-        let when = ts(child(obs, "effectiveTime")).or_else(|| organizer.and_then(|o| ts(child(o, "effectiveTime"))));
-        put(&mut r, "effectiveDateTime", when.map(Value::String));
+        let time = child(obs, "effectiveTime");
+        let activity = matches!(rep.kind, Some(Section::Procedures | Section::SocialHistory));
+        if activity && time.is_some_and(|t| child(t, "low").is_some() || child(t, "high").is_some()) {
+            put(&mut r, "effectivePeriod", ordered_period(time, obs, rep));
+        } else {
+            let when = ts(time).or_else(|| organizer.and_then(|o| ts(child(o, "effectiveTime"))));
+            put(&mut r, "effectiveDateTime", when.map(Value::String));
+        }
+        if activity {
+            put(&mut r, "note", self.activity_note(obs, rep));
+        }
         if let Some(v) = child(obs, "value") {
-            match self.value(v) {
-                ObservationValue::Read(field, value) => {
+            match self.value(v, rep) {
+                ObservationValue::Read(field, value, unread_text) => {
                     r.insert(field.into(), value);
+                    if unread_text {
+                        rep.not_read.push("observation (text beside a typed value)".into());
+                    }
                 }
                 ObservationValue::Missing => {}
                 ObservationValue::Unsupported => {
@@ -1466,7 +1750,7 @@ impl<'a, 'i> Conv<'a, 'i> {
                     &mut out,
                     "text",
                     child(range, "text")
-                        .and_then(|t| self.narrative_of(t))
+                        .and_then(|t| self.reported_narrative(t, "reference range", rep).value)
                         .map(Value::String),
                 );
                 (!out.is_empty()).then_some(Value::Object(out))
@@ -1479,8 +1763,27 @@ impl<'a, 'i> Conv<'a, 'i> {
         Some(id)
     }
 
+    /// Compare originalText with the retained text and coding displays without copying source labels.
+    /// A truncated originalText always has a part the converter could not read.
+    fn unread_original_text(&mut self, original: Node<'_, '_>, displays: &HashSet<String>) -> bool {
+        let retained = |text: &str| displays.contains(&normalized_text(text));
+        let own = xml::read_text(original);
+        let target = self.referenced_narrative(original).map(|(_, text)| text);
+        if own.truncated || target.is_some_and(|text| text.truncated) {
+            return true;
+        }
+        match (target.and_then(|text| text.value.as_deref()), own.value.as_deref()) {
+            (Some(target), Some(text)) if normalized_text(target) != normalized_text(text) => {
+                !retained(&format!("{target}; {text}"))
+            }
+            (Some(target), _) => !retained(target),
+            (None, Some(text)) => !retained(text),
+            (None, None) => false,
+        }
+    }
+
     /// Read an observation's value by its CDA type, distinguishing absent and unread values.
-    fn value(&mut self, v: Node<'_, '_>) -> ObservationValue {
+    fn value(&mut self, v: Node<'_, '_>, rep: &mut SectionReport) -> ObservationValue {
         let kind = xsi_type(v).unwrap_or(if attr(v, "code").is_some() {
             "CD"
         } else if attr(v, "value").is_some() {
@@ -1550,16 +1853,24 @@ impl<'a, 'i> Conv<'a, 'i> {
                 .map(|date| ("valueDateTime", Value::String(date))),
             // A ratio is not read; the arms below list it unless it is null.
             "RTO" | "RTO_PQ_PQ" => None,
-            _ => self.narrative_of(v).map(|text| ("valueString", Value::String(text))),
-        };
-        match field {
-            Some((key, value)) => ObservationValue::Read(key, value),
-            None if v
-                .children()
-                .any(|n| n.is_text() && n.text().is_some_and(|text| !text.trim().is_empty())) =>
-            {
-                ObservationValue::Unsupported
+            _ => {
+                let text = self.reported_narrative(v, "observation value", rep);
+                if text.truncated && text.value.is_none() {
+                    return ObservationValue::Missing; // the incomplete value is already listed
+                }
+                text.value.map(|text| ("valueString", Value::String(text)))
             }
+        };
+        let inline_text = v
+            .children()
+            .any(|n| n.is_text() && n.text().is_some_and(|text| !text.trim().is_empty()));
+        let structured = matches!(
+            kind,
+            "PQ" | "REAL" | "MO" | "IVL_PQ" | "CD" | "CE" | "CV" | "CO" | "CS" | "INT" | "BL" | "TS"
+        );
+        match field {
+            Some((key, value)) => ObservationValue::Read(key, value, structured && inline_text),
+            None if inline_text => ObservationValue::Unsupported,
             // Checked after the type: a coded value outside the value set is `nullFlavor="OTH"`
             // with its translation or original text, and that is still the result.
             None if attr(v, "nullFlavor").is_some() => ObservationValue::Missing,
@@ -1740,6 +2051,21 @@ mod tests {
             assert_eq!(fhir_datetime(bad), None, "{bad}");
         }
         assert_eq!(fhir_date("20141015103026-0500").as_deref(), Some("2014-10-15"));
+    }
+
+    /// F69-m2: FHIR offsets end at 14:00; +1430 is no time zone, +1400 still reads.
+    #[test]
+    fn an_offset_past_fourteen_hours_is_no_time_zone() {
+        assert_eq!(fhir_datetime("20141015103026+1430"), None);
+        assert_eq!(fhir_datetime("20141015103026-1401"), None);
+        assert_eq!(
+            fhir_datetime("20141015103026+1400").as_deref(),
+            Some("2014-10-15T10:30:26+14:00")
+        );
+        assert_eq!(
+            fhir_datetime("20141015103026-1359").as_deref(),
+            Some("2014-10-15T10:30:26-13:59")
+        );
     }
 
     /// C-F8: a day the month does not have is no date.

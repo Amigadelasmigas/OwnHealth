@@ -641,7 +641,7 @@ async fn a_concurrent_first_save_cannot_replace_a_client_as_its_first_connection
 }
 
 #[tokio::test]
-async fn a_first_launch_at_an_address_with_no_smart_configuration_says_so() -> R {
+async fn a_first_launch_reports_missing_smart_configuration_and_dns_outages_separately() -> R {
     let env = env().await?;
     let fake = Fake::recorded("oracle").await;
     let mut c = alex(&env).await?;
@@ -653,10 +653,9 @@ async fn a_first_launch_at_an_address_with_no_smart_configuration_says_so() -> R
         .await?;
     assert_eq!(saved.status, StatusCode::CREATED, "{}", saved.json);
     let id = saved.json["client"]["id"].clone();
-    // a path with no SMART document, and a name that does not resolve
-    for issuer in [
-        format!("{}/es", fake.issuer()),
-        "https://fhir.nowhere.invalid/r4".to_string(),
+    for (issuer, expected) in [
+        (format!("{}/es", fake.issuer()), "502 not_a_smart_server"),
+        ("https://fhir.nowhere.invalid/r4".to_string(), "502 vendor_unreachable"),
     ] {
         let r = c
             .post(
@@ -664,7 +663,7 @@ async fn a_first_launch_at_an_address_with_no_smart_configuration_says_so() -> R
                 &json!({"profile_id": env.profile("alex"), "client_id": id, "issuer": issuer}),
             )
             .await?;
-        assert_eq!(refusal(&r), "502 not_a_smart_server", "{issuer}: {}", r.json);
+        assert_eq!(refusal(&r), expected, "{issuer}: {}", r.json);
     }
     // the right address still launches
     let r = c

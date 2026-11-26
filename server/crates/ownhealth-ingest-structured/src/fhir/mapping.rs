@@ -221,11 +221,42 @@ pub fn parse_date(v: Option<&Value>) -> Option<NaiveDate> {
     parse_datetime(v).map(|d| d.date_naive())
 }
 
+/// Sensitive questions and assessments that can arrive as unlabelled Social History.
+fn social_history_sensitivity(code: &str) -> Option<&'static str> {
+    Some(match code {
+        // Sexual orientation and activity history (including the FPAR questions).
+        "64728-9" | "76690-7" | "83314-5" | "83315-2" | "83316-0" | "86646-7" | "86647-5" | "86648-3" => {
+            "sexual_health"
+        }
+        // Pregnancy status, intent, dates and contraception.
+        "8665-2" | "11449-6" | "11778-8" | "82810-3" | "86642-6" | "86645-9" | "86649-1" | "86650-9" => "reproductive",
+        // PHQ-2, PHQ-9 and GAD-7 panels and scores.
+        "44249-1" | "44261-6" | "55757-9" | "55758-7" | "69737-5" | "70274-6" => "mental_health",
+        _ => return None,
+    })
+}
+
 pub fn sensitivity(resource: &Value) -> Vec<String> {
-    let tags: BTreeSet<&str> = list(resource.get("meta"), "security")
+    let mut tags: BTreeSet<&str> = list(resource.get("meta"), "security")
         .iter()
         .filter_map(|s| s.get("code").and_then(Value::as_str).and_then(security_tag))
         .collect();
+    if resource["resourceType"] == "Observation"
+        && list(Some(resource), "category").iter().any(|category| {
+            list(Some(category), "coding")
+                .iter()
+                .any(|coding| coding["code"] == "social-history")
+        })
+    {
+        for observation in std::iter::once(resource).chain(list(Some(resource), "component")) {
+            tags.extend(
+                list(observation.get("code"), "coding")
+                    .iter()
+                    .filter(|coding| coding["system"] == LOINC)
+                    .filter_map(|coding| coding["code"].as_str().and_then(social_history_sensitivity)),
+            );
+        }
+    }
     tags.into_iter().map(String::from).collect()
 }
 

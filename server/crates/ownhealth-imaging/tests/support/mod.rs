@@ -295,10 +295,53 @@ pub fn hospital_cd(studies: &[Study]) -> Vec<(String, Vec<u8>)> {
 }
 
 pub fn zip_files(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    zip_files_as(files, zip::CompressionMethod::Deflated)
+}
+
+/// The same with every member stored as it is, so a test can change a member's bytes in place.
+pub fn zip_files_stored(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    zip_files_as(files, zip::CompressionMethod::Stored)
+}
+
+/// The last member of a [zip_files_stored] fixture rewritten as deflated, with `stream` as its data:
+/// a raw deflate stream the test wrote by hand for a member that should hold `size` bytes.
+pub fn zip_last_entry_as_deflated(
+    files: &[(String, Vec<u8>)],
+    stream: Vec<u8>,
+    size: usize,
+) -> anyhow::Result<Vec<u8>> {
+    let mut members = files.to_vec();
+    let last = members.last_mut().ok_or_else(|| anyhow::anyhow!("no member"))?;
+    last.1 = stream;
+    let mut zip = zip_files_stored(&members);
+    let central = last_zip_entry_header(&zip)?;
+    let local = u32::from_le_bytes(zip[central + 42..central + 46].try_into()?) as usize;
+    let size = u32::try_from(size)?.to_le_bytes();
+    for (method, uncompressed) in [(central + 10, central + 24), (local + 8, local + 22)] {
+        zip[method..method + 2].copy_from_slice(&8u16.to_le_bytes());
+        zip[uncompressed..uncompressed + 4].copy_from_slice(&size);
+    }
+    Ok(zip)
+}
+
+/// `data` as raw deflate stored blocks (no compression), without the final block.
+pub fn deflate_stored_blocks(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for chunk in data.chunks(0xFFFF) {
+        let len = u16::try_from(chunk.len()).unwrap_or(u16::MAX);
+        out.push(0);
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&(!len).to_le_bytes());
+        out.extend_from_slice(chunk);
+    }
+    out
+}
+
+fn zip_files_as(files: &[(String, Vec<u8>)], method: zip::CompressionMethod) -> Vec<u8> {
     let mut out = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut out);
-        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let opts = zip::write::SimpleFileOptions::default().compression_method(method);
         zip.add_directory("DICOM/", opts).unwrap_or_else(|e| panic!("zip: {e}"));
         for (name, bytes) in files {
             zip.start_file(name.as_str(), opts)

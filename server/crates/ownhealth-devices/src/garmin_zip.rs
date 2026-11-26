@@ -869,6 +869,17 @@ async fn import_document(
     Ok(Some(out))
 }
 
+fn archive_result(export: &ExportSettings, out: Value) -> jobs::HandlerResult {
+    // Every Fitbit import that brought readings has a projected document. A committed empty
+    // report is a refusal, even if a new worker has to finish it after the raw ZIP was removed.
+    // The report is already in job.result (committed with the readings), and a dead job keeps it,
+    // so the omitted files still show.
+    if export.flag == takeout_fitbit::EXPORT.flag && out[export.flag]["files_imported"] == 0 {
+        return Err(JobError::permanent(takeout_fitbit::NO_READINGS));
+    }
+    Ok(Some(out))
+}
+
 pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jobs::HandlerResult {
     let channel = job
         .str("channel")
@@ -892,7 +903,7 @@ pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jo
         .await?;
     if let Some(out) = previous {
         fit::forget_upload(&ctx, profile, sha, job.id).await;
-        return Ok(Some(out));
+        return archive_result(&export, out);
     }
     let (worker_ctx, worker_sha) = (ctx.clone(), sha.to_owned());
     let prepared =
@@ -938,7 +949,7 @@ pub(crate) async fn run(ctx: JobContext, job: Job, export: ExportSettings) -> jo
         .await?;
     tx.commit().await?;
     fit::forget_upload(&ctx, profile, sha, job.id).await;
-    Ok(Some(out))
+    archive_result(&export, out)
 }
 
 async fn release_source_items(conn: &mut PgConnection, profile: Uuid, sha: &str, document: Option<Uuid>) -> Result<()> {
@@ -1041,6 +1052,24 @@ mod tests {
             Err(Error::Upload(code)) if code == LIMIT
         ));
         Ok(())
+    }
+
+    /// flate2 reports a corrupt deflate stream as InvalidInput and a cut one as UnexpectedEof. The
+    /// upload bytes never heal, so the member is listed as damaged. Storage errors of the same kinds
+    /// come through ArchiveReader as Other and stay retryable.
+    #[test]
+    fn a_member_that_does_not_inflate_is_damaged_and_a_storage_error_retries() {
+        for kind in [io::ErrorKind::InvalidInput, io::ErrorKind::UnexpectedEof] {
+            assert!(!read_member(FailedRead(|| kind.into()), 10, &mut Vec::new()).expect("damaged member"));
+            assert!(matches!(
+                zip_error(ZipError::Io(kind.into()), &GARMIN),
+                Error::Upload(code) if code == GARMIN.unreadable
+            ));
+            let storage = read_member(ArchiveReader(FailedRead(|| kind.into())), 10, &mut Vec::new());
+            let error = storage.expect_err("storage failure");
+            assert_eq!(error.kind(), io::ErrorKind::Other);
+            assert!(matches!(zip_error(error.into(), &GARMIN), Error::Io(_)));
+        }
     }
 
     #[test]
