@@ -61,8 +61,13 @@
       "file": "string",
       "key": "string",
       "name": {
+        "ca": "string",
+        "de": "string",
         "en": "string",
-        "es": "string"
+        "es": "string",
+        "fr": "string",
+        "it": "string",
+        "pt": "string"
       },
       "source": "string"
     }
