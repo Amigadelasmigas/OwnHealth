@@ -725,13 +725,14 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
     let mut failed = Vec::new();
     // A failed re-read of days a vendor already stored: named, and the vendor goes on after its cursor.
     let mut skipped = Vec::new();
-    // A vendor that sent rows that do not read, while no row of it was new to OwnHealth: nothing of it
-    // arrives. A re-read of rows already stored is not news, so it does not hide the rows that do not read.
+    // A vendor that stored a new usable row (a sample or score that was not stored yet): something of it
+    // arrives. A re-read of rows already stored is not news.
+    let mut stored = Vec::new();
+    // A vendor that sent rows that do not read, and no new usable row: nothing of it arrives.
     let mut unreadable = Vec::new();
     let unreadable_rows = |out: &RunOutcome| out.skipped.get("unreadable_row").copied().unwrap_or(0);
     for &provider in &active {
-        let unreadable_before = unreadable_rows(&out);
-        let mut new_rows = 0;
+        let (new_before, unreadable_before) = (out.new, unreadable_rows(&out));
         let stored_until = mark(cursor.as_ref(), provider).map(|t| t.min(now));
         let mut from = stored_until.map_or(now - Duration::days(BACKFILL_DAYS), |t| {
             t - Duration::days(OVERLAP_DAYS)
@@ -764,19 +765,19 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                     break;
                 }
             };
-            let Some((next, stored)) =
-                store_day(ctx, source, &binding, cursor.as_ref(), provider, to, bundle, &mut out).await?
+            let Some(next) = store_day(ctx, source, &binding, cursor.as_ref(), provider, to, bundle, &mut out).await?
             else {
                 // The binding changed while the day was read (rotated, deleted, switched off). This run
                 // read with the old one, so it must not count as a sync of the new one.
                 return Err(binding_changed());
             };
             cursor = Some(next);
-            new_rows += stored;
             from = to;
         }
         // Judged for a vendor that then failed too, so a failure does not hide it.
-        if unreadable_rows(&out) > unreadable_before && new_rows == 0 {
+        if out.new > new_before {
+            stored.push(provider);
+        } else if unreadable_rows(&out) > unreadable_before {
             unreadable.push(provider);
         }
     }
@@ -795,6 +796,7 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
             let mut health = ConnectionHealth {
                 seen_since: None,
                 failing_since: None,
+                unreadable_since: None,
                 observed_at: Some(now),
                 ..*report
             };
@@ -811,19 +813,27 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                     }
                     // A vendor whose new days do not read counts from its first such poll, until a
                     // poll stores newer days for it. Another vendor's success does not clear it.
-                    // Its cursor moves over the days it read, even when none of their rows read; such a
-                    // move is no progress, and the clock goes on until a new row of it reads.
-                    let unreadable = unreadable.contains(&vendor.as_str());
                     if failed.iter().any(|(stopped, _)| *stopped == vendor.as_str()) {
                         let moved = mark(cursor.as_ref(), vendor) != mark(binding.cursor.as_ref(), vendor);
-                        let progress = moved && !unreadable;
                         health.failing_since =
-                            Some(known.and_then(|p| p.failing_since).filter(|_| !progress).unwrap_or(now));
-                    } else if unreadable {
-                        health.failing_since = Some(known.and_then(|p| p.failing_since).unwrap_or(now));
+                            Some(known.and_then(|p| p.failing_since).filter(|_| !moved).unwrap_or(now));
                     }
+                    // Its cursor moves over days whose rows do not read, and its old rows leave the
+                    // re-read window: this clock goes on through polls that bring nothing new of it,
+                    // until one stores a new usable row of it.
+                    let kept = known.and_then(|p| p.unreadable_since);
+                    health.unreadable_since = if unreadable.contains(&vendor.as_str()) {
+                        Some(kept.unwrap_or(now))
+                    } else if stored.contains(&vendor.as_str()) {
+                        None
+                    } else {
+                        kept
+                    };
                 }
-                Status::Expired | Status::Revoked => health.failing_since = known.and_then(|p| p.failing_since),
+                Status::Expired | Status::Revoked => {
+                    health.failing_since = known.and_then(|p| p.failing_since);
+                    health.unreadable_since = known.and_then(|p| p.unreadable_since);
+                }
             }
             (vendor.clone(), health)
         })
@@ -942,12 +952,12 @@ async fn store_day(
     to: DateTime<Utc>,
     bundle: Bundle,
     out: &mut RunOutcome,
-) -> Result<Option<(Value, usize)>> {
+) -> Result<Option<Value>> {
     let mut tx = ctx.pool.begin().await?;
     if !lock_live_binding(&mut tx, source, binding, cursor).await? {
         return Ok(None);
     }
-    let new_rows = archive_new_rows(ctx, &mut tx, source, binding.profile, &bundle).await?;
+    archive_new_rows(ctx, &mut tx, source, binding.profile, &bundle).await?;
     write(&mut tx, source, binding.profile, bundle, out).await?;
     let mut next = cursor.cloned().unwrap_or_else(|| json!({}));
     if mark(cursor, provider).is_none_or(|t| t < to) {
@@ -959,7 +969,7 @@ async fn store_day(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(Some((next, new_rows)))
+    Ok(Some(next))
 }
 
 /// A row's archive key: its kind and the first 128 bits of the SHA-256 of its content.
@@ -970,15 +980,14 @@ fn row_key<T: Serialize>(kind: &str, row: &T) -> Result<String> {
     Ok(format!("ow{kind}:{}", &digest[..32]))
 }
 
-/// Archive each distinct payload once, before projecting the day's samples and scores. Returns how many
-/// rows were new.
+/// Archive each distinct payload once, before projecting the day's samples and scores.
 async fn archive_new_rows(
     ctx: &JobContext,
     conn: &mut PgConnection,
     source: Uuid,
     profile: Uuid,
     bundle: &Bundle,
-) -> Result<usize> {
+) -> Result<()> {
     fn keyed<'a, T: Serialize>(kind: &str, rows: &'a [T]) -> Result<Vec<(String, &'a T)>> {
         rows.iter().map(|row| Ok((row_key(kind, row)?, row))).collect()
     }
@@ -995,7 +1004,7 @@ async fn archive_new_rows(
     }
 
     if bundle.is_empty() {
-        return Ok(0);
+        return Ok(());
     }
     let daily = keyed("d", &bundle.daily)?;
     let raw = keyed("r", &bundle.raw)?;
@@ -1021,7 +1030,7 @@ async fn archive_new_rows(
         scores: unseen(scores, &mut seen, &mut new_keys),
     };
     if fresh.is_empty() {
-        return Ok(0);
+        return Ok(());
     }
     let bytes = serde_json::to_vec(&fresh).map_err(ownhealth_core::Error::from)?;
     let (stored, _) = store_bytes(&ctx.blobs, BlobOwner::Profile(profile), bytes).await?;
@@ -1035,7 +1044,7 @@ async fn archive_new_rows(
     .bind(profile)
     .execute(&mut *conn)
     .await?;
-    Ok(new_keys.len())
+    Ok(())
 }
 
 fn metric(series: &str, unit: &str, value: f64) -> Option<(&'static str, f64)> {

@@ -847,8 +847,8 @@ async fn a_vendor_with_an_unreadable_row_or_answer_holds_no_other_vendor_back() 
     assert_eq!(env.count(hr).await?, 1);
     let oura = env.mark(id, "oura").await?.expect("Oura's cursor moved");
     let polar = env.mark(id, "polar").await?.expect("Polar's cursor moved");
-    // An Oura row read, so Oura keeps no failure clock for the row that did not.
-    assert_eq!(failing_since(&env, id, "oura").await?, None);
+    // An Oura row read, so Oura keeps no clock for the row that did not.
+    assert_eq!(unreadable_since(&env, id, "oura").await?, None);
 
     // An Oura answer that does not read stops Oura only; Polar, read after it, still moves.
     {
@@ -2208,26 +2208,36 @@ async fn cursor_at(env: &Env, source: Uuid, path: &[&str]) -> anyhow::Result<Opt
         .await?)
 }
 
-/// When a vendor's failure clock started, as the cursor holds it.
-async fn failing_since(env: &Env, source: Uuid, vendor: &str) -> anyhow::Result<Option<DateTime<Utc>>> {
-    Ok(cursor_at(env, source, &["connections", vendor, "failing_since"])
+/// When one of a vendor's clocks started, as the cursor holds it.
+async fn clock(env: &Env, source: Uuid, vendor: &str, name: &str) -> anyhow::Result<Option<DateTime<Utc>>> {
+    Ok(cursor_at(env, source, &["connections", vendor, name])
         .await?
         .map(serde_json::from_value)
         .transpose()?)
 }
 
-async fn set_failing_since(env: &Env, source: Uuid, vendor: &str, at: DateTime<Utc>) -> anyhow::Result<()> {
+/// When a vendor's failed-read clock started.
+async fn failing_since(env: &Env, source: Uuid, vendor: &str) -> anyhow::Result<Option<DateTime<Utc>>> {
+    clock(env, source, vendor, "failing_since").await
+}
+
+/// When a vendor's clock for rows that do not read started.
+async fn unreadable_since(env: &Env, source: Uuid, vendor: &str) -> anyhow::Result<Option<DateTime<Utc>>> {
+    clock(env, source, vendor, "unreadable_since").await
+}
+
+async fn set_clock(env: &Env, source: Uuid, vendor: &str, name: &str, at: DateTime<Utc>) -> anyhow::Result<()> {
     sqlx::query("update source set cursor = jsonb_set(cursor, $2, to_jsonb($3::timestamptz)) where id = $1")
         .bind(source)
-        .bind(vec![
-            gaps::CURSOR_KEY.to_string(),
-            vendor.to_string(),
-            "failing_since".to_string(),
-        ])
+        .bind(vec![gaps::CURSOR_KEY.to_string(), vendor.to_string(), name.to_string()])
         .bind(at)
         .execute(&env.ctx.pool)
         .await?;
     Ok(())
+}
+
+async fn set_failing_since(env: &Env, source: Uuid, vendor: &str, at: DateTime<Utc>) -> anyhow::Result<()> {
+    set_clock(env, source, vendor, "failing_since", at).await
 }
 
 /// A pass whose clock ran far ahead (a box clock set a year ahead, then put right) stamped its alert in
@@ -2318,8 +2328,9 @@ async fn a_dexcom_pull_whose_every_item_fails_alerts() -> anyhow::Result<()> {
 }
 
 /// Open Wearables reports a recent WHOOP sync, but no WHOOP row reads, poll after poll, while Polar
-/// syncs. Nothing of WHOOP arrives, so WHOOP is on its own failure clock: it alerts once that passes
-/// its window, and the alert closes when a WHOOP row reads again.
+/// syncs. Nothing of WHOOP arrives, so WHOOP is on its own clock for rows that do not read: it alerts
+/// once that passes its window, goes on while nothing new of WHOOP arrives, and the alert closes when a
+/// WHOOP row reads again.
 #[tokio::test]
 async fn a_vendor_whose_rows_never_read_alerts_while_the_others_sync() -> anyhow::Result<()> {
     let env = Env::new().await?;
@@ -2343,15 +2354,15 @@ async fn a_vendor_whose_rows_never_read_alerts_while_the_others_sync() -> anyhow
     let before = Utc::now();
     poll(&env.ctx, &env.base, id).await?;
     assert!(
-        failing_since(&env, id, "whoop").await? >= Some(before),
+        unreadable_since(&env, id, "whoop").await? >= Some(before),
         "rows that never read started no clock"
     );
-    assert_eq!(failing_since(&env, id, "polar").await?, None);
+    assert_eq!(unreadable_since(&env, id, "polar").await?, None);
     let since = Utc::now() - Duration::hours(37);
-    set_failing_since(&env, id, "whoop", since).await?;
+    set_clock(&env, id, "whoop", "unreadable_since", since).await?;
     env.fake().connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
     poll(&env.ctx, &env.base, id).await?;
-    let kept = failing_since(&env, id, "whoop").await?.expect("the clock goes on");
+    let kept = unreadable_since(&env, id, "whoop").await?.expect("the clock goes on");
     assert!((kept - since).num_milliseconds().abs() < 1, "{kept} {since}");
     sources::scheduler_tick(&env.ctx).await?;
     let open = open_gaps(&env, id).await?;
@@ -2363,14 +2374,17 @@ async fn a_vendor_whose_rows_never_read_alerts_while_the_others_sync() -> anyhow
         .fetch_one(&env.ctx.pool)
         .await?;
     assert!(message.contains("WHOOP") && !message.contains("Polar"), "{message}");
-
-    {
-        let mut fake = env.fake();
-        fake.rows.retain(|r| r["source"]["provider"] != "whoop");
-        fake.rows.push(readable_whoop);
-    }
+    // its rows that do not read leave the re-read window and nothing new of WHOOP comes: the clock goes on
+    env.fake().rows.retain(|r| r["source"]["provider"] != "whoop");
     poll(&env.ctx, &env.base, id).await?;
-    assert_eq!(failing_since(&env, id, "whoop").await?, None);
+    let kept = unreadable_since(&env, id, "whoop")
+        .await?
+        .expect("the clock goes on while nothing arrives");
+    assert!((kept - since).num_milliseconds().abs() < 1, "{kept} {since}");
+
+    env.fake().rows.push(readable_whoop);
+    poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(unreadable_since(&env, id, "whoop").await?, None);
     sources::scheduler_tick(&env.ctx).await?;
     assert_eq!(
         alert_reason(&env, item).await?,
@@ -2476,7 +2490,7 @@ async fn new_rows_that_do_not_read_start_the_clock_after_good_days() -> anyhow::
         bad
     };
     poll(&env.ctx, &env.base, id).await?;
-    assert_eq!(failing_since(&env, id, "whoop").await?, None);
+    assert_eq!(unreadable_since(&env, id, "whoop").await?, None);
     {
         let mut fake = env.fake();
         fake.connections = json!([["polar", "active", Utc::now()], ["whoop", "active", Utc::now()]]);
@@ -2485,10 +2499,10 @@ async fn new_rows_that_do_not_read_start_the_clock_after_good_days() -> anyhow::
     let before = Utc::now();
     poll(&env.ctx, &env.base, id).await?;
     assert!(
-        failing_since(&env, id, "whoop").await? >= Some(before),
+        unreadable_since(&env, id, "whoop").await? >= Some(before),
         "a stored row hid the new rows that do not read"
     );
-    assert_eq!(failing_since(&env, id, "polar").await?, None);
+    assert_eq!(unreadable_since(&env, id, "polar").await?, None);
     Ok(())
 }
 
@@ -2519,13 +2533,13 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     }
     let _ = poll(&env.ctx, &env.base, id).await;
     let since = Utc::now() - Duration::hours(37);
-    set_failing_since(&env, id, "whoop", since).await?;
+    set_clock(&env, id, "whoop", "unreadable_since", since).await?;
     let same = |kept: Option<DateTime<Utc>>| kept.is_some_and(|k| (k - since).num_milliseconds().abs() < 1);
     let first = env.mark(id, "whoop").await?;
     env.fake().fail_from = Some(now - Duration::days(2));
     let _ = poll(&env.ctx, &env.base, id).await;
     assert!(env.mark(id, "whoop").await? > first, "whoop moved over more days");
-    let kept = failing_since(&env, id, "whoop").await?;
+    let kept = unreadable_since(&env, id, "whoop").await?;
     assert!(
         same(kept),
         "a move over rows that do not read reset the clock: {kept:?}"
@@ -2533,7 +2547,7 @@ async fn moving_over_days_whose_rows_do_not_read_keeps_the_clock() -> anyhow::Re
     env.fake().fail_from = None;
     env.fake().connections = json!([["whoop", "active", Utc::now()]]);
     let _ = poll(&env.ctx, &env.base, id).await;
-    let kept = failing_since(&env, id, "whoop").await?;
+    let kept = unreadable_since(&env, id, "whoop").await?;
     assert!(same(kept), "{kept:?}");
     sources::scheduler_tick(&env.ctx).await?;
     assert_eq!(open_gaps(&env, id).await?.len(), 1);
@@ -2573,6 +2587,38 @@ async fn an_ended_far_future_alert_leaves_the_day_before_its_stamp_judged() -> a
         open_gaps(&env, id).await?.len(),
         1,
         "the bogus stamp froze the day before it"
+    );
+    Ok(())
+}
+
+/// A poll whose only new WHOOP data is a row that does not read and a score with no value stores
+/// nothing usable of WHOOP: the score is archived but never charted, so the clock starts.
+#[tokio::test]
+async fn a_new_score_without_a_value_is_no_progress() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let now = Utc::now();
+    {
+        let mut fake = env.fake();
+        fake.connections = json!([["polar", "active", now], ["whoop", "active", now]]);
+        let i = fake
+            .rows
+            .iter()
+            .position(|r| r["source"]["provider"] == "whoop")
+            .expect("whoop");
+        fake.rows[i]["value"] = json!("n/a");
+        fake.scores.push(score(
+            json!({"category": "recovery", "recorded_at": now - Duration::hours(1),
+            "provider": "whoop", "value": null}),
+        ));
+    }
+    let before = Utc::now();
+    let out = poll(&env.ctx, &env.base, id).await?;
+    assert_eq!(out.skipped.get("score_no_value"), Some(&1), "{:?}", out.skipped);
+    assert!(
+        unreadable_since(&env, id, "whoop").await? >= Some(before),
+        "a score with no value counted as progress"
     );
     Ok(())
 }

@@ -97,11 +97,15 @@ pub(crate) struct ConnectionHealth {
     /// from here, so a vendor that never sends data still raises an alert. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen_since: Option<DateTime<Utc>>,
-    /// The first poll whose read of this vendor's new days failed, or that got rows of this vendor that do
-    /// not read and no row of it that was new, in the current streak. A failed re-read of days already
-    /// stored does not count, and a stored row read again is not new. OwnHealth sets it.
+    /// The first poll whose read of this vendor's new days failed, in the current streak. A failed
+    /// re-read of days already stored does not count. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failing_since: Option<DateTime<Utc>>,
+    /// The first poll that got rows of this vendor that do not read and no new usable row of it. It
+    /// goes on through polls that bring nothing new of the vendor, and ends at the first poll that
+    /// stores a new usable row of it; a stored row read again is not new. OwnHealth sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unreadable_since: Option<DateTime<Utc>>,
     /// The last poll whose report included this connection. When no newer report says anything about
     /// it, its gap is judged as of this poll, not as of a later one. OwnHealth sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,10 +117,14 @@ impl ConnectionHealth {
         match self.status {
             Status::Expired | Status::Revoked => true,
             // Open Wearables may report a recent sync while OwnHealth cannot read that vendor's data.
-            Status::Active => [self.last_synced_at.or(self.seen_since), self.failing_since]
-                .into_iter()
-                .flatten()
-                .any(|since| now - since > provider.window),
+            Status::Active => [
+                self.last_synced_at.or(self.seen_since),
+                self.failing_since,
+                self.unreadable_since,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|since| now - since > provider.window),
             Status::Unknown => false,
         }
     }
