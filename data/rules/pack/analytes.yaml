@@ -1,29 +1,29 @@
 # Display names (en, es) and the codes that identify each series. alias_group is the series key the
 # normalizer (lane A) writes; a LOINC listed here also matches an observation with another alias_group.
 analytes:
-  ldl_c:          {en: LDL-C, es: Colesterol LDL, de: "LDL-C", loinc: [13457-7, 18262-6, 2089-1]}
-  lpa:            {en: Lp(a), es: Lp(a), de: "Lp(a)", loinc: [43583-4, 10835-7]}
-  apob:           {en: ApoB, es: ApoB, de: "ApoB", loinc: [1884-6]}
-  hba1c:          {en: HbA1c, es: HbA1c, de: "HbA1c", loinc: [4548-4, 17856-6]}
-  glucose:        {en: Glucose, es: Glucosa, de: "Glukose", loinc: [2345-7, 1558-6]}
-  alt:            {en: ALT, es: ALT, de: "ALT", loinc: [1742-6, 1743-4]}
-  ast:            {en: AST, es: AST, de: "AST", loinc: [1920-8]}
-  ggt:            {en: GGT, es: GGT, de: "GGT", loinc: [2324-2]}
-  ck:             {en: CK, es: CK, de: "CK", loinc: [2157-6]}
-  egfr:           {en: eGFR, es: FG estimado, de: "eGFR", loinc: [98979-8, 62238-1, 33914-3]}
-  creatinine:     {en: Creatinine, es: Creatinina, de: "Kreatinin", loinc: [2160-0]}
-  urine_acr:      {en: Urine ACR, es: Cociente alb/creat, de: "Albumin/Kreatinin im Urin", loinc: [9318-7, 14959-1]}
-  tsh:            {en: TSH, es: TSH, de: "TSH", loinc: [3016-3, 11580-8]}
-  ft4:            {en: Free T4, es: T4 libre, de: "Freies T4", loinc: [3024-7]}
-  hemoglobin:     {en: Haemoglobin, es: Hemoglobina, de: "Hämoglobin", loinc: [718-7]}
-  platelets:      {en: Platelets, es: Plaquetas, de: "Thrombozyten", loinc: [777-3, 26515-7]}
-  mcv:            {en: MCV, es: VCM, de: "MCV", loinc: [787-2]}
-  wbc:            {en: White cells, es: Leucocitos, de: "Leukozyten", loinc: [6690-2, 26464-8]}
-  crp_hs:         {en: hs-CRP, es: PCR ultrasensible, de: "hs-CRP", loinc: [30522-7]}
-  vitamin_d_25oh: {en: Vitamin D 25-OH, es: Vitamina D 25-OH, de: "Vitamin D 25-OH", loinc: [62292-8, 1989-3]}
-  ferritin:       {en: Ferritin, es: Ferritina, de: "Ferritin", loinc: [2276-4]}
-  vitamin_b12:    {en: Vitamin B12, es: Vitamina B12, de: "Vitamin B12", loinc: [2132-9]}
-  magnesium:      {en: Magnesium, es: Magnesio, de: "Magnesium", loinc: [19123-9, 2601-3]}
-  sodium:         {en: Sodium, es: Sodio, de: "Natrium", loinc: [2951-2, 2947-0]}
-  inr:            {en: INR, es: INR, de: "INR", loinc: [6301-6, 34714-6]}
-  hcv_ab:         {en: Hepatitis C antibody, es: Anticuerpos hepatitis C, de: "Hepatitis-C-Antikörper", loinc: [16128-1, 13955-0]}
+  ldl_c:          {en: LDL-C, es: Colesterol LDL, de: "LDL-C", fr: "LDL-C", loinc: [13457-7, 18262-6, 2089-1]}
+  lpa:            {en: Lp(a), es: Lp(a), de: "Lp(a)", fr: "Lp(a)", loinc: [43583-4, 10835-7]}
+  apob:           {en: ApoB, es: ApoB, de: "ApoB", fr: "ApoB", loinc: [1884-6]}
+  hba1c:          {en: HbA1c, es: HbA1c, de: "HbA1c", fr: "HbA1c", loinc: [4548-4, 17856-6]}
+  glucose:        {en: Glucose, es: Glucosa, de: "Glukose", fr: "Glucose", loinc: [2345-7, 1558-6]}
+  alt:            {en: ALT, es: ALT, de: "ALT", fr: "ALAT", loinc: [1742-6, 1743-4]}
+  ast:            {en: AST, es: AST, de: "AST", fr: "ASAT", loinc: [1920-8]}
+  ggt:            {en: GGT, es: GGT, de: "GGT", fr: "GGT", loinc: [2324-2]}
+  ck:             {en: CK, es: CK, de: "CK", fr: "CK", loinc: [2157-6]}
+  egfr:           {en: eGFR, es: FG estimado, de: "eGFR", fr: "DFG estimé", loinc: [98979-8, 62238-1, 33914-3]}
+  creatinine:     {en: Creatinine, es: Creatinina, de: "Kreatinin", fr: "Créatinine", loinc: [2160-0]}
+  urine_acr:      {en: Urine ACR, es: Cociente alb/creat, de: "Albumin/Kreatinin im Urin", fr: "Rapport alb/créat urinaire", loinc: [9318-7, 14959-1]}
+  tsh:            {en: TSH, es: TSH, de: "TSH", fr: "TSH", loinc: [3016-3, 11580-8]}
+  ft4:            {en: Free T4, es: T4 libre, de: "Freies T4", fr: "T4 libre", loinc: [3024-7]}
+  hemoglobin:     {en: Haemoglobin, es: Hemoglobina, de: "Hämoglobin", fr: "Hémoglobine", loinc: [718-7]}
+  platelets:      {en: Platelets, es: Plaquetas, de: "Thrombozyten", fr: "Plaquettes", loinc: [777-3, 26515-7]}
+  mcv:            {en: MCV, es: VCM, de: "MCV", fr: "VGM", loinc: [787-2]}
+  wbc:            {en: White cells, es: Leucocitos, de: "Leukozyten", fr: "Leucocytes", loinc: [6690-2, 26464-8]}
+  crp_hs:         {en: hs-CRP, es: PCR ultrasensible, de: "hs-CRP", fr: "CRP ultrasensible", loinc: [30522-7]}
+  vitamin_d_25oh: {en: Vitamin D 25-OH, es: Vitamina D 25-OH, de: "Vitamin D 25-OH", fr: "Vitamine D 25-OH", loinc: [62292-8, 1989-3]}
+  ferritin:       {en: Ferritin, es: Ferritina, de: "Ferritin", fr: "Ferritine", loinc: [2276-4]}
+  vitamin_b12:    {en: Vitamin B12, es: Vitamina B12, de: "Vitamin B12", fr: "Vitamine B12", loinc: [2132-9]}
+  magnesium:      {en: Magnesium, es: Magnesio, de: "Magnesium", fr: "Magnésium", loinc: [19123-9, 2601-3]}
+  sodium:         {en: Sodium, es: Sodio, de: "Natrium", fr: "Sodium", loinc: [2951-2, 2947-0]}
+  inr:            {en: INR, es: INR, de: "INR", fr: "INR", loinc: [6301-6, 34714-6]}
+  hcv_ab:         {en: Hepatitis C antibody, es: Anticuerpos hepatitis C, de: "Hepatitis-C-Antikörper", fr: "Anticorps anti-VHC", loinc: [16128-1, 13955-0]}

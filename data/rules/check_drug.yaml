@@ -12,7 +12,9 @@ templates:
     en: DPWG text for the genotype phenotype of {genes} not in this genome file
     es: el archivo genómico no trae texto de DPWG para el fenotipo por genotipo de {genes}
     de: "kein DPWG-Text für den Genotyp-Phänotyp von {genes} in dieser Genomdatei"
+    fr: "pas de texte DPWG pour le phénotype par génotype de {genes} dans ce fichier génomique"
   drug.lim.dpwg:
     en: DPWG text is quoted from the genome file as received; it is for the genotype phenotype only, not for a phenotype changed by a medicine.
     es: El texto de DPWG se cita del archivo genómico tal como llegó; corresponde solo al fenotipo por genotipo, no a un fenotipo cambiado por un medicamento.
     de: "Der DPWG-Text wird aus der Genomdatei so zitiert, wie sie ankam; er gilt nur für den Genotyp-Phänotyp, nicht für einen durch ein Medikament veränderten Phänotyp."
+    fr: "Le texte DPWG est cité depuis le fichier génomique tel qu'il est arrivé ; il ne vaut que pour le phénotype par génotype, pas pour un phénotype modifié par un médicament."

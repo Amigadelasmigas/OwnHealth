@@ -147,22 +147,46 @@ pub const METRICS: [Spec; 16] = [
 
 /// The label of each metric of [`METRICS`] in the registry languages beyond es and en.
 const LABELS: &[(&str, &[(&str, &str)])] = &[
-    ("steps", &[("de", "Schritte")]),
-    ("hr", &[("de", "Herzfrequenz")]),
-    ("hr_resting", &[("de", "Ruheherzfrequenz")]),
-    ("hrv_sdnn", &[("de", "HRV (SDNN)")]),
-    ("hrv_rmssd", &[("de", "HRV (RMSSD)")]),
-    ("vo2max", &[("de", "VO₂max-Schätzung")]),
-    ("spo2", &[("de", "Blutsauerstoff")]),
-    ("resp_rate", &[("de", "Atemfrequenz")]),
-    ("weight", &[("de", "Gewicht")]),
-    ("bp_systolic", &[("de", "Blutdruck, systolisch")]),
-    ("bp_diastolic", &[("de", "Blutdruck, diastolisch")]),
-    ("active_energy", &[("de", "Aktivitätsenergie")]),
-    ("distance", &[("de", "Distanz beim Gehen und Laufen")]),
-    ("sleep_asleep", &[("de", "Schlafdauer")]),
-    ("sleep_in_bed", &[("de", "Zeit im Bett")]),
-    ("glucose_cgm", &[("de", "Glukose (CGM)")]),
+    ("steps", &[("de", "Schritte"), ("fr", "Pas")]),
+    ("hr", &[("de", "Herzfrequenz"), ("fr", "Fréquence cardiaque")]),
+    (
+        "hr_resting",
+        &[("de", "Ruheherzfrequenz"), ("fr", "Fréquence cardiaque au repos")],
+    ),
+    ("hrv_sdnn", &[("de", "HRV (SDNN)"), ("fr", "VFC (SDNN)")]),
+    ("hrv_rmssd", &[("de", "HRV (RMSSD)"), ("fr", "VFC (RMSSD)")]),
+    ("vo2max", &[("de", "VO₂max-Schätzung"), ("fr", "VO₂max estimée")]),
+    ("spo2", &[("de", "Blutsauerstoff"), ("fr", "Oxygène sanguin")]),
+    ("resp_rate", &[("de", "Atemfrequenz"), ("fr", "Fréquence respiratoire")]),
+    ("weight", &[("de", "Gewicht"), ("fr", "Poids")]),
+    (
+        "bp_systolic",
+        &[
+            ("de", "Blutdruck, systolisch"),
+            ("fr", "Pression artérielle systolique"),
+        ],
+    ),
+    (
+        "bp_diastolic",
+        &[
+            ("de", "Blutdruck, diastolisch"),
+            ("fr", "Pression artérielle diastolique"),
+        ],
+    ),
+    (
+        "active_energy",
+        &[("de", "Aktivitätsenergie"), ("fr", "Énergie active")],
+    ),
+    (
+        "distance",
+        &[
+            ("de", "Distanz beim Gehen und Laufen"),
+            ("fr", "Distance de marche et de course"),
+        ],
+    ),
+    ("sleep_asleep", &[("de", "Schlafdauer"), ("fr", "Durée du sommeil")]),
+    ("sleep_in_bed", &[("de", "Zeit im Bett"), ("fr", "Temps au lit")]),
+    ("glucose_cgm", &[("de", "Glukose (CGM)"), ("fr", "Glucose (MCG)")]),
 ];
 
 pub const SLEEP_METRICS: [&str; 2] = ["sleep_asleep", "sleep_in_bed"];
@@ -717,6 +741,10 @@ const LEFT_OUT: &[(&str, &str)] = &[
     (
         "de",
         "HRV aus nur einer Quelle: {shown}. Nicht mit HRV aus anderen Quellen in diesem Zeitraum gemischt{rest}.",
+    ),
+    (
+        "fr",
+        "VFC d'une seule source : {shown}. Non mélangée avec la VFC d'autres sources sur cette période{rest}.",
     ),
 ];
 

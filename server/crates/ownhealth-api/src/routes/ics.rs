@@ -66,6 +66,7 @@ const GENERIC_TITLE: &[(&str, &str)] = &[
     ("es", "OwnHealth: 1 elemento pendiente"),
     ("en", "OwnHealth: 1 item due"),
     ("de", "OwnHealth: 1 Eintrag fällig"),
+    ("fr", "OwnHealth : 1 élément en attente"),
 ];
 
 fn generic_title(lang: &str) -> &'static str {
@@ -77,6 +78,7 @@ const BG_TITLE: &[(&str, &str)] = &[
     ("es", "OwnHealth: solicitud de acceso de emergencia"),
     ("en", "OwnHealth: emergency access requested"),
     ("de", "OwnHealth: Notfallzugriff angefragt"),
+    ("fr", "OwnHealth : accès d'urgence demandé"),
 ];
 /// When access would open; `{at}` is a UTC time.
 const BG_OPENS: &[(&str, &str)] = &[
@@ -92,17 +94,23 @@ const BG_OPENS: &[(&str, &str)] = &[
         "de",
         "Der Notfallzugriff auf dieses Profil öffnet sich am {at}, sofern die Anfrage nicht vorher abgebrochen wird.",
     ),
+    (
+        "fr",
+        "L'accès d'urgence à ce profil s'ouvre le {at}, sauf si la demande est annulée avant.",
+    ),
 ];
 /// Who asked, in a named feed only.
 const BG_WHO: &[(&str, &str)] = &[
     ("es", "{contact} ha pedido acceso de emergencia a {profile}."),
     ("en", "{contact} asked for emergency access to {profile}."),
     ("de", "{contact} hat Notfallzugriff auf {profile} angefragt."),
+    ("fr", "{contact} a demandé un accès d'urgence à {profile}."),
 ];
 const BG_CANCEL: &[(&str, &str)] = &[
     ("es", "Para cancelarla: {link}"),
     ("en", "To cancel it: {link}"),
     ("de", "Zum Abbrechen: {link}"),
+    ("fr", "Pour l'annuler : {link}"),
 ];
 
 /// The page that cancels one request: the UI's, behind the owner's login.

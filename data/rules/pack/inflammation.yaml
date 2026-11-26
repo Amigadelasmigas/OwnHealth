@@ -1,6 +1,6 @@
 system: inflammation
 order: 6
-names: {en: Inflammation, es: Inflamación, de: "Entzündung"}
+names: {en: Inflammation, es: Inflamación, de: "Entzündung", fr: "Inflammation"}
 markers: [crp_hs]
 rules:
   - id: recency.crp_hs

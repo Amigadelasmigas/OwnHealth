@@ -1,6 +1,6 @@
 system: blood
 order: 5
-names: {en: Blood count, es: Hemograma, de: "Blutbild"}
+names: {en: Blood count, es: Hemograma, de: "Blutbild", fr: "Hémogramme"}
 markers: [hemoglobin, platelets, mcv, wbc]
 rules:
   - id: recency.blood_count

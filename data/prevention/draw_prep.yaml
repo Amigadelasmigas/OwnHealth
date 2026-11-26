@@ -9,33 +9,36 @@ reviewer: "OwnHealth maintainers (not clinicians)"
 reviewed: 2026-11-16
 rows:
   - id: fasting
-    name: {en: "Fasting", es: "Ayuno", de: "Nüchtern"}
+    name: {en: "Fasting", es: "Ayuno", de: "Nüchtern", fr: "Jeûne"}
     text:
       en: "The cited standard defines a fasting glucose as one with no caloric intake for at least 8 hours before it."
       es: "La norma citada define la glucosa en ayunas como la medida sin ingesta calórica en las 8 horas anteriores como mínimo."
       de: "Der zitierte Standard definiert eine Nüchternglukose als einen Wert ohne Kalorienaufnahme in mindestens 8 Stunden davor."
+      fr: "La norme citée définit une glycémie à jeun comme une glycémie sans apport calorique pendant au moins 8 heures avant le prélèvement."
     groups: [glucose]
-    source: {en: "ADA Standards of Care 2026, section 2", es: "Estándares de atención de la ADA 2026, sección 2", de: "ADA Standards of Care 2026, Abschnitt 2"}
+    source: {en: "ADA Standards of Care 2026, section 2", es: "Estándares de atención de la ADA 2026, sección 2", de: "ADA Standards of Care 2026, Abschnitt 2", fr: "ADA Standards of Care 2026, section 2"}
     cite: https://doi.org/10.2337/dc26-S002
   - id: morning_urine
-    name: {en: "Early-morning urine", es: "Orina de primera hora", de: "Morgenurin"}
+    name: {en: "Early-morning urine", es: "Orina de primera hora", de: "Morgenurin", fr: "Urines du matin"}
     text:
       en: "The cited guideline prefers an early-morning urine sample for the albumin-to-creatinine ratio."
       es: "La guía citada prefiere una muestra de orina de primera hora de la mañana para el cociente albúmina/creatinina."
       de: "Die zitierte Leitlinie bevorzugt für den Albumin-Kreatinin-Quotienten eine Probe des ersten Morgenurins."
+      fr: "La recommandation citée préfère un échantillon d'urine du matin pour le rapport albumine/créatinine."
     groups: [urine_acr]
-    source: {en: "KDIGO 2024 CKD guideline", es: "Guía KDIGO 2024 de ERC", de: "KDIGO-Leitlinie 2024 zu CKD"}
+    source: {en: "KDIGO 2024 CKD guideline", es: "Guía KDIGO 2024 de ERC", de: "KDIGO-Leitlinie 2024 zu CKD", fr: "Recommandation KDIGO 2024 sur la MRC"}
     cite: https://kdigo.org/guidelines/ckd-evaluation-and-management/
   - id: biotin
-    name: {en: "Biotin", es: "Biotina", de: "Biotin"}
+    name: {en: "Biotin", es: "Biotina", de: "Biotin", fr: "Biotine"}
     # The FDA communication names hormone immunoassays such as the thyroid tests among those biotin can
     # disturb; this page of the FDA links the communication and is where it is kept up to date.
     text:
       en: "Biotin (vitamin B7), common in supplements, can interfere with some lab tests and give a wrong result, according to the FDA."
       es: "La biotina (vitamina B7), frecuente en suplementos, puede interferir con algunas pruebas de laboratorio y dar un resultado erróneo, según la FDA."
       de: "Biotin (Vitamin B7), häufig in Nahrungsergänzungsmitteln, kann laut FDA manche Labortests stören und ein falsches Ergebnis liefern."
+      fr: "La biotine (vitamine B7), fréquente dans les compléments alimentaires, peut interférer avec certaines analyses et donner un résultat erroné, selon la FDA."
     groups: [tsh, ft4]
-    source: {en: "FDA, biotin interference with lab tests", es: "FDA, interferencia de la biotina en pruebas de laboratorio", de: "FDA, Störung von Labortests durch Biotin"}
+    source: {en: "FDA, biotin interference with lab tests", es: "FDA, interferencia de la biotina en pruebas de laboratorio", de: "FDA, Störung von Labortests durch Biotin", fr: "FDA, interférence de la biotine avec les analyses"}
     cite: https://www.fda.gov/medical-devices/in-vitro-diagnostics/biotin-interference-troponin-lab-tests-assays-subject-biotin-interference
 templates:
   # why each test is on the list
@@ -43,37 +46,43 @@ templates:
     en: "Last measured on {last}, longer ago than the rule's interval of {months} months."
     es: "Última medición el {last}, hace más que el intervalo de {months} meses de la regla."
     de: "Zuletzt gemessen am {last}, länger her als das Intervall der Regel von {months} Monaten."
+    fr: "Dernière mesure le {last}, plus ancienne que l'intervalle de {months} mois de la règle."
   reason.never_measured:
     en: "No value on record; the rule lists this test for this person."
     es: "Ningún valor en el registro; la regla incluye esta prueba para esta persona."
     de: "Kein Wert in der Akte; die Regel führt diesen Test für diese Person auf."
+    fr: "Aucune valeur dans le dossier ; la règle prévoit cette analyse pour cette personne."
   reason.lab_range:
     en: "Last value {value} {unit} on {date}, outside the lab range {ref}."
     es: "Último valor {value} {unit} el {date}, fuera del rango del laboratorio {ref}."
     de: "Letzter Wert {value} {unit} am {date}, außerhalb des Laborbereichs {ref}."
+    fr: "Dernière valeur {value} {unit} le {date}, hors de la plage du laboratoire {ref}."
   # the screen and the printed request
-  title: {en: "Tests for the next blood draw", es: "Pruebas para la próxima analítica", de: "Tests für die nächste Blutentnahme"}
+  title: {en: "Tests for the next blood draw", es: "Pruebas para la próxima analítica", de: "Tests für die nächste Blutentnahme", fr: "Analyses pour la prochaine prise de sang"}
   notice:
     en: "Information from this person's own health record, for their doctor. It is not a prescription or a diagnosis: the doctor decides what to order."
     es: "Información del propio registro de salud de esta persona, para su médico. No es una receta ni un diagnóstico: el médico decide qué pedir."
     de: "Informationen aus der eigenen Gesundheitsakte dieser Person, für ihre Ärztin oder ihren Arzt. Dies ist weder ein Rezept noch eine Diagnose: Was angefordert wird, entscheidet die Ärztin oder der Arzt."
-  as_of: {en: "From the record as of {as_of}.", es: "Según el registro a fecha de {as_of}.", de: "Aus der Akte, Stand {as_of}."}
-  name_blank: {en: "Name:", es: "Nombre:", de: "Name:"}
-  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}"}
-  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre"}
-  sex.female: {en: "female", es: "mujer", de: "weiblich"}
-  sex.male: {en: "male", es: "hombre", de: "männlich"}
-  prep_none: {en: "No preparation listed by our sources", es: "Nuestras fuentes no indican preparación", de: "Unsere Quellen nennen keine Vorbereitung"}
-  col.test: {en: "Test", es: "Prueba", de: "Test"}
-  col.loinc: {en: "LOINC", es: "LOINC", de: "LOINC"}
-  col.reason: {en: "Why it is listed", es: "Por qué figura", de: "Warum er aufgeführt ist"}
-  col.basis: {en: "Rule and source", es: "Regla y fuente", de: "Regel und Quelle"}
-  sources: {en: "Cited sources", es: "Fuentes citadas", de: "Zitierte Quellen"}
+    fr: "Informations issues du dossier de santé de cette personne, pour son médecin. Ce n'est ni une ordonnance ni un diagnostic : le médecin décide de ce qu'il prescrit."
+  as_of: {en: "From the record as of {as_of}.", es: "Según el registro a fecha de {as_of}.", de: "Aus der Akte, Stand {as_of}.", fr: "D'après le dossier au {as_of}."}
+  name_blank: {en: "Name:", es: "Nombre:", de: "Name:", fr: "Nom :"}
+  born: {en: "born {date}", es: "nacimiento {date}", de: "geboren {date}", fr: "né(e) le {date}"}
+  age: {en: "{n} years", es: "{n} años", de: "{n} Jahre", fr: "{n} ans"}
+  sex.female: {en: "female", es: "mujer", de: "weiblich", fr: "femme"}
+  sex.male: {en: "male", es: "hombre", de: "männlich", fr: "homme"}
+  prep_none: {en: "No preparation listed by our sources", es: "Nuestras fuentes no indican preparación", de: "Unsere Quellen nennen keine Vorbereitung", fr: "Aucune préparation indiquée par nos sources"}
+  col.test: {en: "Test", es: "Prueba", de: "Test", fr: "Analyse"}
+  col.loinc: {en: "LOINC", es: "LOINC", de: "LOINC", fr: "LOINC"}
+  col.reason: {en: "Why it is listed", es: "Por qué figura", de: "Warum er aufgeführt ist", fr: "Pourquoi elle figure ici"}
+  col.basis: {en: "Rule and source", es: "Regla y fuente", de: "Regel und Quelle", fr: "Règle et source"}
+  sources: {en: "Cited sources", es: "Fuentes citadas", de: "Zitierte Quellen", fr: "Sources citées"}
   empty:
     en: "Nothing to list: the record has no overdue retest, no test it lacks and no last value outside its range."
     es: "Nada que listar: el registro no tiene repeticiones pendientes, pruebas que falten ni últimos valores fuera de rango."
     de: "Nichts aufzuführen: Die Akte hat keine überfällige Wiederholung, keinen fehlenden Test und keinen letzten Wert außerhalb seines Bereichs."
+    fr: "Rien à lister : le dossier n'a ni contrôle en retard, ni analyse manquante, ni dernière valeur hors de sa plage."
   footer:
     en: "OwnHealth · {rules} · state {hash} · page {page}/{pages}"
     es: "OwnHealth · {rules} · estado {hash} · página {page}/{pages}"
     de: "OwnHealth · {rules} · Zustand {hash} · Seite {page}/{pages}"
+    fr: "OwnHealth · {rules} · état {hash} · page {page}/{pages}"

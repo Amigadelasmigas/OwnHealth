@@ -21,17 +21,48 @@ use crate::rendering::window_months;
 
 /// A country's name per language: (code, its name in each registry language).
 const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
-    ("ES", &[("es", "España"), ("en", "Spain"), ("de", "Spanien")]),
-    ("PT", &[("es", "Portugal"), ("en", "Portugal"), ("de", "Portugal")]),
-    ("FR", &[("es", "Francia"), ("en", "France"), ("de", "Frankreich")]),
-    ("DE", &[("es", "Alemania"), ("en", "Germany"), ("de", "Deutschland")]),
-    ("IT", &[("es", "Italia"), ("en", "Italy"), ("de", "Italien")]),
+    (
+        "ES",
+        &[("es", "España"), ("en", "Spain"), ("de", "Spanien"), ("fr", "Espagne")],
+    ),
+    (
+        "PT",
+        &[
+            ("es", "Portugal"),
+            ("en", "Portugal"),
+            ("de", "Portugal"),
+            ("fr", "Portugal"),
+        ],
+    ),
+    (
+        "FR",
+        &[
+            ("es", "Francia"),
+            ("en", "France"),
+            ("de", "Frankreich"),
+            ("fr", "France"),
+        ],
+    ),
+    (
+        "DE",
+        &[
+            ("es", "Alemania"),
+            ("en", "Germany"),
+            ("de", "Deutschland"),
+            ("fr", "Allemagne"),
+        ],
+    ),
+    (
+        "IT",
+        &[("es", "Italia"), ("en", "Italy"), ("de", "Italien"), ("fr", "Italie")],
+    ),
     (
         "GB",
         &[
             ("es", "Reino Unido"),
             ("en", "United Kingdom"),
             ("de", "Vereinigtes Königreich"),
+            ("fr", "Royaume-Uni"),
         ],
     ),
     (
@@ -40,6 +71,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("es", "Estados Unidos"),
             ("en", "United States"),
             ("de", "Vereinigte Staaten"),
+            ("fr", "États-Unis"),
         ],
     ),
 ];

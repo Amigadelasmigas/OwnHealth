@@ -50,6 +50,14 @@ pub const FORMATS: &[(&str, Format)] = &[
             count_group: ('.', 4),
         },
     ),
+    (
+        "fr",
+        Format {
+            decimal: ',',
+            group: Some(('\u{a0}', 4)),
+            count_group: ('\u{a0}', 4),
+        },
+    ),
 ];
 
 /// The registry languages [`FORMATS`] has no row for.

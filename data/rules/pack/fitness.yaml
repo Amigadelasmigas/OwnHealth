@@ -1,11 +1,11 @@
 system: fitness
 order: 9
 source: wearables
-names: {en: Fitness, es: Forma física, de: "Fitness"}
+names: {en: Fitness, es: Forma física, de: "Fitness", fr: "Condition physique"}
 markers:
-  - {metric: vo2max, en: VO₂max, es: VO₂máx, de: "VO₂max", unit: mL/kg/min, agg: latest}
-  - {metric: hr_resting, en: Resting HR, es: FC en reposo, de: "Ruhe-HF", unit: bpm, agg: avg30}
-  - {metric: steps, en: "Steps, daily avg", es: "Pasos, media diaria", de: "Schritte, Tagesmittel", unit: "", agg: sum30}
+  - {metric: vo2max, en: VO₂max, es: VO₂máx, de: "VO₂max", fr: "VO₂max", unit: mL/kg/min, agg: latest}
+  - {metric: hr_resting, en: Resting HR, es: FC en reposo, de: "Ruhe-HF", fr: "FC au repos", unit: bpm, agg: avg30}
+  - {metric: steps, en: "Steps, daily avg", es: "Pasos, media diaria", de: "Schritte, Tagesmittel", fr: "Pas, moyenne quotidienne", unit: "", agg: sum30}
 rules:
   - id: recency.fitness
     kind: recency

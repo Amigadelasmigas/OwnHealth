@@ -16,7 +16,7 @@
 //! language at run time. The same test refuses an `== "es"` pick in the server's sources.
 
 /// The languages a person can pick, in picker order. The first is the default for a new login.
-pub const LANGS: [&str; 3] = ["es", "en", "de"];
+pub const LANGS: [&str; 4] = ["es", "en", "de", "fr"];
 
 /// Every code `app_user.locale` and `shl.lang` accept (migration 1280): the registry and the
 /// languages planned for 1.0, so adding one needs no migration. `check_mirror.rs` keeps this equal to

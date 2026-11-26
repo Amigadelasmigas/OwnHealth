@@ -21,7 +21,7 @@ pub struct Patterns {
 
 /// The per-language table. A language joins `ownhealth_core::langs::LANGS` only with its own entry
 /// here (`missing_patterns`, tested in `tests/langs.rs`).
-pub const PATTERNS: [Patterns; 3] = [
+pub const PATTERNS: [Patterns; 4] = [
     Patterns {
         lang: "en",
         anywhere: &[
@@ -178,6 +178,42 @@ pub const PATTERNS: [Patterns; 3] = [
             "achten sie",
         ],
     },
+    Patterns {
+        lang: "fr",
+        anywhere: &[
+            r"\bvous (?:devez|devriez)\b",
+            r"\b(?:devez|devriez|devrait|devraient|doit|doivent)\b",
+            r"\bil (?:faut|faudrait)\b",
+            r"\bne (?:prenez|prends|arrêtez|arrête|utilisez) pas\b",
+        ],
+        start_verbs: &[
+            "prenez",
+            "prends",
+            "arrêtez",
+            "arrête",
+            "évitez",
+            "évite",
+            "commencez",
+            "augmentez",
+            "réduisez",
+            "diminuez",
+            "consultez",
+            "demandez",
+            "parlez",
+            "appelez",
+            "allez",
+            "mangez",
+            "buvez",
+            "mesurez",
+            "répétez",
+            "contactez",
+            "utilisez",
+            "essayez",
+            "faites",
+            "gardez",
+            "limitez",
+        ],
+    },
 ];
 
 /// The languages of `langs` with no patterns of their own.
@@ -270,7 +306,7 @@ mod tests {
             .iter()
             .map(|p| (p.lang, p.anywhere.len(), p.start_verbs.len()))
             .collect();
-        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45), ("de", 3, 40)]);
+        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45), ("de", 3, 40), ("fr", 4, 25)]);
     }
 
     /// German advice is caught, German description is not.
@@ -287,6 +323,25 @@ mod tests {
         for fine in [
             "Der LDL-Wert liegt über dem Bereich des Labors.",
             "Diese Angabe stammt aus dem Befund vom März.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// French advice is caught, French description is not.
+    #[test]
+    fn french_imperatives_are_caught() {
+        for advice in [
+            "Prenez 2 comprimés par jour.",
+            "Vous devez arrêter ce médicament.",
+            "Il faut refaire l'analyse.",
+            "Ne prenez pas d'ibuprofène.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "Le LDL est au-dessus de l'intervalle du laboratoire.",
+            "Cette valeur vient du compte rendu de mars.",
         ] {
             assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
         }
