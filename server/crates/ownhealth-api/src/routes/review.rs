@@ -27,7 +27,7 @@ use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::review::{self, ItemQuery, ReviewItem};
 use ownhealth_core::{Error, Runtime};
 use ownhealth_mcp::review_shown::{
-    SOURCE_GAP, gap_review_profiles, imaging_review_profiles, opens_document, shows_household_items, visible,
+    SOURCE_GAP, Scan, gap_review_profiles, imaging_review_profiles, opens_document, shows_household_items, visible,
 };
 pub(super) use ownhealth_mcp::review_shown::{count_shown, count_shown_on_profile, shown_per_document};
 use serde_json::{Map, Value, json};
@@ -95,9 +95,6 @@ fn truthy(v: Option<&Value>) -> bool {
         Some(Value::Object(o)) => !o.is_empty(),
     }
 }
-
-/// How many rows the review list reads at a time while it fills a page with visible items.
-const LIST_BATCH: i64 = 200;
 
 /// The caller's permission on the profile document `doc` is on now and the scope it needs, when the
 /// caller may read it there; None for an unknown document, one with no profile, or one the caller
@@ -272,27 +269,26 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     // items only, and reading stops once the page is full or the query has no more rows.
     let mut shown: Vec<ReviewItem> = Vec::new();
     let mut skipped = 0;
-    let mut read = 0;
+    let kinds = [
+        (ownhealth_imaging::import::REVIEW_KIND, imaging_profiles.as_slice()),
+        (SOURCE_GAP, gap_profiles.as_slice()),
+    ];
+    let mut scan = Scan::new(
+        ItemQuery {
+            household_id: principal.household_id,
+            profile_ids: Some(pids.clone()),
+            status: Some(status.to_string()).filter(|s| !s.is_empty()),
+            kind: kind.map(str::to_string),
+            document_id,
+            ..ItemQuery::default()
+        },
+        &kinds,
+    );
     while filter_readable && (shown.len() as i64) < limit {
-        let batch = review::list_items_with_kind_profiles(
-            &mut tx,
-            &ItemQuery {
-                household_id: principal.household_id,
-                profile_ids: Some(pids.clone()),
-                status: Some(status.to_string()).filter(|s| !s.is_empty()),
-                kind: kind.map(str::to_string),
-                document_id,
-                limit: LIST_BATCH,
-                offset: read,
-            },
-            &[
-                (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
-                (SOURCE_GAP, &gap_profiles),
-            ],
-        )
-        .await?;
-        let done = (batch.len() as i64) < LIST_BATCH;
-        read += LIST_BATCH;
+        let batch = scan.next(&mut tx).await?;
+        if batch.is_empty() {
+            break;
+        }
         for i in batch {
             if (shown.len() as i64) >= limit {
                 break;
@@ -317,9 +313,6 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
                 p.read_scopes();
             }
             shown.push(i);
-        }
-        if done {
-            break;
         }
     }
     let household = principal.household_id.unwrap_or_default();

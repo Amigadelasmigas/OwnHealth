@@ -189,6 +189,47 @@ pub async fn shown_per_document(
     Ok(shown)
 }
 
+/// How many rows a [`Scan`] reads at a time.
+pub const SCAN_BATCH: i64 = 200;
+
+/// The review queue read a batch of [`SCAN_BATCH`] rows at a time, in the list's order (`created_at`,
+/// `id`), so a list page or a count holds one batch of rows (and their payloads) in memory at most.
+/// Each batch seeks past the last row of the one before, so a row closed between two batches moves no
+/// open row out of reach, as a raw offset would.
+pub struct Scan<'k> {
+    query: ItemQuery,
+    kinds: &'k [(&'k str, &'k [Uuid])],
+    done: bool,
+}
+
+impl<'k> Scan<'k> {
+    /// A scan of `query` (its `limit`, `offset` and `after` are the scan's own) with
+    /// [`review::list_items_with_kind_profiles`]'s narrower profiles per kind.
+    pub fn new(query: ItemQuery, kinds: &'k [(&'k str, &'k [Uuid])]) -> Self {
+        Scan {
+            query: ItemQuery {
+                limit: SCAN_BATCH,
+                offset: 0,
+                after: None,
+                ..query
+            },
+            kinds,
+            done: false,
+        }
+    }
+
+    /// The next batch; empty once the queue has no more rows.
+    pub async fn next(&mut self, conn: &mut PgConnection) -> Result<Vec<ReviewItem>> {
+        if self.done {
+            return Ok(Vec::new());
+        }
+        let batch = review::list_items_with_kind_profiles(conn, &self.query, self.kinds).await?;
+        self.done = (batch.len() as i64) < SCAN_BATCH;
+        self.query.after = batch.last().map(|i| (i.created_at, i.id));
+        Ok(batch)
+    }
+}
+
 /// The items of the household itself show only to who can review on some profile.
 pub fn shows_household_items<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> bool {
     perms.into_iter().any(|p| p.can("review"))

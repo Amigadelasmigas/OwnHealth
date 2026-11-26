@@ -7,9 +7,10 @@ mod lane_i;
 use http::StatusCode;
 use lane_i::{App, R, app, item, lab_document};
 use ownhealth_core::documents::{NewDocument, create_document};
-use ownhealth_core::review::{ReviewItemIn, create_item};
+use ownhealth_core::review::{ItemQuery, ReviewItemIn, create_item};
 use ownhealth_core::sources::{NewSource, create_source};
 use ownhealth_ingest_structured::fhir::import_pull;
+use ownhealth_mcp::review_shown::Scan;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -1053,11 +1054,11 @@ async fn test_a_held_fhir_resource_shows_only_with_its_scope_and_read_sensitive(
     Ok(())
 }
 
-/// CR-REVIEWPAGE: a page holds only items the reader may see. With 250 older held activity values a
+/// CR-REVIEWPAGE: a page holds only items the reader may see. With 450 older held activity values a
 /// labs-only reviewer may not see and one newer lab value they may, the first page shows the lab value
-/// and `open` counts it. 250 is more than one read batch (LIST_BATCH, 200), so the lab value is found
-/// only if the list reads on past a batch that held nothing visible. `offset` skips visible items only,
-/// and `limit` counts visible items.
+/// and `open` counts it. 450 is more than two read batches (review_shown::SCAN_BATCH, 200), so the lab
+/// value is found only if the list reads on past every batch that held nothing visible. `offset` skips
+/// visible items only, and `limit` counts visible items.
 #[tokio::test]
 async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_ones() -> R {
     let a = app().await?;
@@ -1066,7 +1067,7 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
     sqlx::query(
         "insert into review_item (household_id, profile_id, kind, payload, reasons, created_at) \
          select household_id, profile_id, kind, payload, reasons, created_at - make_interval(secs => g) \
-         from review_item, generate_series(1, 249) g where id = $1",
+         from review_item, generate_series(1, 449) g where id = $1",
     )
     .bind(hidden)
     .execute(&a.rt.pool)
@@ -1089,7 +1090,7 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
     assert_eq!(page("").await?, (vec![json!(lab)], json!(1)));
     assert_eq!(page("&limit=1").await?, (vec![json!(lab)], json!(1)));
     assert_eq!(page("&offset=1").await?, (vec![], json!(1)));
-    // positive control: with read:wearables he sees all 251, oldest first, a page at a time
+    // positive control: with read:wearables he sees all 451, oldest first, a page at a time
     sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
         .bind(a.family.user("alex"))
         .bind(a.family.profile("carmen"))
@@ -1101,11 +1102,11 @@ async fn test_a_review_page_holds_the_visible_items_past_any_number_of_hidden_on
         .execute(&a.rt.pool)
         .await?;
     let (ids, open) = page("&limit=100").await?;
-    assert_eq!((ids.len(), open), (100, json!(251)));
+    assert_eq!((ids.len(), open), (100, json!(451)));
     assert_ne!(ids[0], json!(lab));
-    let (ids, open) = page("&offset=200").await?;
-    assert_eq!((ids.len(), ids.last(), open), (51, Some(&json!(lab)), json!(251)));
-    assert_eq!(page("&offset=250").await?, (vec![json!(lab)], json!(251)));
+    let (ids, open) = page("&offset=400").await?;
+    assert_eq!((ids.len(), ids.last(), open), (51, Some(&json!(lab)), json!(451)));
+    assert_eq!(page("&offset=450").await?, (vec![json!(lab)], json!(451)));
     Ok(())
 }
 
@@ -1315,5 +1316,44 @@ async fn test_a_grouped_item_follows_the_profile_its_bundle_is_on_now() -> R {
         .execute(&a.rt.pool)
         .await?;
     assert_eq!(shown().await?, (false, StatusCode::NOT_FOUND), "moved to Sam's profile");
+    Ok(())
+}
+
+/// F-BATCHSNAP: the review list and its counts read the queue a batch at a time, each batch in its own
+/// statement. A row closed between two batches must not move an open row out of reach: with 201 open
+/// rows, the first batch reads 200; one of them closes; the next batch still reads the 201st.
+#[tokio::test]
+async fn test_a_review_scan_reaches_every_open_row_when_one_closes_between_batches() -> R {
+    let a = app().await?;
+    let older = item(&a, "carmen", "candidate_row", None, json!({})).await?;
+    sqlx::query(
+        "insert into review_item (household_id, profile_id, kind, payload, reasons, created_at) \
+         select household_id, profile_id, kind, payload, reasons, created_at - make_interval(secs => g) \
+         from review_item, generate_series(1, 199) g where id = $1",
+    )
+    .bind(older)
+    .execute(&a.rt.pool)
+    .await?;
+    let newest = item(&a, "carmen", "candidate_row", None, json!({})).await?;
+    let mut conn = a.conn().await?;
+    let mut scan = Scan::new(
+        ItemQuery {
+            household_id: Some(a.family.household_id),
+            profile_ids: Some(vec![a.family.profile("carmen")]),
+            status: Some("open".into()),
+            ..ItemQuery::default()
+        },
+        &[],
+    );
+    let first = scan.next(&mut conn).await?;
+    assert_eq!(first.len(), 200);
+    assert!(first.iter().all(|i| i.id != newest));
+    sqlx::query("update review_item set status = 'dismissed' where id = $1")
+        .bind(first[0].id)
+        .execute(&a.rt.pool)
+        .await?;
+    let second: Vec<Uuid> = scan.next(&mut conn).await?.iter().map(|i| i.id).collect();
+    assert_eq!(second, [newest], "the 201st open row");
+    assert!(scan.next(&mut conn).await?.is_empty());
     Ok(())
 }
