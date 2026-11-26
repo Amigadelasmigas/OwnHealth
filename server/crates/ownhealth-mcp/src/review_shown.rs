@@ -128,6 +128,22 @@ pub async fn opens_document(conn: &mut PgConnection, item: &ReviewItem, perm: &P
     }
 }
 
+/// Whether item `i` of the profile of `perm` counts for the caller, as the list shows it. A count that
+/// holds an item only emergency access shows reads through that access, so it records the use as the
+/// list does; an item the caller's own grant shows records none.
+async fn shown_on(conn: &mut PgConnection, i: &ReviewItem, perm: &Permission) -> Result<bool> {
+    let show = visible(i, perm) && opens_document(&mut *conn, i, perm).await?;
+    if show {
+        if i.kind == ownhealth_imaging::import::REVIEW_KIND {
+            perm.record_read(&["read:records"]);
+        }
+        if !visible(i, &perm.own_only()) {
+            perm.read_scopes();
+        }
+    }
+    Ok(show)
+}
+
 /// `review_open` on the dashboard and in MCP get_health_status: what the list for this one profile
 /// shows the caller, the household's own items included. A reader who cannot review there is shown
 /// none.
@@ -164,13 +180,7 @@ pub async fn shown_per_document(
         let show = match i.profile_id {
             // the list takes a held study or a sync alert only on a profile it names
             None => i.kind != ownhealth_imaging::import::REVIEW_KIND && i.kind != SOURCE_GAP,
-            Some(_) => {
-                let show = visible(i, perm) && opens_document(&mut *conn, i, perm).await?;
-                if show && i.kind == ownhealth_imaging::import::REVIEW_KIND {
-                    perm.record_read(&["read:records"]);
-                }
-                show
-            }
+            Some(_) => shown_on(&mut *conn, i, perm).await?,
         };
         if let (true, Some(doc)) = (show, i.document_id) {
             *shown.entry(doc).or_insert(0) += 1;
@@ -211,13 +221,7 @@ pub async fn count_shown(conn: &mut PgConnection, household: Uuid, perms: &[&Per
     for i in &items {
         let show = match i.profile_id.map(|pid| by_profile.get(&pid)) {
             None => household_items,
-            Some(Some(p)) => {
-                let show = visible(i, p) && opens_document(&mut *conn, i, p).await?;
-                if show && i.kind == ownhealth_imaging::import::REVIEW_KIND {
-                    p.record_read(&["read:records"]);
-                }
-                show
-            }
+            Some(Some(p)) => shown_on(&mut *conn, i, p).await?,
             Some(None) => false,
         };
         shown += i64::from(show);

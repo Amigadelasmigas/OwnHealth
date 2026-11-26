@@ -2173,6 +2173,59 @@ async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() ->
     Ok(())
 }
 
+/// CR-REVIEWBG: a review count that holds an item only emergency access shows is a read through the
+/// request. Sam is a guardian with an ordinary read:records and an emergency read:wearables, and a
+/// document of Alex's (read with read:records) holds a held activity value. The document's
+/// `open_review`, the list's `open` and `/api/me`'s `review_open` count the item, and each read records
+/// one use. With an ordinary read:wearables the same counts record none.
+#[tokio::test]
+async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows() -> R {
+    let mut b = setup().await?;
+    let doc = document(&b, "other").await?;
+    let profile = b.alex_id();
+    {
+        let mut observation = serde_json::to_value(lab(profile, "8000", false)?)?;
+        observation["category"] = json!("activity");
+        let mut conn = b.env.pool().acquire().await?;
+        create_item(
+            &mut conn,
+            &ReviewItemIn {
+                household_id: Some(b.env.fam().household_id),
+                profile_id: Some(profile),
+                document_id: Some(doc),
+                kind: "candidate_row".into(),
+                payload: json!({"observation": observation, "src": {"kind": "manual", "profile_id": profile}}),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
+    let mut sam = b.sam().await?;
+    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"])).await?;
+    let reads = [
+        (format!("/api/documents/{doc}"), "open_review"),
+        ("/api/review?profile=alex&limit=0".to_string(), "open"),
+        ("/api/me".to_string(), "review_open"),
+    ];
+    for (path, key) in &reads {
+        let before = record_uses(&b, id).await?;
+        let r = sam.get(path).await?;
+        assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+        assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+        assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1), "{path}");
+    }
+    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables"]).await?;
+    for (path, key) in &reads {
+        let before = record_uses(&b, id).await?;
+        let r = sam.get(path).await?;
+        assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+        assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+        assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
+    }
+    Ok(())
+}
+
 async fn record_uses(b: &Bg, id: Uuid) -> anyhow::Result<(i64, i64)> {
     Ok((
         b.uses(id).await?,
