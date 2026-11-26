@@ -543,12 +543,13 @@ const EDGE_PUNCTUATION: [char; 19] = [
 
 /// Text as compared: lower case, one space between words, and the [`EDGE_PUNCTUATION`] at either end of
 /// a word dropped, so "Nonreactive." and "nonreactive" are one text. Punctuation inside a word ("1.5",
-/// "HIV-1") and signs that carry meaning ("<", "-", "+", "%", "?", "!") stay.
+/// "HIV-1"), a decimal point or comma that starts a number (".5", ",5") and signs that carry meaning
+/// ("<", "-", "+", "%", "?", "!") stay.
 fn normalized_text(text: &str) -> String {
     let mut normalized = String::new();
     for word in text
         .split_whitespace()
-        .map(|word| word.trim_matches(&EDGE_PUNCTUATION[..]))
+        .map(trim_edge_punctuation)
         .filter(|word| !word.is_empty())
     {
         if !normalized.is_empty() {
@@ -557,6 +558,19 @@ fn normalized_text(text: &str) -> String {
         normalized.push_str(&word.to_lowercase());
     }
     normalized
+}
+
+/// `word` without the [`EDGE_PUNCTUATION`] at its ends, keeping a decimal point or comma before a digit.
+fn trim_edge_punctuation(word: &str) -> &str {
+    let mut word = word.trim_end_matches(&EDGE_PUNCTUATION[..]);
+    while let Some(c) = word.chars().next().filter(|c| EDGE_PUNCTUATION.contains(c)) {
+        let rest = &word[c.len_utf8()..];
+        if matches!(c, '.' | ',') && rest.starts_with(|d: char| d.is_ascii_digit()) {
+            break;
+        }
+        word = rest;
+    }
+    word
 }
 
 fn status_of<'a>(n: Node<'a, '_>) -> Option<&'a str> {

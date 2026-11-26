@@ -4214,6 +4214,39 @@ fn pre1_punctuation_alone_does_not_make_another_text() -> R {
     Ok(())
 }
 
+/// PRE-1.0 (CodeRabbit, mirror PR 7): a decimal point or comma before a digit is part of the number.
+/// ".5 mg" beside the display "5 mg" is another text and review lists it; a full stop after a number at
+/// the end of a sentence ("5 mg.") is still punctuation.
+#[test]
+fn pre1_a_leading_decimal_point_is_no_punctuation() -> R {
+    let observation = |display: &str, local: &str| {
+        format!(
+            r##"<entry><observation classCode="OBS" moodCode="EVN">
+             <templateId root="2.16.840.1.113883.10.20.22.4.38"/>
+             <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/>
+             <statusCode code="completed"/><effectiveTime value="20210301"/>
+             <value xsi:type="CD" code="x" codeSystem="1.2.3" displayName="{display}">
+               <originalText>{local}</originalText></value>
+           </observation></entry>"##
+        )
+    };
+    let not_read = |xml: String| -> anyhow::Result<Vec<String>> {
+        let c = convert(&social_history(&xml))?;
+        anyhow::ensure!(resources(&c, "Observation").len() == 1);
+        Ok(c.sections[0].not_read.clone())
+    };
+    let unread = || vec!["value (original text kept in the uploaded file)".to_string()];
+    assert_eq!(not_read(observation("5 mg", ".5 mg"))?, unread());
+    assert_eq!(not_read(observation("5 mg", "(.5 mg)"))?, unread());
+    assert_eq!(not_read(observation("5 mg", ",5 mg"))?, unread());
+    assert_eq!(not_read(observation(".5 mg", ".5 mg"))?, Vec::<String>::new());
+    // sentence punctuation after a number still drops
+    assert_eq!(not_read(observation("5 mg", "5 mg."))?, Vec::<String>::new());
+    assert_eq!(not_read(observation("Dose 5", "Dose 5."))?, Vec::<String>::new());
+    assert_eq!(not_read(observation("Dose 5", "«Dose 5»."))?, Vec::<String>::new());
+    Ok(())
+}
+
 /// PRE-1.0 (K21R8-L2): a Notes, Encounters, Procedures or Social History section that says it has no
 /// information (nullFlavor) but holds words is held, as it was before these sections were read. A core
 /// section that says so keeps its guard: "No information" there needs no review.
