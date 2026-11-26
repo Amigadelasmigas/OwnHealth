@@ -296,17 +296,24 @@ async fn list(State(rt): State<Runtime>, caller: Caller) -> R {
     .await?
     .into_iter()
     .collect();
-    let out: Vec<Value> = sources::list_sources(&mut conn, household)
-        .await?
+    let sources = sources::list_sources(&mut conn, household).await?;
+    ok(Value::Array(managed_rows(&sources, &health, &held)))
+}
+
+/// The rows of `GET /inboxes`: each source [`visible`] found the caller manages, by its health row.
+/// The source rows come from a later statement, so a source shows only while it is on the profile
+/// that decision was made for: one moved in between, to a profile the caller may not manage, is left
+/// out.
+fn managed_rows(sources: &[Source], health: &HashMap<Uuid, &SourceHealth>, held: &HashMap<Uuid, i64>) -> Vec<Value> {
+    sources
         .iter()
         .filter(|s| !is_connector(&s.kind))
         .filter_map(|s| {
-            let h = *health.get(&s.id)?;
+            let h = *health.get(&s.id).filter(|h| h.profile_id == s.profile_id)?;
             let q = (s.kind == "email").then(|| held.get(&s.id).copied().unwrap_or(0));
             Some(source_out(s, Some(h), q))
         })
-        .collect();
-    ok(Value::Array(out))
+        .collect()
 }
 
 async fn get_one(State(rt): State<Runtime>, Caller(p): Caller, Path(id): Path<String>) -> R {
@@ -927,6 +934,50 @@ mod tests {
                 claim_count: (kind == "bluebutton").then_some(42),
             },
         }
+    }
+
+    /// U7-SOURCEMOVE: `GET /inboxes` decides who manages a source from its health row, then reads the
+    /// source rows in a later statement. A source moved in between to another profile (or to none) is
+    /// left out, since the decision was made for the profile it left.
+    #[test]
+    fn a_source_moved_after_the_manage_check_is_not_listed() {
+        let h = row("email");
+        let health = HashMap::from([(h.id, &h)]);
+        let source = |profile_id: Option<Uuid>| Source {
+            id: h.id,
+            household_id: Uuid::nil(),
+            profile_id,
+            kind: h.kind.clone(),
+            label: h.label.clone(),
+            config: json!({}),
+            secret_id: None,
+            token_prefix: None,
+            enabled: true,
+            poll_seconds: None,
+            cursor: None,
+            last_run_at: None,
+            last_success_at: None,
+            last_error_at: None,
+            last_error: None,
+            consecutive_failures: 0,
+            created_by: None,
+            created_at: Utc.timestamp_opt(1_762_600_000, 0).single().unwrap_or_default(),
+            oauth_grant_id: None,
+        };
+        let held = HashMap::new();
+        assert_eq!(
+            managed_rows(&[source(h.profile_id)], &health, &held).len(),
+            1,
+            "positive control"
+        );
+        assert!(
+            managed_rows(&[source(Some(Uuid::from_u128(7)))], &health, &held).is_empty(),
+            "moved"
+        );
+        assert!(
+            managed_rows(&[source(None)], &health, &held).is_empty(),
+            "moved to the household"
+        );
     }
 
     #[test]
