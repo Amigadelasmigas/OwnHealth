@@ -17,9 +17,9 @@
 //! `cgm_csv`) `read:wearables`, other documents `read:records`; page text and words also
 //! need `read:documents_text`. A document on a profile the caller cannot read answers 404 like an unknown
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
-//! such. Without read:sensitive a document's import flags leave out the C-CDA section titles and the
-//! sensitive and unprojected counts, and `open_review` counts only the open items the review list shows
-//! the reader (none when they cannot review there).
+//! such. Without read:sensitive a document's import flags leave out the C-CDA section titles, the
+//! sensitive and unprojected counts and the import summary, and `open_review` counts only the open
+//! items the review list shows the reader (none when they cannot review there).
 
 use std::collections::BTreeSet;
 
@@ -62,8 +62,9 @@ const COLS: &str = "d.id, d.profile_id, d.filename, d.doc_type, d.provider_name,
                     d.flags, d.mime, d.size_bytes, d.created_at";
 
 /// The import flags that tell what a document holds that the reader may not see: the C-CDA section
-/// titles, and how many sensitive or unprojected resources the import held. They need read:sensitive.
-const SENSITIVE_FLAGS: [&str; 3] = ["ccda", "sensitive", "unprojected"];
+/// titles, how many sensitive or unprojected resources the import held, and the import's own summary,
+/// whose review counts take in the items the review list hides. They need read:sensitive.
+const SENSITIVE_FLAGS: [&str; 4] = ["ccda", "import", "sensitive", "unprojected"];
 
 const FTS_CFG: &str = "cast(case d.language when 'es' then 'spanish' when 'en' then 'english' when 'de' then 'german' \
                        when 'fr' then 'french' else 'simple' end as regconfig)";

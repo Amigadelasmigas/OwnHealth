@@ -686,7 +686,8 @@ async fn test_a_household_item_shows_only_to_who_reviews_somewhere() -> R {
 }
 
 /// A C-CDA document of Carmen's whose import held a sensitive value and a plain one, with the flags
-/// the import writes: the section titles, and how many resources were sensitive or not projected.
+/// the import writes: the section titles, how many resources were sensitive or not projected, and how
+/// many items it queued for review.
 async fn carmen_ccda_with_held_values(a: &App) -> anyhow::Result<Uuid> {
     let doc: Uuid = sqlx::query_scalar(
         "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, flags) \
@@ -699,6 +700,7 @@ async fn carmen_ccda_with_held_values(a: &App) -> anyhow::Result<Uuid> {
         "ccda": {"title": "Resumen", "sections": [{"title": "Salud sexual", "kind": "social_history", "entries": 1}]},
         "sensitive": 2,
         "unprojected": 1,
+        "import": {"queued": 2, "reasons": {"unmapped": 2}},
     }))
     .fetch_one(&a.rt.pool)
     .await?;
@@ -771,7 +773,7 @@ async fn test_a_documents_review_flags_and_count_follow_what_the_reader_sees() -
     let (one, listed, shown) = read_carmen_document(&a, doc).await?;
     assert_eq!(shown, 2);
     for v in [&one, &listed] {
-        assert_eq!(flags(v), ["ccda", "sensitive", "unprojected"], "{v}");
+        assert_eq!(flags(v), ["ccda", "import", "sensitive", "unprojected"], "{v}");
         assert_eq!(v["open_review"], json!(2), "{v}");
     }
     Ok(())
