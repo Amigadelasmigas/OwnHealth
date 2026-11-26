@@ -201,8 +201,41 @@ const FR: Words = Words {
     ],
 };
 
+const CA: Words = Words {
+    draw: "Analítica · {n} resultats",
+    draw1: "Analítica · 1 resultat",
+    flagged: "{n} marcats pel laboratori",
+    flagged1: "1 marcat pel laboratori",
+    started: "Inici de {name}",
+    stopped: "Fi de {name}",
+    genome: "Dades genòmiques importades",
+    visit: "Visita mèdica",
+    imaging: "Estudi d'imatge",
+    doc_types: &[
+        ("discharge", "Informe d'alta"),
+        ("imaging_report", "Informe d'imatge"),
+        ("prescription", "Recepta"),
+        ("ecg", "Electrocardiograma"),
+    ],
+    document: "Document",
+    enums: &[
+        ("confirmed", "confirmat"),
+        ("provisional", "provisional"),
+        ("unconfirmed", "sense confirmar"),
+        ("differential", "diferencial"),
+        ("refuted", "descartat"),
+        ("entered-in-error", "registrat per error"),
+        ("active", "actiu"),
+        ("paused", "en pausa"),
+        ("on-hold", "en pausa"),
+        ("stopped", "suspès"),
+        ("completed", "completat"),
+        ("intended", "previst"),
+    ],
+};
+
 /// The words of every registry language, read with `langs::pick`.
-const WORDS: &[(&str, &Words)] = &[("es", &ES), ("en", &EN), ("de", &DE), ("fr", &FR)];
+const WORDS: &[(&str, &Words)] = &[("es", &ES), ("en", &EN), ("de", &DE), ("fr", &FR), ("ca", &CA)];
 
 /// The registry languages the timeline's words lack (`tests/langs.rs`).
 pub fn missing_langs(langs: &[&str]) -> Vec<String> {

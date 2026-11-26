@@ -21,7 +21,7 @@ pub struct Patterns {
 
 /// The per-language table. A language joins `ownhealth_core::langs::LANGS` only with its own entry
 /// here (`missing_patterns`, tested in `tests/langs.rs`).
-pub const PATTERNS: [Patterns; 4] = [
+pub const PATTERNS: [Patterns; 5] = [
     Patterns {
         lang: "en",
         anywhere: &[
@@ -214,6 +214,49 @@ pub const PATTERNS: [Patterns; 4] = [
             "limitez",
         ],
     },
+    Patterns {
+        lang: "ca",
+        anywhere: &[
+            r"\b(?:has|heu) de\b",
+            r"\bcal que\b",
+            r"\bhauries de\b",
+            r"\bhauríeu de\b",
+            r"\bno (?:prenguis|prengueu|deixis|deixeu)\b",
+        ],
+        start_verbs: &[
+            "pren",
+            "preneu",
+            "deixa",
+            "deixeu",
+            "evita",
+            "eviteu",
+            "suspèn",
+            "suspeneu",
+            "comença",
+            "comenceu",
+            "augmenta",
+            "augmenteu",
+            "redueix",
+            "reduïu",
+            "consulteu",
+            "pregunteu",
+            "parla",
+            "parleu",
+            "truca",
+            "truqueu",
+            "menja",
+            "mengeu",
+            "beu",
+            "beveu",
+            "mesura",
+            "mesureu",
+            "repeteix",
+            "repetiu",
+            "demana",
+            "demaneu",
+            "aneu",
+        ],
+    },
 ];
 
 /// The languages of `langs` with no patterns of their own.
@@ -306,7 +349,16 @@ mod tests {
             .iter()
             .map(|p| (p.lang, p.anywhere.len(), p.start_verbs.len()))
             .collect();
-        assert_eq!(counts, [("en", 5, 38), ("es", 4, 45), ("de", 3, 40), ("fr", 4, 25)]);
+        assert_eq!(
+            counts,
+            [
+                ("en", 5, 38),
+                ("es", 4, 45),
+                ("de", 3, 40),
+                ("fr", 4, 25),
+                ("ca", 5, 31)
+            ]
+        );
     }
 
     /// German advice is caught, German description is not.
@@ -342,6 +394,25 @@ mod tests {
         for fine in [
             "Le LDL est au-dessus de l'intervalle du laboratoire.",
             "Cette valeur vient du compte rendu de mars.",
+        ] {
+            assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
+        }
+    }
+
+    /// Catalan advice is caught, Catalan description is not.
+    #[test]
+    fn catalan_imperatives_are_caught() {
+        for advice in [
+            "Pren dues pastilles al dia.",
+            "Has de deixar aquest medicament.",
+            "Cal que repeteixis l'anàlisi.",
+            "Eviteu l'alcohol.",
+        ] {
+            assert!(!imperative_phrases(advice).is_empty(), "{advice}");
+        }
+        for fine in [
+            "El colesterol LDL és per sobre de l'interval del laboratori.",
+            "Aquest valor ve de l'informe de març.",
         ] {
             assert_eq!(imperative_phrases(fine), Vec::<String>::new(), "{fine}");
         }

@@ -58,6 +58,14 @@ pub const FORMATS: &[(&str, Format)] = &[
             count_group: ('\u{a0}', 4),
         },
     ),
+    (
+        "ca",
+        Format {
+            decimal: ',',
+            group: Some(('.', 4)),
+            count_group: ('.', 4),
+        },
+    ),
 ];
 
 /// The registry languages [`FORMATS`] has no row for.

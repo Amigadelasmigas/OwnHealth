@@ -9,18 +9,21 @@
     "en": "Sync has stopped for {providers}. The server operator can check Open Wearables and reconnect the affected accounts there.",
     "es": "Se ha interrumpido la sincronización de {providers}. Quien administra el servidor puede revisar Open Wearables y volver a conectar allí las cuentas afectadas.",
     "de": "Die Synchronisierung von {providers} ist unterbrochen. Wer den Server betreibt, kann Open Wearables prüfen und die betroffenen Konten dort neu verbinden.",
-    "fr": "La synchronisation de {providers} s'est arrêtée. La personne qui gère le serveur peut vérifier Open Wearables et y reconnecter les comptes concernés."
+    "fr": "La synchronisation de {providers} s'est arrêtée. La personne qui gère le serveur peut vérifier Open Wearables et y reconnecter les comptes concernés.",
+    "ca": "S'ha interromput la sincronització de {providers}. Qui administra el servidor pot revisar Open Wearables i tornar-hi a connectar els comptes afectats."
   },
   "openwearables_down": {
     "en": "OwnHealth cannot sync with Open Wearables. The server operator can check that the Open Wearables service is running.",
     "es": "OwnHealth no puede sincronizar con Open Wearables. Quien administra el servidor puede comprobar que el servicio de Open Wearables está en marcha.",
     "de": "OwnHealth kann nicht mit Open Wearables synchronisieren. Wer den Server betreibt, kann prüfen, ob der Open-Wearables-Dienst läuft.",
-    "fr": "OwnHealth ne parvient pas à se synchroniser avec Open Wearables. La personne qui gère le serveur peut vérifier que le service Open Wearables fonctionne."
+    "fr": "OwnHealth ne parvient pas à se synchroniser avec Open Wearables. La personne qui gère le serveur peut vérifier que le service Open Wearables fonctionne.",
+    "ca": "OwnHealth no pot sincronitzar amb Open Wearables. Qui administra el servidor pot comprovar que el servei d'Open Wearables està en marxa."
   },
   "dexcom": {
     "en": "Sync has stopped for Dexcom. You can reconnect your Dexcom account from Connections.",
     "es": "Se ha interrumpido la sincronización de Dexcom. Puedes volver a conectar tu cuenta de Dexcom desde Conexiones.",
     "de": "Die Synchronisierung von Dexcom ist unterbrochen. Du kannst dein Dexcom-Konto unter Verbindungen neu verbinden.",
-    "fr": "La synchronisation de Dexcom s'est arrêtée. Vous pouvez reconnecter votre compte Dexcom depuis Connexions."
+    "fr": "La synchronisation de Dexcom s'est arrêtée. Vous pouvez reconnecter votre compte Dexcom depuis Connexions.",
+    "ca": "S'ha interromput la sincronització de Dexcom. Pots tornar a connectar el teu compte de Dexcom des de Connexions."
   }
 }

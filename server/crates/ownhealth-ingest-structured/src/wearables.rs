@@ -147,23 +147,62 @@ pub const METRICS: [Spec; 16] = [
 
 /// The label of each metric of [`METRICS`] in the registry languages beyond es and en.
 const LABELS: &[(&str, &[(&str, &str)])] = &[
-    ("steps", &[("de", "Schritte"), ("fr", "Pas")]),
-    ("hr", &[("de", "Herzfrequenz"), ("fr", "Fréquence cardiaque")]),
+    ("steps", &[("de", "Schritte"), ("fr", "Pas"), ("ca", "Passos")]),
+    (
+        "hr",
+        &[
+            ("de", "Herzfrequenz"),
+            ("fr", "Fréquence cardiaque"),
+            ("ca", "Freqüència cardíaca"),
+        ],
+    ),
     (
         "hr_resting",
-        &[("de", "Ruheherzfrequenz"), ("fr", "Fréquence cardiaque au repos")],
+        &[
+            ("de", "Ruheherzfrequenz"),
+            ("fr", "Fréquence cardiaque au repos"),
+            ("ca", "Freqüència cardíaca en repòs"),
+        ],
     ),
-    ("hrv_sdnn", &[("de", "HRV (SDNN)"), ("fr", "VFC (SDNN)")]),
-    ("hrv_rmssd", &[("de", "HRV (RMSSD)"), ("fr", "VFC (RMSSD)")]),
-    ("vo2max", &[("de", "VO₂max-Schätzung"), ("fr", "VO₂max estimée")]),
-    ("spo2", &[("de", "Blutsauerstoff"), ("fr", "Oxygène sanguin")]),
-    ("resp_rate", &[("de", "Atemfrequenz"), ("fr", "Fréquence respiratoire")]),
-    ("weight", &[("de", "Gewicht"), ("fr", "Poids")]),
+    (
+        "hrv_sdnn",
+        &[("de", "HRV (SDNN)"), ("fr", "VFC (SDNN)"), ("ca", "VFC (SDNN)")],
+    ),
+    (
+        "hrv_rmssd",
+        &[("de", "HRV (RMSSD)"), ("fr", "VFC (RMSSD)"), ("ca", "VFC (RMSSD)")],
+    ),
+    (
+        "vo2max",
+        &[
+            ("de", "VO₂max-Schätzung"),
+            ("fr", "VO₂max estimée"),
+            ("ca", "VO₂màx estimat"),
+        ],
+    ),
+    (
+        "spo2",
+        &[
+            ("de", "Blutsauerstoff"),
+            ("fr", "Oxygène sanguin"),
+            ("ca", "Oxigen en sang"),
+        ],
+    ),
+    (
+        "resp_rate",
+        &[
+            ("de", "Atemfrequenz"),
+            ("fr", "Fréquence respiratoire"),
+            ("ca", "Freqüència respiratòria"),
+        ],
+    ),
+    ("weight", &[("de", "Gewicht"), ("fr", "Poids"), ("ca", "Pes")]),
     (
         "bp_systolic",
         &[
             ("de", "Blutdruck, systolisch"),
             ("fr", "Pression artérielle systolique"),
+            ("ca", "Pressió arterial sistòlica"),
         ],
     ),
     (
@@ -171,22 +210,45 @@ const LABELS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("de", "Blutdruck, diastolisch"),
             ("fr", "Pression artérielle diastolique"),
+            ("ca", "Pressió arterial diastòlica"),
         ],
     ),
     (
         "active_energy",
-        &[("de", "Aktivitätsenergie"), ("fr", "Énergie active")],
+        &[
+            ("de", "Aktivitätsenergie"),
+            ("fr", "Énergie active"),
+            ("ca", "Energia activa"),
+        ],
     ),
     (
         "distance",
         &[
             ("de", "Distanz beim Gehen und Laufen"),
             ("fr", "Distance de marche et de course"),
+            ("ca", "Distància caminant i corrent"),
         ],
     ),
-    ("sleep_asleep", &[("de", "Schlafdauer"), ("fr", "Durée du sommeil")]),
-    ("sleep_in_bed", &[("de", "Zeit im Bett"), ("fr", "Temps au lit")]),
-    ("glucose_cgm", &[("de", "Glukose (CGM)"), ("fr", "Glucose (MCG)")]),
+    (
+        "sleep_asleep",
+        &[
+            ("de", "Schlafdauer"),
+            ("fr", "Durée du sommeil"),
+            ("ca", "Durada del son"),
+        ],
+    ),
+    (
+        "sleep_in_bed",
+        &[("de", "Zeit im Bett"), ("fr", "Temps au lit"), ("ca", "Temps al llit")],
+    ),
+    (
+        "glucose_cgm",
+        &[
+            ("de", "Glukose (CGM)"),
+            ("fr", "Glucose (MCG)"),
+            ("ca", "Glucosa (MCG)"),
+        ],
+    ),
 ];
 
 pub const SLEEP_METRICS: [&str; 2] = ["sleep_asleep", "sleep_in_bed"];
@@ -745,6 +807,10 @@ const LEFT_OUT: &[(&str, &str)] = &[
     (
         "fr",
         "VFC d'une seule source : {shown}. Non mélangée avec la VFC d'autres sources sur cette période{rest}.",
+    ),
+    (
+        "ca",
+        "VFC d'una sola font: {shown}. No es barreja amb la VFC d'altres fonts en aquest període{rest}.",
     ),
 ];
 

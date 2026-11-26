@@ -8,6 +8,7 @@
 import { dict, type Key } from './dict.ts';
 import { de } from './de.ts';
 import { fr } from './fr.ts';
+import { ca } from './ca.ts';
 
 /** Every UI string of one language. */
 export type Table = Readonly<Record<Key, string>>;
@@ -31,7 +32,8 @@ export const LANGS = [
 	{ code: 'es', label: 'ES', name: 'Español', intl: 'es-ES', beta: false, table: dict.es },
 	{ code: 'en', label: 'EN', name: 'English', intl: 'en-GB', beta: false, table: dict.en },
 	{ code: 'de', label: 'DE', name: 'Deutsch', intl: 'de-DE', beta: true, table: de },
-	{ code: 'fr', label: 'FR', name: 'Français', intl: 'fr-FR', beta: true, table: fr }
+	{ code: 'fr', label: 'FR', name: 'Français', intl: 'fr-FR', beta: true, table: fr },
+	{ code: 'ca', label: 'CA', name: 'Català', intl: 'ca-ES', beta: true, table: ca }
 ] as const satisfies readonly LangEntry[];
 
 export type Lang = (typeof LANGS)[number]['code'];

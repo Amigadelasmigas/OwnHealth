@@ -81,6 +81,18 @@ const LABELS: &[(&str, Labels)] = &[
             title: "En cas d'urgence",
         },
     ),
+    (
+        "ca",
+        Labels {
+            qr_title: "Emergència",
+            sections: ["Al·lèrgies", "Malalties", "Medicaments"],
+            contacts: "Contactes d'emergència",
+            online: "Resum en línia",
+            offline: "Informació sense connexió",
+            expires: "Caduca",
+            title: "En cas d'emergència",
+        },
+    ),
 ];
 pub const TOO_FULL: &str =
     "The emergency information is too long for a wallet-size QR code. Leave out some records and try again.";

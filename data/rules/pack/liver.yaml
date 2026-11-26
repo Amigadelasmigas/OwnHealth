@@ -1,6 +1,6 @@
 system: liver
 order: 2
-names: {en: Liver, es: Hígado, de: "Leber", fr: "Foie"}
+names: {en: Liver, es: Hígado, de: "Leber", fr: "Foie", ca: "Fetge"}
 markers: [alt, ggt, ast]
 rules:
   - id: recency.liver

@@ -1,6 +1,6 @@
 system: kidney
 order: 3
-names: {en: Kidney, es: Riñón, de: "Niere", fr: "Rein"}
+names: {en: Kidney, es: Riñón, de: "Niere", fr: "Rein", ca: "Ronyó"}
 markers: [egfr, creatinine, urine_acr]
 rules:
   - id: recency.kidney

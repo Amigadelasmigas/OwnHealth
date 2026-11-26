@@ -23,7 +23,13 @@ use crate::rendering::window_months;
 const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
     (
         "ES",
-        &[("es", "España"), ("en", "Spain"), ("de", "Spanien"), ("fr", "Espagne")],
+        &[
+            ("es", "España"),
+            ("en", "Spain"),
+            ("de", "Spanien"),
+            ("fr", "Espagne"),
+            ("ca", "Espanya"),
+        ],
     ),
     (
         "PT",
@@ -32,6 +38,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("en", "Portugal"),
             ("de", "Portugal"),
             ("fr", "Portugal"),
+            ("ca", "Portugal"),
         ],
     ),
     (
@@ -41,6 +48,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("en", "France"),
             ("de", "Frankreich"),
             ("fr", "France"),
+            ("ca", "França"),
         ],
     ),
     (
@@ -50,11 +58,18 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("en", "Germany"),
             ("de", "Deutschland"),
             ("fr", "Allemagne"),
+            ("ca", "Alemanya"),
         ],
     ),
     (
         "IT",
-        &[("es", "Italia"), ("en", "Italy"), ("de", "Italien"), ("fr", "Italie")],
+        &[
+            ("es", "Italia"),
+            ("en", "Italy"),
+            ("de", "Italien"),
+            ("fr", "Italie"),
+            ("ca", "Itàlia"),
+        ],
     ),
     (
         "GB",
@@ -63,6 +78,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("en", "United Kingdom"),
             ("de", "Vereinigtes Königreich"),
             ("fr", "Royaume-Uni"),
+            ("ca", "Regne Unit"),
         ],
     ),
     (
@@ -72,6 +88,7 @@ const COUNTRIES: &[(&str, &[(&str, &str)])] = &[
             ("en", "United States"),
             ("de", "Vereinigte Staaten"),
             ("fr", "États-Unis"),
+            ("ca", "Estats Units"),
         ],
     ),
 ];

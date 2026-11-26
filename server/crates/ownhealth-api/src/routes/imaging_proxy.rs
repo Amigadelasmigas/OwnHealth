@@ -1148,6 +1148,10 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
                 "fr",
                 "Ce lien de la visionneuse n'est plus valable. Un lien fonctionne pendant une heure, et seulement tant que vous restez connecté à OwnHealth ; rouvrir l'examen dans OwnHealth en crée un nouveau.",
             ),
+            (
+                "ca",
+                "Aquest enllaç del visor ja no serveix. Un enllaç dura una hora, i només mentre continues amb la sessió iniciada a OwnHealth; en tornar a obrir-hi l'estudi se'n crea un de nou.",
+            ),
         ],
     ),
     (
@@ -1157,6 +1161,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "The viewer opens from a study in OwnHealth."),
             ("de", "Der Viewer öffnet sich aus einer Untersuchung in OwnHealth."),
             ("fr", "La visionneuse s'ouvre depuis un examen dans OwnHealth."),
+            ("ca", "El visor s'obre des d'un estudi a OwnHealth."),
         ],
     ),
     (
@@ -1166,6 +1171,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "This is not a file of the viewer."),
             ("de", "Das ist keine Datei des Viewers."),
             ("fr", "Ce n'est pas un fichier de la visionneuse."),
+            ("ca", "Això no és un fitxer del visor."),
         ],
     ),
     (
@@ -1175,6 +1181,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "This study is not available to you."),
             ("de", "Diese Untersuchung ist für dich nicht verfügbar."),
             ("fr", "Cet examen ne vous est pas accessible."),
+            ("ca", "Aquest estudi no està disponible per a tu."),
         ],
     ),
     (
@@ -1184,6 +1191,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "This study was retracted."),
             ("de", "Diese Untersuchung wurde zurückgezogen."),
             ("fr", "Cet examen a été retiré."),
+            ("ca", "Aquest estudi s'ha retirat."),
         ],
     ),
     (
@@ -1193,6 +1201,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "Imaging is off on this server."),
             ("de", "Medizinische Bildgebung ist auf diesem Server ausgeschaltet."),
             ("fr", "L'imagerie médicale est désactivée sur ce serveur."),
+            ("ca", "Les imatges mèdiques estan desactivades en aquest servidor."),
         ],
     ),
     (
@@ -1202,6 +1211,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "The viewer only reads."),
             ("de", "Der Viewer liest nur."),
             ("fr", "La visionneuse ne fait que lire."),
+            ("ca", "El visor només llegeix."),
         ],
     ),
     (
@@ -1211,6 +1221,7 @@ const REFUSALS: &[(&str, &[(&str, &str)])] = &[
             ("en", "The viewer cannot open this study now."),
             ("de", "Der Viewer kann diese Untersuchung gerade nicht öffnen."),
             ("fr", "La visionneuse ne peut pas ouvrir cet examen pour le moment."),
+            ("ca", "El visor no pot obrir aquest estudi ara."),
         ],
     ),
 ];
@@ -1252,6 +1263,7 @@ const BACK: &[(&str, &str)] = &[
     ("en", "Back to OwnHealth"),
     ("de", "Zurück zu OwnHealth"),
     ("fr", "Retour à OwnHealth"),
+    ("ca", "Tornar a OwnHealth"),
 ];
 
 fn html_escape(s: &str) -> String {
