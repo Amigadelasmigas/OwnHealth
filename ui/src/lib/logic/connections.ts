@@ -201,3 +201,25 @@ export function runWords(
 	if (type) words = `${type[1]}: ${words.charAt(0).toLocaleLowerCase()}${words.slice(1)}`;
 	return times ? `${words} ${say('con_run_times', { n: Number(times) })}` : words;
 }
+
+// Shared by every instance of the Connections screen, so a read a closed instance left pending is
+// older than the reads of the next one.
+let reviewReads = 0;
+
+/**
+ * Read the review total again after a disconnect closed a sync alert, and `apply` it. When reads
+ * overlap, also across a screen left and opened again, only the latest one lands; a failed read
+ * changes nothing.
+ */
+export async function latestReviewTotal(
+	read: () => Promise<{ review_open: number }>,
+	apply: (reviewOpen: number) => void
+): Promise<void> {
+	const mine = ++reviewReads;
+	try {
+		const me = await read();
+		if (mine === reviewReads) apply(me.review_open);
+	} catch {
+		// the top bar keeps the total it has
+	}
+}

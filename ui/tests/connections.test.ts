@@ -16,6 +16,7 @@ import {
 	endedVendors,
 	FIRST_PULL_EVERY,
 	FIRST_PULL_TRIES,
+	latestReviewTotal,
 	refreshUntilFirstPull,
 	renewsItself,
 	runWords,
@@ -394,4 +395,21 @@ test('an off connection whose client was deleted can no longer reconnect and can
 	assert.equal(canReconnect(orphan), false);
 	assert.deepEqual(shownConnections([orphan]), [orphan]);
 	assert.deepEqual(shownConnections([{ ...orphan, hidden_from_connections: true }]), []);
+});
+
+test('only the latest review total lands when reads overlap, also from a screen already left', async () => {
+	const got: number[] = [];
+	let answerOld!: (me: { review_open: number }) => void;
+	// a disconnect on a screen that is then left: its read is still pending
+	const old = latestReviewTotal(() => new Promise((answer) => (answerOld = answer)), (n) => got.push(n));
+	// the screen is opened again and another disconnect reads the newer total
+	await latestReviewTotal(async () => ({ review_open: 8 }), (n) => got.push(n));
+	answerOld({ review_open: 9 });
+	await old;
+	assert.deepEqual(got, [8], 'the older read overwrote the newer total');
+	await latestReviewTotal(
+		() => Promise.reject(new Error('offline')),
+		(n) => got.push(n)
+	);
+	assert.deepEqual(got, [8], 'a failed read changed the total');
 });
