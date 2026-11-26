@@ -2673,6 +2673,52 @@ async fn a_stored_usable_row_ends_the_clock_even_when_a_later_day_fails() -> any
     Ok(())
 }
 
+/// A pass whose clock ran far ahead ends an alert with a bogus end stamp. Once the clock is right, a gap
+/// opens a new alert. When real time comes within a day of that bogus stamp, it must not hold the new
+/// alert open: a stamp once found too far ahead is set to the pass that found it.
+#[tokio::test]
+async fn a_bogus_end_stamp_cannot_hold_a_later_alert_open() -> anyhow::Result<()> {
+    let env = Env::new().await?;
+    gaps::register();
+    let id = env.seed_source().await?;
+    let synced = |at: DateTime<Utc>| {
+        let pool = env.ctx.pool.clone();
+        async move {
+            sqlx::query(
+                "update source set cursor = jsonb_build_object('connections', jsonb_build_object('polar', \
+                 jsonb_build_object('status', 'active', 'last_synced_at', $2::timestamptz))) where id = $1",
+            )
+            .bind(id)
+            .bind(at)
+            .execute(&pool)
+            .await
+        }
+    };
+    let a = instant("2026-01-01T00:00:00Z");
+    // the fast clock files an alert and ends it, a year ahead
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(365)).await?;
+    synced(a + Duration::days(365) - Duration::hours(1)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(365)).await?;
+    assert!(open_gaps(&env, id).await?.is_empty());
+    // the clock is right again and Polar last synced 10 days ago: a new alert opens
+    synced(a).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(10)).await?;
+    let open = open_gaps(&env, id).await?;
+    let [item] = open[..] else {
+        anyhow::bail!("one alert expected, got {open:?}");
+    };
+    // real time reaches the day before the bogus end stamp, and Polar syncs again
+    synced(a + Duration::days(364)).await?;
+    sources::scheduler_tick_at(&env.ctx, a + Duration::days(364) + Duration::hours(1)).await?;
+    assert_eq!(
+        alert_reason(&env, item).await?,
+        ("dismissed".into(), Some("sync_recovered".into()), true),
+        "the bogus end stamp held the alert open"
+    );
+    Ok(())
+}
+
 /// After the far-future alert closed, real time reaches the day before its bogus stamp. A gap then
 /// still opens an alert: an ended alert is stamped by when it ended, not by when it was filed.
 #[tokio::test]

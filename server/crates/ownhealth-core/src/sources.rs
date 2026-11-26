@@ -813,25 +813,36 @@ async fn reconcile_gap(
     // The clock is read only now, so a poll that committed while this pass waited is judged at a time
     // after it: a report's age is never measured from before the report.
     let now = clock();
-    // Passes can reach the row out of order. Every evaluation stamps the alert it keeps, so a pass whose
-    // clock is older than the newest evaluation of this source leaves the alerts to that one.
-    // A stamp more than FUTURE_STAMP_SLACK ahead came from a clock that was wrong, not from a newer
-    // pass: it is ignored here, or no pass would judge the source until real time passed it. Each stamp
-    // is judged on its own, so a bogus filing time does not hide a later evaluation of the same alert.
-    // An ended alert was last judged when it ended, so only that stamp counts: a bogus filing time it
-    // keeps would otherwise block the passes of the day before it.
-    let newest: Option<DateTime<Utc>> = sqlx::query_scalar(
-        "select max(stamp) from (select case when payload->>'ended_at' is not null \
-           then (payload->>'ended_at')::timestamptz \
-           else greatest(case when created_at <= $3 then created_at end, \
-             case when (payload->>'evaluated_at')::timestamptz <= $3 \
-               then (payload->>'evaluated_at')::timestamptz end) end as stamp from review_item \
-         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1) s \
-         where stamp <= $3",
+    // A stamp more than FUTURE_STAMP_SLACK ahead came from a clock that was wrong, not from a newer pass.
+    // It is set to this pass's time, once: left as it was, it would block every pass until real time
+    // passed it, and a filter alone would let it order the passes again once real time came near it.
+    sqlx::query(
+        "update review_item set created_at = case when created_at > $4 then $3 else created_at end, \
+         payload = payload \
+           || case when (payload->>'evaluated_at')::timestamptz > $4 \
+                then jsonb_build_object('evaluated_at', to_jsonb($3::timestamptz)) else '{}' end \
+           || case when (payload->>'ended_at')::timestamptz > $4 \
+                then jsonb_build_object('ended_at', to_jsonb($3::timestamptz)) else '{}' end \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1 \
+         and (created_at > $4 or (payload->>'evaluated_at')::timestamptz > $4 \
+           or (payload->>'ended_at')::timestamptz > $4)",
     )
     .bind(id)
     .bind(source.household_id)
+    .bind(now)
     .bind(now + FUTURE_STAMP_SLACK)
+    .execute(&mut *tx)
+    .await?;
+    // Passes can reach the row out of order. Every evaluation stamps the alert it keeps, so a pass whose
+    // clock is older than the newest evaluation of this source leaves the alerts to that one. An ended
+    // alert was last judged when it ended, so only that stamp counts.
+    let newest: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "select max(case when payload->>'ended_at' is not null then (payload->>'ended_at')::timestamptz \
+           else greatest(created_at, (payload->>'evaluated_at')::timestamptz) end) from review_item \
+         where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1",
+    )
+    .bind(id)
+    .bind(source.household_id)
     .fetch_one(&mut *tx)
     .await?;
     if newest.is_some_and(|newest| newest > now) {
@@ -855,7 +866,7 @@ async fn reconcile_gap(
          status = case when status = 'open' then 'dismissed' else status end \
          where household_id = $2 and kind = 'source_gap' and ref_table = 'source' and ref_id = $1 \
          and payload->>'ended_at' is null and (status = 'open' or decided_by is not null) \
-         and (created_at <= $3 or created_at > $7) and ($4::uuid is distinct from profile_id or not $6)",
+         and created_at <= $3 and ($4::uuid is distinct from profile_id or not $6)",
     )
     .bind(id)
     .bind(source.household_id)
@@ -863,7 +874,6 @@ async fn reconcile_gap(
     .bind(source.profile_id)
     .bind(source.enabled)
     .bind(payload.is_some())
-    .bind(now + FUTURE_STAMP_SLACK)
     .execute(&mut *tx)
     .await?;
 
@@ -913,8 +923,8 @@ async fn reconcile_gap(
 }
 
 /// How far ahead of a gap check's clock an alert's stamp may be and still order the passes. A stamp
-/// further ahead came from a wrong clock and is ignored, as a manual entry may be dated at most one
-/// day ahead.
+/// further ahead came from a wrong clock and is set to the check's time, as a manual entry may be dated
+/// at most one day ahead.
 const FUTURE_STAMP_SLACK: chrono::Duration = chrono::Duration::days(1);
 
 /// A scheduler pass's clock for sync-gap checks.
