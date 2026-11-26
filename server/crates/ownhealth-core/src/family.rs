@@ -724,10 +724,10 @@ mod tests {
 
     #[test]
     fn the_loader_refuses_a_row_without_https_cite_or_a_language() {
-        let cond = "version: 0.1.0\nrows:\n  - {kind: other, en: other, es: otra, short_en: o, short_es: o, group: other, code: null, cite: \"https://x.example\"}\n";
+        let cond = "version: 0.1.0\nrows:\n  - {kind: other, en: other, es: otra, de: andere, fr: autre, ca: altra, it: altra, pt: outra, short_en: o, short_es: o, short_de: o, short_fr: o, short_ca: o, short_it: o, short_pt: o, group: other, code: null, cite: \"https://x.example\"}\n";
         let row = |cite: &str, es: &str| {
             format!(
-                "version: 0.1.0\nrows:\n  - {{code: FTH, en: father, es: \"{es}\", generation: -1, side: paternal, degree: 1, sex: male, slot: 1, union: parents, child_of: null, cite: \"{cite}\"}}\n"
+                "version: 0.1.0\nrows:\n  - {{code: FTH, en: father, es: \"{es}\", de: Vater, fr: père, ca: pare, it: padre, pt: pai, generation: -1, side: paternal, degree: 1, sex: male, slot: 1, union: parents, child_of: null, cite: \"{cite}\"}}\n"
             )
         };
         assert!(load(&row("https://a.example", "padre"), cond).is_ok());
