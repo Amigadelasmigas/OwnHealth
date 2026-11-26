@@ -763,6 +763,7 @@ impl<'a, 'i> Conv<'a, 'i> {
             pointer: pointer.to_string(),
             resource,
             full_url: None,
+            bundle_labelled: false,
         });
     }
 

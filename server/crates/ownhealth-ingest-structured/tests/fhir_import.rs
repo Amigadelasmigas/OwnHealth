@@ -995,3 +995,41 @@ async fn an_uploaded_bundle_with_a_sensitivity_label_is_a_sensitive_document() -
     );
     Ok(())
 }
+
+/// U7-BUNDLELABEL: a sensitive security label on the uploaded Bundle itself makes the document
+/// sensitive, though no entry carries a label of its own. The same bundle without it is not.
+#[tokio::test]
+async fn an_uploaded_bundle_labelled_sensitive_on_the_bundle_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let bundle = |labelled: bool, id: &str| {
+        let plan = json!({"resourceType": "CarePlan", "id": format!("plan-{id}"), "status": "active",
+                          "intent": "plan", "title": "Plan de seguimiento",
+                          "subject": {"reference": "Patient/alex-rivera"}});
+        let mut b = json!({"resourceType": "Bundle", "id": format!("bundle-label-{id}"), "type": "collection",
+                           "entry": [{"fullUrl": format!("urn:uuid:plan-{id}"), "resource": plan}]});
+        if labelled {
+            b["meta"] =
+                json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+        }
+        b
+    };
+    let mut docs = Vec::new();
+    for (labelled, id) in [(true, "a"), (false, "b")] {
+        let data = serde_json::to_vec(&bundle(labelled, id))?;
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "plan.json", JSON).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        docs.push(doc);
+    }
+    assert!(
+        document_is_sensitive(&mut tx, docs[0]).await?,
+        "the bundle carries the label"
+    );
+    assert!(
+        !document_is_sensitive(&mut tx, docs[1]).await?,
+        "the same bundle without it"
+    );
+    Ok(())
+}

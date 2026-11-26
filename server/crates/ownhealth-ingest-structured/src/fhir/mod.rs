@@ -83,6 +83,9 @@ pub struct Entry {
     pub pointer: String,
     pub resource: Value,
     pub full_url: Option<String>,
+    /// The Bundle that held this entry carries a sensitive `meta.security` label
+    /// ([`mapping::sensitivity`]): the stored file is sensitive whatever the entry's own labels say.
+    pub bundle_labelled: bool,
 }
 
 impl Entry {
@@ -131,8 +134,10 @@ fn expand(res: Value, prefix: &str) -> Result<Vec<Entry>> {
             pointer: at.to_string(),
             resource: res,
             full_url: None,
+            bundle_labelled: false,
         }]);
     }
+    let bundle_labelled = !mapping::sensitivity(&res).is_empty();
     let mut out = Vec::new();
     if let Some(Value::Array(entries)) = res.get("entry") {
         for (i, e) in entries.iter().enumerate() {
@@ -141,6 +146,7 @@ fn expand(res: Value, prefix: &str) -> Result<Vec<Entry>> {
                     pointer: format!("{prefix}/entry/{i}/resource"),
                     resource: r.clone(),
                     full_url: e.get("fullUrl").and_then(Value::as_str).map(String::from),
+                    bundle_labelled,
                 });
             }
         }
@@ -853,7 +859,7 @@ impl Run<'_> {
         let pulled = self.pull.as_ref().map(|p| (p.source_id, p.sha.to_string()));
         // the stored file, a pull's bundle or an upload, holds every entry as received, whatever this
         // run does with it below
-        let labelled = !mapping::sensitivity(r).is_empty();
+        let labelled = e.bundle_labelled || !mapping::sensitivity(r).is_empty();
         if is_context(rtype) {
             self.tally.context += 1;
             self.tally.sensitive += i64::from(labelled);
