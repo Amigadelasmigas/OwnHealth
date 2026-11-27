@@ -190,7 +190,16 @@ async fn only_a_person_who_manages_the_profile_is_told_they_may_reconnect() -> R
     let t = setup().await?;
     let mut a = t.browser("alex").await?;
     let id = t.connect(&mut a, t.env.profile("alex")).await?;
-    // Sam views Alex's profile: he sees the connection, but may not reconnect it
+    // Sam views Alex's profile, with read:records, which a SMART connection's data needs: he sees the
+    // connection, but may not reconnect it
+    sqlx::query(
+        "update profile_grant set categories = array_append(categories, 'read:records') \
+         where user_id = $1 and profile_id = $2",
+    )
+    .bind(t.env.user("sam"))
+    .bind(t.env.profile("alex"))
+    .execute(t.env.pool())
+    .await?;
     let mut s = t.browser("sam").await?;
     let seen = row(&mut s, id).await?;
     assert_eq!(seen["kind"], "smart", "{seen}");

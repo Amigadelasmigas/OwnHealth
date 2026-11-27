@@ -16,6 +16,7 @@ pub mod oauth;
 pub mod prompts;
 pub mod redact;
 pub mod resources;
+pub mod review_shown;
 pub mod services;
 pub mod text;
 pub mod tools;

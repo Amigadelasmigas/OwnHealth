@@ -272,7 +272,6 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
         "import.garmin_zip",
         "import.strava_zip",
         "import.fitbit_takeout",
-        "import.pdf",
     ] {
         let id: i64 = sqlx::query_scalar(
             "insert into job (kind, state, payload, result, last_error) values ($1, 'done', \
@@ -336,7 +335,6 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
     assert_eq!(
         results(&v),
         [
-            ("import.pdf".to_string(), result.clone()),
             ("import.fitbit_takeout".to_string(), serde_json::Value::Null),
             ("import.strava_zip".to_string(), serde_json::Value::Null),
             ("import.garmin_zip".to_string(), serde_json::Value::Null),
@@ -346,21 +344,8 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
         ]
     );
     for job in v["jobs"].as_array().into_iter().flatten() {
-        let visible = job["kind"] == "import.pdf";
-        assert_eq!(
-            job["filename"],
-            if visible { json!("run.fit") } else { json!(null) },
-            "{job}"
-        );
-        assert_eq!(
-            job["last_error"],
-            if visible {
-                json!("prior retry error")
-            } else {
-                json!(null)
-            },
-            "{job}"
-        );
+        assert_eq!(job["filename"], json!(null), "{job}");
+        assert_eq!(job["last_error"], json!(null), "{job}");
     }
     let (_, owner) = a.get("alex", &uri).await?;
     assert!(
@@ -373,6 +358,120 @@ async fn a_wearables_import_result_shows_only_to_members_who_may_read_wearables(
     );
     assert!(results(&owner).iter().all(|(_, r)| *r == result), "{owner}");
     Ok(())
+}
+
+/// U-F2: a structured import's job result is the summary its document keeps as `flags.import` (and a
+/// C-CDA import's also names the sections), and its filename names the document. So the filename and
+/// any error need the scope the document needs, and the result needs read:sensitive too, as the
+/// document's flags do: its counts take in items the review list hides. A response that shows a job's
+/// filename, error or result writes a read audit row, for every kind. Sam is a viewer on Alex.
+#[tokio::test]
+async fn a_structured_import_result_follows_what_its_document_shows() -> R {
+    let a = app().await?;
+    let alex = a.family.profile("alex");
+    let doc: uuid::Uuid = sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes) \
+         values ($1, $2, decode($3, 'hex'), 'informe_psiquiatria_alex.xml', 'application/hl7-cda+xml', 3) returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(alex)
+    .bind(ownhealth_core::ids::token_hex(32))
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let result = json!({"document_id": doc.to_string(), "accepted": 3, "queued": 32, "skipped": 0,
+                        "reasons": {"unmapped": 32}});
+    let mut ids = Vec::new();
+    for kind in ["import.ccda", "import.fhir_bundle", "import.apple_health"] {
+        let id: i64 = sqlx::query_scalar(
+            "insert into job (kind, state, payload, result, last_error) values ($1, 'done', \
+             jsonb_build_object('profile_id', $2::text, 'filename', 'informe_psiquiatria_alex.xml'), $3, \
+             'prior retry error') returning id",
+        )
+        .bind(kind)
+        .bind(alex.to_string())
+        .bind(&result)
+        .fetch_one(&a.rt.pool)
+        .await?;
+        ids.push(id);
+    }
+    let uri = format!(
+        "/jobs?ids={}",
+        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    );
+    let sam_on_alex = |categories: &'static [&'static str]| {
+        let pool = a.rt.pool.clone();
+        let (sam, alex) = (a.family.user("sam"), alex);
+        async move {
+            sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+                .bind(sam)
+                .bind(alex)
+                .bind(categories)
+                .execute(&pool)
+                .await?;
+            anyhow::Ok(())
+        }
+    };
+    // (result, filename, last_error) of each job, as `who` gets them
+    let seen = |v: &serde_json::Value| -> Vec<(serde_json::Value, serde_json::Value, serde_json::Value)> {
+        v["jobs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|j| (j["result"].clone(), j["filename"].clone(), j["last_error"].clone()))
+            .collect()
+    };
+    let null = serde_json::Value::Null;
+    let (name, error) = (json!("informe_psiquiatria_alex.xml"), json!("prior retry error"));
+    let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
+    let mut reads = Vec::new();
+    for (grant, expected) in [
+        (&["read:summary"][..], (null.clone(), null.clone(), null.clone())),
+        (
+            &["read:summary", "read:records"][..],
+            (null.clone(), name.clone(), error.clone()),
+        ),
+        (
+            &["read:summary", "read:records", "read:sensitive"][..],
+            (result.clone(), name.clone(), error.clone()),
+        ),
+    ] {
+        sam_on_alex(grant).await?;
+        let (s, v) = a.get("sam", &uri).await?;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let got = seen(&v);
+        assert_eq!(got.len(), 3, "{v}");
+        assert!(got.iter().all(|j| *j == expected), "{grant:?}: {v}");
+        // a response that shows a filename, an error or a result writes one read row naming every job,
+        // even with the result withheld; one that shows none of them writes none (the grants widen, so
+        // the rows only add up)
+        if !expected.1.is_null() {
+            reads.push((Some(alex), newest_first.clone()));
+        }
+        assert_eq!(job_reads(&a, a.family.user("sam")).await?, reads, "{grant:?}");
+    }
+    let (_, owner) = a.get("alex", &uri).await?;
+    assert!(
+        seen(&owner)
+            .iter()
+            .all(|j| *j == (result.clone(), name.clone(), error.clone())),
+        "{owner}"
+    );
+    assert_eq!(
+        job_reads(&a, a.family.user("alex")).await?,
+        [(Some(alex), newest_first)]
+    );
+    Ok(())
+}
+
+/// The `GET /api/jobs` read rows of `actor`: (profile, job ids).
+async fn job_reads(a: &App, actor: uuid::Uuid) -> anyhow::Result<Vec<(Option<uuid::Uuid>, Vec<String>)>> {
+    Ok(sqlx::query_as(
+        "select profile_id, resource_ids from audit_event \
+         where tool = 'GET /api/jobs' and action = 'read' and actor_id = $1",
+    )
+    .bind(actor)
+    .fetch_all(&a.rt.pool)
+    .await?)
 }
 
 /// `GET /documents/{id}/file` as `who`: status, headers and the bytes.
@@ -1455,7 +1554,7 @@ async fn a_finished_wearable_job_read_is_audited_for_fitbit_takeout() -> R {
 
 /// CR2 (round 3): a jobs read that returns a finished C-CDA import's result (what it brought into the
 /// record) writes one read audit row in the same transaction, as a DICOM import's does. A read while
-/// the job has no result yet writes none.
+/// the job has no result yet writes one too, because it shows the job's filename.
 #[tokio::test]
 async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     let a = app().await?;
@@ -1472,7 +1571,8 @@ async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     let (s, body) = a.get("alex", &format!("/jobs?ids={job}")).await?;
     assert_eq!(s, StatusCode::OK, "{body}");
     assert_eq!(body["jobs"][0]["result"], serde_json::Value::Null, "{body}");
-    assert_eq!(a.count(audits).await?, 0);
+    assert_eq!(body["jobs"][0]["filename"], "ccd.xml", "{body}");
+    assert_eq!(a.count(audits).await?, 1, "a poll that shows the filename");
     ownhealth_core::jobs::drain(&a.rt.job_context(), "core", 5, Some(&kinds)).await?;
     let (s, body) = a.get("alex", &format!("/jobs?ids={job}")).await?;
     assert_eq!(s, StatusCode::OK, "{body}");
@@ -1482,12 +1582,80 @@ async fn reading_a_finished_ccda_job_writes_one_audit_row() -> R {
     )
     .fetch_all(&a.rt.pool)
     .await?;
+    let row = (
+        a.family.user("alex"),
+        Some(a.family.profile("alex")),
+        vec![job.to_string()],
+    );
+    assert_eq!(rows, [row.clone(), row]);
+    Ok(())
+}
+
+/// CR-JOBAUDIT: a jobs poll that shows only a job's filename or error, with no result yet, still
+/// writes the request's read audit row, for a PDF job as for a wearables one. One row per profile names
+/// every such job; a job that shows none of them is not named.
+#[tokio::test]
+async fn a_jobs_poll_that_shows_only_a_filename_or_an_error_writes_one_read_row() -> R {
+    let a = app().await?;
+    let alex = a.family.profile("alex");
+    let doc = alex_document(&a, "analitica_alex.pdf", None).await?.to_string();
+    let mut ids = Vec::new();
+    for (kind, payload, error) in [
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string(), "document_id": doc, "filename": "analitica_alex.pdf"}),
+            None,
+        ),
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string(), "document_id": doc}),
+            Some("pdfium failed"),
+        ),
+        (
+            "import.fit",
+            json!({"profile_id": alex.to_string(), "filename": "run.fit"}),
+            None,
+        ),
+        (
+            "import.pdf",
+            json!({"profile_id": alex.to_string(), "document_id": doc}),
+            None,
+        ),
+    ] {
+        let id: i64 = sqlx::query_scalar(
+            "insert into job (kind, state, payload, last_error) values ($1, 'queued', $2, $3) returning id",
+        )
+        .bind(kind)
+        .bind(payload)
+        .bind(error)
+        .fetch_one(&a.rt.pool)
+        .await?;
+        ids.push(id);
+    }
+    let poll = |ids: &[i64]| {
+        format!(
+            "/jobs?ids={}",
+            ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+        )
+    };
+    // the last job shows no filename, error or result: polling it alone writes no row
+    let (s, v) = a.get("alex", &poll(&ids[3..])).await?;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["jobs"].as_array().map(Vec::len), Some(1), "{v}");
+    assert_eq!(job_reads(&a, a.family.user("alex")).await?, []);
+    let (s, v) = a.get("alex", &poll(&ids)).await?;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
+    assert_eq!(jobs.len(), 4, "{v}");
+    assert!(jobs.iter().all(|j| j["result"].is_null()), "{v}");
+    assert_eq!(jobs[1]["filename"], "run.fit", "{v}");
+    assert_eq!(jobs[2]["last_error"], "pdfium failed", "{v}");
+    assert_eq!(jobs[3]["filename"], "analitica_alex.pdf", "{v}");
     assert_eq!(
-        rows,
+        job_reads(&a, a.family.user("alex")).await?,
         [(
-            a.family.user("alex"),
-            Some(a.family.profile("alex")),
-            vec![job.to_string()]
+            Some(alex),
+            vec![ids[2].to_string(), ids[1].to_string(), ids[0].to_string()]
         )]
     );
     Ok(())
@@ -1899,5 +2067,193 @@ async fn a_failed_fitbit_export_still_lists_omissions_to_people_with_read_wearab
     assert_eq!(status, StatusCode::OK, "{restricted}");
     assert_eq!(restricted["jobs"][0]["state"], "dead", "{restricted}");
     assert!(restricted["jobs"][0]["result"].is_null(), "{restricted}");
+    Ok(())
+}
+
+/// A document of Alex's with this filename and type (None: read with read:records).
+async fn alex_document(a: &App, filename: &str, doc_type: Option<&str>) -> anyhow::Result<uuid::Uuid> {
+    Ok(sqlx::query_scalar(
+        "insert into document (household_id, profile_id, blob_sha256, filename, mime, size_bytes, doc_type) \
+         values ($1, $2, decode($3, 'hex'), $4, 'application/pdf', 3, $5) returning id",
+    )
+    .bind(a.family.household_id)
+    .bind(a.family.profile("alex"))
+    .bind(ownhealth_core::ids::token_hex(32))
+    .bind(filename)
+    .bind(doc_type)
+    .fetch_one(&a.rt.pool)
+    .await?)
+}
+
+/// A finished job of `kind` on Alex's profile for document `doc`, as its import leaves it: the
+/// filename in its payload, a result and an earlier attempt's error. A PDF job names its document in
+/// its payload, a structured import in its result.
+async fn finished_document_job(a: &App, kind: &str, doc: uuid::Uuid) -> anyhow::Result<i64> {
+    let alex = a.family.profile("alex").to_string();
+    let (payload, result) = if kind == "import.pdf" {
+        (
+            json!({"profile_id": alex, "document_id": doc.to_string(), "filename": "analitica_alex.pdf"}),
+            json!({"accepted": 3, "queued": 32, "skipped": 0, "reasons": {}}),
+        )
+    } else {
+        (
+            json!({"profile_id": alex, "filename": "analitica_alex.pdf"}),
+            json!({"document_id": doc.to_string(), "accepted": 3, "queued": 32, "skipped": 0, "reasons": {}}),
+        )
+    };
+    Ok(sqlx::query_scalar(
+        "insert into job (kind, state, payload, result, last_error) values ($1, 'done', $2, $3, 'prior retry error') \
+         returning id",
+    )
+    .bind(kind)
+    .bind(payload)
+    .bind(result)
+    .fetch_one(&a.rt.pool)
+    .await?)
+}
+
+/// (result shown, filename shown, error shown) of each job `who` polls, in order.
+async fn job_fields(a: &App, who: &str, ids: &[i64]) -> anyhow::Result<Vec<(bool, bool, bool)>> {
+    let uri = format!(
+        "/jobs?ids={}",
+        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    );
+    let (s, v) = a.get(who, &uri).await?;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let jobs = v["jobs"].as_array().cloned().unwrap_or_default();
+    assert_eq!(jobs.len(), ids.len(), "{who}: {v}");
+    Ok(jobs
+        .iter()
+        .map(|j| {
+            (
+                !j["result"].is_null(),
+                !j["filename"].is_null(),
+                !j["last_error"].is_null(),
+            )
+        })
+        .collect())
+}
+
+/// L-PDFJOB: a PDF job's filename names its document, its error can quote it, and its result is the
+/// import summary the document keeps, whose counts take in items the review list hides. So the filename
+/// and the error need the scope the document needs (read:labs for a lab report), and the result
+/// read:sensitive too, as for a structured import. A job whose document is gone shows none of them.
+#[tokio::test]
+async fn a_pdf_job_shows_what_its_document_shows_the_reader() -> R {
+    let a = app().await?;
+    let doc = alex_document(&a, "analitica_alex.pdf", Some("lab_report")).await?;
+    let job = finished_document_job(&a, "import.pdf", doc).await?;
+    let sam_on_alex = |categories: &'static [&'static str]| {
+        let pool = a.rt.pool.clone();
+        let (sam, alex) = (a.family.user("sam"), a.family.profile("alex"));
+        async move {
+            sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+                .bind(sam)
+                .bind(alex)
+                .bind(categories)
+                .execute(&pool)
+                .await?;
+            anyhow::Ok(())
+        }
+    };
+    assert_eq!(job_fields(&a, "alex", &[job]).await?, [(true, true, true)], "the owner");
+    for (grant, expected) in [
+        (&["read:summary", "read:records"][..], (false, false, false)),
+        (&["read:summary", "read:labs"][..], (false, true, true)),
+        (&["read:summary", "read:labs", "read:sensitive"][..], (true, true, true)),
+    ] {
+        sam_on_alex(grant).await?;
+        assert_eq!(job_fields(&a, "sam", &[job]).await?, [expected], "{grant:?}");
+    }
+    // a job with no document, or whose document is gone, fails closed
+    let orphan: i64 = sqlx::query_scalar(
+        "insert into job (kind, state, payload, result, last_error) values ('import.pdf', 'done', \
+         jsonb_build_object('profile_id', $1::text, 'document_id', $2::text, 'filename', 'x.pdf'), '{}', 'boom') \
+         returning id",
+    )
+    .bind(a.family.profile("alex").to_string())
+    .bind(uuid::Uuid::new_v4().to_string())
+    .fetch_one(&a.rt.pool)
+    .await?;
+    let bare: i64 = sqlx::query_scalar(
+        "insert into job (kind, state, payload, result, last_error) values ('import.pdf', 'done', \
+         jsonb_build_object('profile_id', $1::text, 'filename', 'y.pdf'), '{}', 'boom') returning id",
+    )
+    .bind(a.family.profile("alex").to_string())
+    .fetch_one(&a.rt.pool)
+    .await?;
+    assert_eq!(
+        job_fields(&a, "alex", &[orphan, bare]).await?,
+        [(false, false, false), (false, false, false)]
+    );
+    Ok(())
+}
+
+/// CR-JOBDOCPROFILE: a moved document takes its job's filename, error and result with it. Once a
+/// document moves from Alex to Carmen, Sam, who reads Alex but not Carmen, gets none of them, for a
+/// PDF job and for every structured import alike. Alex, Carmen's caregiver (no read:sensitive), gets
+/// the filename and the error, and his read row names Carmen's profile, where the document is now.
+#[tokio::test]
+async fn a_document_import_job_follows_the_profile_its_document_is_on_now() -> R {
+    let a = app().await?;
+    sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(a.family.user("sam"))
+        .bind(a.family.profile("alex"))
+        .bind(["read:summary", "read:records", "read:sensitive"])
+        .execute(&a.rt.pool)
+        .await?;
+    let mut ids = Vec::new();
+    let mut docs = Vec::new();
+    for kind in ["import.pdf", "import.ccda", "import.fhir_bundle", "import.apple_health"] {
+        let doc = alex_document(&a, "analitica_alex.pdf", None).await?;
+        ids.push(finished_document_job(&a, kind, doc).await?);
+        docs.push(doc);
+    }
+    let all = [(true, true, true); 4];
+    assert_eq!(job_fields(&a, "sam", &ids).await?, all, "before the move");
+    sqlx::query("update document set profile_id = $1 where id = any($2)")
+        .bind(a.family.profile("carmen"))
+        .bind(&docs)
+        .execute(&a.rt.pool)
+        .await?;
+    assert_eq!(
+        job_fields(&a, "sam", &ids).await?,
+        [(false, false, false); 4],
+        "a reader of Alex only"
+    );
+    assert_eq!(
+        job_fields(&a, "alex", &ids).await?,
+        [(false, true, true); 4],
+        "Carmen's caregiver"
+    );
+    let newest_first: Vec<String> = ids.iter().rev().map(i64::to_string).collect();
+    assert_eq!(
+        job_reads(&a, a.family.user("alex")).await?,
+        [(Some(a.family.profile("carmen")), newest_first)]
+    );
+    // the reader of Alex only does not get the document either, as GET /api/review hides a failed
+    // job's document (polled last: each poll by Alex writes another read row)
+    let named = |who: &'static str| {
+        let (a, ids) = (&a, &ids);
+        async move {
+            let uri = format!(
+                "/jobs?ids={}",
+                ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+            );
+            let (s, v) = a.get(who, &uri).await?;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            anyhow::Ok(
+                v["jobs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|j| !j["document_id"].is_null())
+                    .count(),
+            )
+        }
+    };
+    assert_eq!(named("sam").await?, 0, "a reader of Alex only");
+    // the PDF job names its document in its payload; a structured job only in its result
+    assert_eq!(named("alex").await?, 1, "Carmen's caregiver");
     Ok(())
 }

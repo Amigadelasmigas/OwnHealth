@@ -1213,3 +1213,33 @@ async fn a_changed_medicine_behind_an_unchanged_prescription_is_a_change() -> R 
     );
     Ok(())
 }
+
+/// R7-L1: a pulled Bundle labelled sensitive is a sensitive document even when it holds no entry: the
+/// stored file keeps the label. The same empty Bundle without the label is not.
+#[tokio::test]
+async fn an_empty_pull_labelled_sensitive_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let source = smart_source(&mut tx, &fam, "alex").await?;
+    let empty = |page: &str, labelled: bool| {
+        let mut b = json!({"resourceType": "Bundle", "id": page, "type": "searchset", "total": 0, "entry": []});
+        if labelled {
+            b["meta"] =
+                json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+        }
+        serde_json::to_vec(&b).unwrap_or_default()
+    };
+    let (labelled, _) = pull(&mut tx, &env.blobs, &fam, source, &empty("a", true)).await?;
+    let (plain, _) = pull(&mut tx, &env.blobs, &fam, source, &empty("b", false)).await?;
+    assert!(
+        document_is_sensitive(&mut tx, labelled).await?,
+        "the labelled empty Bundle"
+    );
+    assert!(
+        !document_is_sensitive(&mut tx, plain).await?,
+        "the same Bundle without the label"
+    );
+    Ok(())
+}

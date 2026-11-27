@@ -77,7 +77,7 @@ Rules that follow from the diagram:
 | MCP | rmcp's streamable HTTP service mounted at `/mcp`. Spec 2026-07-28 is stateless (no `initialize` handshake, no `Mcp-Session-Id`), so no session affinity is needed. We keep the 2025-11-25 fallback for older clients |
 | Job loop | `N` tokio tasks started with the server (default `N=2`). Each claims one job, runs it, commits. CPU-bound and file-bound steps (PDF text layer, Apple Health XML, rollups, export zips) run on tokio's blocking threads so they never stall requests |
 | OCR | Not in the default image. The `ocr` profile runs the same code from the image variant `drumsergio/ownhealth:<version>-ocr` (the engine, PaddleOCR PP-OCRv5 on ONNX Runtime, and its models) as `ownhealth worker` with `OWNHEALTH_QUEUES=ocr`: no HTTP server, only the job loop for the `ocr` queue |
-| Scheduler | A row in `job` with `run_after` is a timer. Recurring jobs (rollups, restore check, ClinVar diff in v0.3) re-enqueue themselves on completion. No cron daemon |
+| Scheduler | A row in `job` with `run_after` is a timer. Rollups are not jobs: `wearables::recompute_rollups` and `recompute_rollups_between` run inline after imports and device writes. The weekly ClinVar check (v0.3) is a `source.poll` for a source of kind `clinvar`: the poll scheduler, `sources::schedule_due`, queues it once `poll_seconds` have passed since the source's `last_run_at`. The app runs no cron daemon. Backups and the weekly restore check are not jobs: the host's cron runs them (`deploy/restic/backup.sh`, `restore-test.sh`, section 14) |
 | Static UI | `adapter-static` output embedded in the release binary (`rust-embed`) at image build time. No Node at runtime |
 
 One process is enough for a family. A household has a few users and one or two agents, and the slow work goes through the queue. The stateless MCP spec means a second replica would work behind a load balancer later, but we do not plan for it.
@@ -630,7 +630,7 @@ returning job.*;
 - **Dedupe:** `state.rebuild` for a profile is enqueued with a dedupe key, so ten imports in a row cause one rebuild after the last. The key is unique among queued jobs only, so an import that lands while a rebuild runs queues a fresh one, which reads the new data. A worker takes a `state.rebuild` only under a per-profile advisory lock, so two rebuilds of one profile never run at once.
 - **Retention:** `done` jobs are deleted after 30 days; `dead` jobs stay until their review item is closed.
 
-v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `wearables.rollup`, `blob.gc`. Backups and the weekly restore check are not jobs: `deploy/restic/backup.sh` and `restore-test.sh` run from cron. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
+v0.1 job kinds: `import.pdf` (text layer, vendor and generic table rules), `import.fhir_bundle`, `import.apple_health`, `import.genome_facts`, `normalize.rederive`, `state.rebuild`, `blob.gc`. Backups and the weekly restore check are not jobs: `deploy/restic/backup.sh` and `restore-test.sh` run from cron. v0.2 adds `ocr.document` on the `ocr` queue and the inbox pollers; v0.3 adds `genome.clinvar_diff`.
 
 ### PDF import path
 

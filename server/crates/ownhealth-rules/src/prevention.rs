@@ -117,6 +117,14 @@ pub struct Group {
     pub name: Value,
 }
 
+impl Group {
+    /// Whether a vaccine record with no listed CVX code counts for this group by its name, already in
+    /// [`words`]: one of the group's names is in it and none of the names that keep a record out is.
+    pub fn counts_vaccine_named(&self, name: &[String]) -> bool {
+        self.aliases.iter().any(|a| holds(name, a)) && !self.aliases_not.iter().any(|a| holds(name, a))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Prevention {
     pub version: String,
@@ -624,7 +632,7 @@ async fn facts(
                 if known {
                     coded(&g.cvx)
                 } else {
-                    g.aliases.iter().any(|a| holds(&w, a)) && !g.aliases_not.iter().any(|a| holds(&w, a))
+                    g.counts_vaccine_named(&w)
                 }
             })
             .collect();

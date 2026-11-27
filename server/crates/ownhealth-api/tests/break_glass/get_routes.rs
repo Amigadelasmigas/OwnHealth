@@ -151,6 +151,17 @@ async fn paths(b: &mut Bg, sam: &mut Client) -> anyhow::Result<Vec<(String, &'st
         .bind(json!({"samples": 2}))
         .execute(&mut *tx)
         .await?;
+    // document import jobs: their filename and error need the scope of their document (read:labs here)
+    sqlx::query(
+        "insert into job(kind, state, payload, result) values ('import.pdf', 'done', $1, $2), \
+         ('import.fhir_bundle', 'done', $3, $4)",
+    )
+    .bind(json!({"profile_id": profile, "document_id": doc, "filename": "analitica.pdf"}))
+    .bind(json!({"accepted": 1}))
+    .bind(json!({"profile_id": profile, "filename": "bundle.json"}))
+    .bind(json!({"document_id": doc, "accepted": 1}))
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     let gaps = b.alex.get("/api/profiles/alex/gaps").await?;
@@ -291,6 +302,7 @@ async fn changed_get_responses_record_use_for_each_added_scope() -> R {
     assert!(changed.contains(&("read:records", "/profiles/{p}/genome")));
     assert!(changed.contains(&("read:documents_text", "/profiles/{p}/documents")));
     assert!(changed.contains(&("read:wearables", "/jobs")));
+    assert!(changed.contains(&("read:labs", "/jobs")));
     assert!(
         missing.is_empty(),
         "Changed successful GET responses without one audit row and one notice: {missing:?}"

@@ -301,6 +301,5 @@
       "status": "=open"
     }
   },
-  "open": "int",
-  "withheld": "int"
+  "open": "int"
 }

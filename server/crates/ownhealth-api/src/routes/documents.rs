@@ -17,7 +17,12 @@
 //! `cgm_csv`) `read:wearables`, other documents `read:records`; page text and words also
 //! need `read:documents_text`. A document on a profile the caller cannot read answers 404 like an unknown
 //! id. Every read writes one audit row. Filenames and page text are untrusted and go out marked as
-//! such.
+//! such. Without read:sensitive a document's import flags leave out the C-CDA section titles, the
+//! sensitive and unprojected counts, the import summary and the Apple Health record types it did not
+//! import; a SMART Health Card's rows show only to a reader the file would open for (anyone else gets
+//! `flags.shc_withheld`); the list and the detail go out with `Cache-Control: private, no-store`; and
+//! `open_review` counts only the open items the review list shows the reader (none when they cannot
+//! review there).
 
 use std::collections::BTreeSet;
 
@@ -31,8 +36,9 @@ use ownhealth_core::access::{Permission, Principal, ProfileRef, effective_permis
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::blobs::BlobOwner;
 use ownhealth_core::documents::{
-    WEARABLES_DOC_TYPE, document_is_sensitive, record_document_sql, sensitive_document_sql,
+    CGM_SQL, WEARABLES_DOC_TYPE, document_is_sensitive, record_document_sql, scope_for, sensitive_document_sql,
 };
+pub use ownhealth_core::documents::{document_scope, file_opens};
 use ownhealth_core::pyjson::{parse_datetime, pydantic_datetime, row_to_json};
 use ownhealth_core::{Error, Runtime};
 use serde_json::{Map, Value, json};
@@ -57,8 +63,46 @@ pub fn router() -> Router<Runtime> {
 }
 
 const COLS: &str = "d.id, d.profile_id, d.filename, d.doc_type, d.provider_name, d.collected_at, d.pages, d.status, \
-                    d.flags, d.mime, d.size_bytes, d.created_at, \
-                    (select count(*) from review_item r where r.document_id = d.id and r.status = 'open') as open_review";
+                    d.flags, d.mime, d.size_bytes, d.created_at";
+
+/// The import flags that tell what a document holds that the reader may not see: the C-CDA section
+/// titles, how many sensitive or unprojected resources the import held, and the import's own summary,
+/// whose review counts take in the items the review list hides. They need read:sensitive.
+const SENSITIVE_FLAGS: [&str; 4] = ["ccda", "import", "sensitive", "unprojected"];
+
+/// A SMART Health Card's rows: type, date and `name: value` of every resource on the card, so the
+/// file's own content. They show on the terms of the file ([`visible_document`] with `content`): a
+/// reader without read:sensitive does not get them from a sensitive document.
+const SHC_FLAG: &str = "shc";
+
+/// Set in place of [`SHC_FLAG`] when the card rows stay out: the reader learns only that the document
+/// is a card whose rows they may not read, which the file route's 403 tells them anyway.
+const SHC_WITHHELD: &str = "shc_withheld";
+
+/// Whether the card rows of document `row` stay out of what `perm` is shown: it holds a card, the
+/// reader may not read sensitive values of its scope, and something read from it is sensitive.
+async fn card_rows_hidden(
+    conn: &mut PgConnection,
+    row: &Map<String, Value>,
+    perm: &Permission,
+) -> Result<bool, ApiError> {
+    let flags = row.get("flags");
+    if flags.and_then(|f| f.get(SHC_FLAG)).is_none() {
+        return Ok(false);
+    }
+    let cgm = flags.and_then(|f| f.get("cgm_csv")).is_some();
+    if perm.may_read_sensitive(scope_for(row.get("doc_type").and_then(Value::as_str), cgm)) {
+        return Ok(false);
+    }
+    let Some(id) = row
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return Ok(true);
+    };
+    Ok(document_is_sensitive(conn, id).await?)
+}
 
 const FTS_CFG: &str = "cast(case d.language when 'es' then 'spanish' when 'en' then 'english' when 'de' then 'german' \
                        when 'fr' then 'french' else 'simple' end as regconfig)";
@@ -70,39 +114,52 @@ fn untrusted(s: Option<&str>, origin: &str) -> Value {
     }
 }
 
-/// The scope a document needs, by its type; a document whose flags hold a CGM import (`cgm`) holds every
-/// reading of the export, so it needs read:wearables whatever its type.
-fn scope_for(doc_type: Option<&str>, cgm: bool) -> &'static str {
-    if cgm {
-        return "read:wearables";
-    }
-    match doc_type {
-        Some("lab_report") => "read:labs",
-        Some(WEARABLES_DOC_TYPE) => "read:wearables",
-        _ => "read:records",
-    }
-}
-
-/// [`scope_for`]'s `cgm` as a SQL boolean over the document alias `d`.
-const CGM_SQL: &str = "coalesce(d.flags ? 'cgm_csv', false)";
-
 fn unknown(message: &str) -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "unknown", message)
 }
 
-/// A document as the list and the detail show it. A CGM export's flags (its counts, sensors and import
-/// summary) reach only a caller who may read wearables: [`scope_for`] lets no one else list or open it.
-fn summary(row: &Map<String, Value>, snippet: Option<&str>) -> Map<String, Value> {
-    let flags: Map<String, Value> = row
+/// A document as the list and the detail show it to the reader `perm`. A CGM export's flags (its
+/// counts, sensors and import summary) reach only a caller who may read wearables: [`scope_for`] lets
+/// no one else list or open it. The [`SENSITIVE_FLAGS`] and the Apple Health record types an export
+/// held but OwnHealth did not import (sexual activity, menstrual flow: `apple_health.not_imported`)
+/// reach only a reader with read:sensitive. `hide_card_rows` ([`card_rows_hidden`]) leaves out the
+/// SMART Health Card rows and sets [`SHC_WITHHELD`]. `open_review` counts the items the review list shows the reader
+/// (`review::shown_per_document`).
+fn summary(
+    row: &Map<String, Value>,
+    snippet: Option<&str>,
+    perm: &Permission,
+    open_review: i64,
+    hide_card_rows: bool,
+) -> Map<String, Value> {
+    let cgm = row.get("flags").and_then(|f| f.get("cgm_csv")).is_some();
+    let scope = scope_for(row.get("doc_type").and_then(Value::as_str), cgm);
+    let sensitive = perm.may_read_sensitive(scope);
+    let mut flags: Map<String, Value> = row
         .get("flags")
         .and_then(Value::as_object)
         .map(|f| {
             f.iter()
-                .filter(|(k, _)| *k != "metadata_text")
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .filter(|(k, _)| *k != "metadata_text" && (sensitive || !SENSITIVE_FLAGS.contains(&k.as_str())))
+                .filter(|(k, _)| !(hide_card_rows && *k == SHC_FLAG))
+                .map(|(k, v)| {
+                    let mut v = v.clone();
+                    if !sensitive
+                        && k == "apple_health"
+                        && let Some(apple) = v.as_object_mut()
+                    {
+                        apple.shift_remove("not_imported");
+                    }
+                    (k.clone(), v)
+                })
                 .collect()
         })
         .unwrap_or_default();
+    if hide_card_rows {
+        // the document is still a card: the page says its rows are withheld, and never renders (or
+        // requests) a card photo as a plain scan
+        flags.insert(SHC_WITHHELD.into(), Value::Bool(true));
+    }
     let mut out = Map::new();
     for k in ["id", "profile_id"] {
         out.insert(k.into(), row.get(k).cloned().unwrap_or(Value::Null));
@@ -121,10 +178,7 @@ fn summary(row: &Map<String, Value>, snippet: Option<&str>) -> Map<String, Value
         *s = pydantic_datetime(&dt);
     }
     out.insert("flags".into(), Value::Object(flags));
-    out.insert(
-        "open_review".into(),
-        row.get("open_review").cloned().unwrap_or(Value::Null),
-    );
+    out.insert("open_review".into(), json!(open_review));
     out.insert("snippet".into(), untrusted(snippet, "pdf_text_layer"));
     out
 }
@@ -228,31 +282,6 @@ pub async fn visible_document(
         blob_sha256: hex(&sha),
         perm,
     })
-}
-
-/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on its
-/// profile): the scope its type needs, and read:sensitive when it is sensitive, as
-/// [`visible_document`] decides. A review item that only points at its document (a pull's
-/// `fhir_unmapped_summary`) shows on the same terms.
-pub async fn file_opens(conn: &mut PgConnection, perm: &Permission, document_id: Uuid) -> Result<bool, ApiError> {
-    let row: Option<(Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select d.doc_type, {CGM_SQL} from document d where d.id = $1"
-    )))
-    .bind(document_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    let Some((doc_type, cgm)) = row else {
-        return Ok(false);
-    };
-    let scope = scope_for(doc_type.as_deref(), cgm);
-    if !perm.has(scope) {
-        return Ok(false);
-    }
-    let visible = perm.may_read_sensitive(scope) || !document_is_sensitive(conn, document_id).await?;
-    if visible {
-        perm.record_read(&[scope]);
-    }
-    Ok(visible)
 }
 
 fn hex(b: &[u8]) -> String {
@@ -374,9 +403,11 @@ pub async fn list_for(
         .bind(q)
         .fetch_all(&mut *conn)
         .await?;
+    let docs: Vec<Uuid> = rows.iter().map(|row| row.try_get("id")).collect::<Result<_, _>>()?;
+    let open = super::review::shown_per_document(&mut *conn, &perm, &docs).await?;
     let mut items = Vec::new();
     let mut ids = Vec::new();
-    for row in &rows {
+    for (row, doc) in rows.iter().zip(&docs) {
         let j = row_to_json(row)?;
         ids.push(j.get("id").and_then(Value::as_str).unwrap_or("").to_string());
         let snip = if with_text {
@@ -384,7 +415,8 @@ pub async fn list_for(
         } else {
             None
         };
-        let mut item = summary(&j, snip);
+        let hide = card_rows_hidden(&mut *conn, &j, &perm).await?;
+        let mut item = summary(&j, snip, &perm, open.get(doc).copied().unwrap_or(0), hide);
         // the day this document counts as `done` evidence from: its collection day, else its report
         // day, the rule prevention::evidence applies
         item.insert(
@@ -411,7 +443,7 @@ async fn list_documents(
     Caller(principal): Caller,
     Path(p): Path<String>,
     Query(qs): Query<Params>,
-) -> R<Json<Value>> {
+) -> R<Response> {
     let mut e = Errors::new();
     let q = e.str_max(&qs, "q", 200);
     let limit = e.int("query", &qs, "limit", 100, Some(1), Some(500));
@@ -430,17 +462,25 @@ async fn list_documents(
     let mut tx = rt.pool.begin().await?;
     let out = list_for(&mut tx, &principal, &p, q, doc_type, limit, latest.is_some()).await?;
     tx.commit().await?;
-    Ok(Json(out))
+    Ok(private_json(out))
+}
+
+/// The list and the detail carry flags chosen for this reader (a card's rows, import counts), so no
+/// browser or proxy cache keeps them, as no cache keeps the file.
+fn private_json(v: Value) -> Response {
+    ([(header::CACHE_CONTROL, "private, no-store")], Json(v)).into_response()
 }
 
 async fn get_document(
     State(rt): State<Runtime>,
     Caller(principal): Caller,
     Path(document_id): Path<String>,
-) -> R<Json<Value>> {
+) -> R<Response> {
     let document_id = uuid_path("document_id", &document_id)?;
     let mut tx = rt.pool.begin().await?;
     let doc = visible_document(&mut tx, &principal, document_id, None, false).await?;
+    let open = super::review::shown_per_document(&mut tx, &doc.perm, &[document_id]).await?;
+    let hide_card_rows = card_rows_hidden(&mut tx, &doc.row, &doc.perm).await?;
     let pages: Vec<PgRow> = sqlx::query(
         "select page_no, width_pt, height_pt, text_layer_ok, flags from document_page where document_id = $1 \
          order by page_no",
@@ -463,7 +503,13 @@ async fn get_document(
     )
     .await?;
     tx.commit().await?;
-    let mut out = summary(&doc.row, None);
+    let mut out = summary(
+        &doc.row,
+        None,
+        &doc.perm,
+        open.get(&document_id).copied().unwrap_or(0),
+        hide_card_rows,
+    );
     out.insert("mime".into(), doc.row.get("mime").cloned().unwrap_or(Value::Null));
     out.insert(
         "size_bytes".into(),
@@ -485,7 +531,7 @@ async fn get_document(
         })
         .collect();
     out.insert("expected_tests".into(), Value::Array(tests));
-    Ok(Json(Value::Object(out)))
+    Ok(private_json(Value::Object(out)))
 }
 
 fn file_headers(mime: &str) -> [(header::HeaderName, String); 4] {

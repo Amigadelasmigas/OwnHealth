@@ -2075,6 +2075,222 @@ async fn document_page(b: &Bg, doc: Uuid) -> R {
     Ok(())
 }
 
+/// What emergency access adds is used, and recorded, only where it shows something: a Dexcom source on
+/// the inbox health list that only the emergency read:wearables shows records one use. A sensitive
+/// document's import flags need read:sensitive and the document's scope from one source: an emergency
+/// read:labs over an ordinary read:sensitive does not show them.
+#[tokio::test]
+async fn emergency_scopes_show_a_source_with_a_use_and_no_sensitive_flags_alone() -> R {
+    let mut b = setup().await?;
+    let dexcom = {
+        let mut c = b.env.pool().acquire().await?;
+        ownhealth_core::sources::create_source(
+            &mut c,
+            &ownhealth_core::sources::NewSource {
+                profile_id: Some(b.alex_id()),
+                poll_seconds: Some(900),
+                ..ownhealth_core::sources::NewSource::new(b.env.fam().household_id, "dexcom", "Dexcom G7 de Alex")
+            },
+        )
+        .await?
+    };
+    let doc = lab_document(&b).await?;
+    sqlx::query("update document set flags = flags || '{\"sensitive\": 1, \"unprojected\": 1}' where id = $1")
+        .bind(doc)
+        .execute(b.env.pool())
+        .await?;
+    b.grant_sam("viewer", &["read:summary", "read:sensitive"]).await?;
+    let mut sam = b.sam().await?;
+    let shows = |r: &Resp| {
+        r.json
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["id"] == json!(dexcom))
+    };
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(!shows(&r), "without read:wearables: {:?}", r.json);
+
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables", "read:labs"]))
+        .await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through emergency read:wearables: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+
+    let r = sam.get(&format!("/api/documents/{doc}")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(r.json["flags"], json!({}), "{:?}", r.json);
+    Ok(())
+}
+
+/// A mailbox source shows with read:labs or read:records. When the reader's ordinary read:labs already
+/// shows it, an emergency read:records adds nothing, so the read records no use. Without the ordinary
+/// read:labs, the emergency read:records is what shows it, and the read records one use.
+#[tokio::test]
+async fn a_source_the_ordinary_grant_already_shows_records_no_emergency_use() -> R {
+    let mut b = setup().await?;
+    let mailbox = {
+        let mut c = b.env.pool().acquire().await?;
+        ownhealth_core::sources::create_source(
+            &mut c,
+            &ownhealth_core::sources::NewSource {
+                profile_id: Some(b.alex_id()),
+                poll_seconds: Some(900),
+                ..ownhealth_core::sources::NewSource::new(b.env.fam().household_id, "email", "Buzón de LabNorte")
+            },
+        )
+        .await?
+    };
+    b.grant_sam("viewer", &["read:summary", "read:labs"]).await?;
+    let mut sam = b.sam().await?;
+    let shows = |r: &Resp| {
+        r.json
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["id"] == json!(mailbox))
+    };
+    let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:records"])).await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through the ordinary read:labs: {:?}", r.json);
+    assert_eq!(
+        record_uses(&b, id).await?,
+        before,
+        "the emergency read:records was not needed"
+    );
+
+    b.grant_sam("viewer", &["read:summary"]).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(shows(&r), "through the emergency read:records: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+    Ok(())
+}
+
+/// F-HEALTHONEBG: a source route records emergency use only for the sources it returns. Sam's
+/// ordinary read:labs shows a mailbox of Alex's, and only her emergency read:wearables shows Alex's
+/// Dexcom. Reading the mailbox's row records no use, nor does the registry, which lists only the
+/// sources she manages; reading the Dexcom's row records one.
+#[tokio::test]
+async fn one_source_health_row_records_emergency_use_only_for_that_source() -> R {
+    let mut b = setup().await?;
+    let source = |kind: &'static str, label: &'static str| {
+        let pool = b.env.pool().clone();
+        let (household, alex) = (b.env.fam().household_id, b.alex_id());
+        async move {
+            let mut c = pool.acquire().await?;
+            anyhow::Ok(
+                ownhealth_core::sources::create_source(
+                    &mut c,
+                    &ownhealth_core::sources::NewSource {
+                        profile_id: Some(alex),
+                        poll_seconds: Some(900),
+                        ..ownhealth_core::sources::NewSource::new(household, kind, label)
+                    },
+                )
+                .await?,
+            )
+        }
+    };
+    let mailbox = source("email", "Buzón de LabNorte").await?;
+    let dexcom = source("dexcom", "Dexcom G7 de Alex").await?;
+    b.grant_sam("viewer", &["read:summary", "read:labs"]).await?;
+    let mut sam = b.sam().await?;
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables"]))
+        .await?;
+    let before = record_uses(&b, id).await?;
+    let r = sam.get(&format!("/api/inboxes/{mailbox}/health")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(r.json["id"], json!(mailbox), "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "the Dexcom was not returned");
+    // the registry lists only the sources she manages: none here, so it reads none
+    let r = sam.get("/api/inboxes").await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert!(!r.json.to_string().contains(&dexcom.to_string()), "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "the registry returned no source");
+    let r = sam.get(&format!("/api/inboxes/{dexcom}/health")).await?;
+    assert_eq!(r.status, 200, "{:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1));
+    Ok(())
+}
+
+/// CR-REVIEWBG: a review count that holds an item only emergency access shows is a read through the
+/// request. Sam is a guardian with an ordinary read:records and an emergency read:wearables, and a
+/// document of Alex's (read with read:records) holds a held activity value. The document's
+/// `open_review`, the list's `open` and `/api/me`'s `review_open` count the item, and each read records
+/// one use. With an ordinary read:wearables the document's and the list's counts record none, though
+/// the request's read:genome is still emergency-only: the item does not need it. (`/api/me` lists each
+/// profile's scopes, the emergency ones too, so it records a use whenever any is added; its count is
+/// checked with no emergency scope left.)
+#[tokio::test]
+async fn review_counts_record_the_emergency_use_of_what_only_break_glass_shows() -> R {
+    let mut b = setup().await?;
+    let doc = document(&b, "other").await?;
+    let profile = b.alex_id();
+    {
+        let mut observation = serde_json::to_value(lab(profile, "8000", false)?)?;
+        observation["category"] = json!("activity");
+        let mut conn = b.env.pool().acquire().await?;
+        create_item(
+            &mut conn,
+            &ReviewItemIn {
+                household_id: Some(b.env.fam().household_id),
+                profile_id: Some(profile),
+                document_id: Some(doc),
+                kind: "candidate_row".into(),
+                payload: json!({"observation": observation, "src": {"kind": "manual", "profile_id": profile}}),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
+    let mut sam = b.sam().await?;
+    let id = b
+        .open_for(b.env.user("sam"), &mut sam, json!(["read:wearables", "read:genome"]))
+        .await?;
+    let reads = [
+        (format!("/api/documents/{doc}"), "open_review"),
+        ("/api/review?profile=alex&limit=0".to_string(), "open"),
+        ("/api/me".to_string(), "review_open"),
+    ];
+    for (path, key) in &reads {
+        let before = record_uses(&b, id).await?;
+        let r = sam.get(path).await?;
+        assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+        assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+        assert_eq!(record_uses(&b, id).await?, (before.0 + 1, before.1 + 1), "{path}");
+    }
+    b.grant_sam("guardian", &["read:summary", "read:records", "read:wearables"])
+        .await?;
+    for (path, key) in &reads[..2] {
+        let before = record_uses(&b, id).await?;
+        let r = sam.get(path).await?;
+        assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+        assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+        assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
+    }
+    b.grant_sam(
+        "guardian",
+        &["read:summary", "read:records", "read:wearables", "read:genome"],
+    )
+    .await?;
+    let (path, key) = &reads[2];
+    let before = record_uses(&b, id).await?;
+    let r = sam.get(path).await?;
+    assert_eq!(r.status, 200, "{path}: {:?}", r.json);
+    assert_eq!(r.json[*key], json!(1), "{path}: {:?}", r.json);
+    assert_eq!(record_uses(&b, id).await?, before, "{path}: the own grant shows it");
+    Ok(())
+}
+
 async fn record_uses(b: &Bg, id: Uuid) -> anyhow::Result<(i64, i64)> {
     Ok((
         b.uses(id).await?,
@@ -2331,7 +2547,7 @@ async fn review_counts_hold_only_what_the_list_shows() -> R {
     let review = sam.get("/api/review").await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
     assert_eq!(review.json["items"], json!([]), "{:?}", review.json);
-    assert_eq!(review.json["withheld"], 1, "{:?}", review.json);
+    assert!(review.json.get("withheld").is_none(), "{:?}", review.json);
     assert_eq!(review.json["open"], 0, "{:?}", review.json);
     assert_eq!(sam.get("/api/me").await?.json["review_open"], 0);
 
@@ -2357,20 +2573,20 @@ async fn round8_counting_held_studies_through_break_glass_records_a_use_with_no_
     let path = "/api/review?profile=alex&limit=0";
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 0, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 0}));
 
     let id = b.open_for(b.env.user("sam"), &mut sam, json!(["read:records"])).await?;
     let before = record_uses(&b, id).await?;
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 1, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 1}));
     let after = record_uses(&b, id).await?;
     assert_eq!(after, (before.0 + 1, before.1 + 1));
 
     b.grant_sam("guardian", &["read:summary", "read:records"]).await?;
     let review = sam.get(path).await?;
     assert_eq!(review.status, 200, "{:?}", review.json);
-    assert_eq!(review.json, json!({"items": [], "open": 1, "withheld": 0}));
+    assert_eq!(review.json, json!({"items": [], "open": 1}));
     assert_eq!(record_uses(&b, id).await?, after);
     Ok(())
 }

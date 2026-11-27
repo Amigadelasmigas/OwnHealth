@@ -701,6 +701,25 @@ async fn document_bytes_are_never_kept_in_the_browser_cache() -> R {
     Ok(())
 }
 
+/// The document list and detail carry flags that depend on who reads them (a card's rows, import
+/// counts), so no browser or proxy keeps them either.
+#[tokio::test]
+async fn document_json_is_never_kept_in_a_cache() -> R {
+    let a = app().await?;
+    let doc = doc_with(&a, "alex", &[]).await?;
+    for uri in [format!("/documents/{doc}"), "/profiles/alex/documents".to_string()] {
+        let r = get(&a, "alex", &uri).await?;
+        assert_eq!(r.status, StatusCode::OK, "{uri}");
+        let cache = r
+            .headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert_eq!(cache, "private, no-store", "{uri}");
+    }
+    Ok(())
+}
+
 /// How many of `p`'s sealed files the store holds.
 fn sealed_of(a: &App, p: Uuid) -> anyhow::Result<usize> {
     let prefix = format!("{}/", p.simple());
@@ -1064,6 +1083,65 @@ async fn a_move_back_keeps_the_copies_the_first_move_queued_for_removal() -> R {
     );
     let f = get(&a, "alex", &format!("/documents/{doc}/file")).await?;
     assert_eq!(f.status, StatusCode::OK);
+    Ok(())
+}
+
+/// A document with no profile moves to Alex, and the removal of its item folder is still queued when a
+/// move takes it back to no profile. Its item key was shredded with the first move, so the move back has
+/// nowhere safe to keep its files: it is refused before it copies anything, and once the queued removals
+/// run, the document still opens for the owner it has.
+#[tokio::test]
+async fn a_move_back_to_no_profile_before_the_item_folder_goes_loses_no_file() -> R {
+    use ownhealth_core::blobs::{BlobOwner, BlobStore};
+    let a = app().await?;
+    let pdf = labnorte();
+    let scratch = tempfile::tempdir()?;
+    let sha = BlobStore::new(scratch.path())?.put_bytes(BlobOwner::Reference, &pdf)?;
+    let mut c = a.rt.pool.acquire().await?;
+    let doc = create_document(
+        &mut c,
+        &NewDocument {
+            filename: Some("unassigned.pdf"),
+            pages: Some(3),
+            ..NewDocument::upload(a.fam.household_id, None, &sha, "application/pdf", pdf.len() as i64)
+        },
+    )
+    .await?
+    .id;
+    drop(c);
+    assert_eq!(a.rt.blobs.put_bytes(BlobOwner::Pending(doc), &pdf)?, sha);
+    let alex = a.fam.profile("alex");
+    let mut tx = a.rt.pool.begin().await?;
+    ownhealth_ingest_pdf::assign_document(&mut tx, &a.rt.blobs, doc, alex, a.fam.user("alex"), None).await?;
+    tx.commit().await?;
+    // back to no profile, as a move would run it, while the item folder's removal waits
+    let mut tx = a.rt.pool.begin().await?;
+    let from = ownhealth_core::documents::lock_owner(&mut tx, doc).await?;
+    assert_eq!(from, Some(alex));
+    sqlx::query("update document set profile_id = null where id = $1")
+        .bind(doc)
+        .execute(&mut *tx)
+        .await?;
+    let back = ownhealth_core::documents::rekey_document(&mut tx, &a.rt.blobs, doc, from, None).await;
+    if back.is_ok() {
+        tx.commit().await?;
+    } else {
+        tx.rollback().await?;
+    }
+    drop_moved(&a).await?;
+    drop_moved(&a).await?;
+    let owner = owner_of(&a, doc).await?;
+    let kept = a.rt.blobs.get_bytes(BlobOwner::of_document(owner, doc), &sha);
+    assert!(
+        kept.as_ref().is_ok_and(|bytes| *bytes == pdf),
+        "the document on {owner:?} lost its file ({:?}); the move back answered {back:?}",
+        kept.err()
+    );
+    let refused = back.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(
+        refused.contains("no profile"),
+        "the move back was not refused for its reason: {refused:?}"
+    );
     Ok(())
 }
 
