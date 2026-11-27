@@ -1033,3 +1033,51 @@ async fn an_uploaded_bundle_labelled_sensitive_on_the_bundle_is_a_sensitive_docu
     );
     Ok(())
 }
+
+/// A sensitive label on the Bundle covers what each entry becomes, not only the stored file: a
+/// relative's condition and a held Observation with no value, both unlabelled in a Bundle labelled
+/// PSY, carry `mental_health`, so the record, the review list and the counts keep them behind
+/// read:sensitive.
+#[tokio::test]
+async fn a_sensitive_bundle_label_reaches_every_fact_and_held_resource_in_it() -> R {
+    use ownhealth_ingest_structured::fhir::mapping;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = fam.profile("alex");
+    let bundle = json!({"resourceType": "Bundle", "id": "bundle-label-psy", "type": "collection",
+        "meta": {"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]},
+        "entry": [
+            {"fullUrl": "urn:uuid:cond-psy", "resource": {"resourceType": "Condition", "id": "cond-psy",
+             "clinicalStatus": {"coding": [{"code": "active"}]}, "code": {"text": "Ansiedad"},
+             "subject": {"reference": "Patient/alex-rivera"}, "recordedDate": "2026-03-01"}},
+            {"fullUrl": "urn:uuid:obs-psy", "resource": {"resourceType": "Observation", "id": "obs-psy",
+             "status": "final", "code": {"text": "Escala de ansiedad"},
+             "subject": {"reference": "Patient/alex-rivera"}, "effectiveDateTime": "2026-03-01"}}]});
+    let data = serde_json::to_vec(&bundle)?;
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "psy.json", JSON).await?;
+    import_fhir(&mut tx, &env.blobs, doc).await?;
+    let held: Vec<Value> = sqlx::query_scalar("select payload from review_item where document_id = $1")
+        .bind(doc)
+        .fetch_all(&mut *tx)
+        .await?;
+    let raw: Vec<&Value> = held.iter().filter_map(|h| h.get("resource")).collect();
+    assert_eq!(
+        raw.len(),
+        1,
+        "the Observation with no value waits as received: {held:?}"
+    );
+    assert_eq!(mapping::sensitivity(raw[0]), ["mental_health"], "{held:?}");
+    let conditions: Vec<Value> = records(&mut tx, "condition", p)
+        .await?
+        .iter()
+        .map(|c| c["sensitivity"].clone())
+        .chain(
+            held.iter()
+                .filter_map(|h| h.get("record"))
+                .map(|r| r["sensitivity"].clone()),
+        )
+        .collect();
+    assert_eq!(conditions, [json!(["mental_health"])], "{held:?}");
+    Ok(())
+}

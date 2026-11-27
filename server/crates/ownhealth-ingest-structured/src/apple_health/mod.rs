@@ -281,7 +281,6 @@ pub async fn import_apple_health(
             pointer: name,
             resource,
             full_url: None,
-            bundle_labelled: false,
         });
     }
     if !entries.is_empty() {

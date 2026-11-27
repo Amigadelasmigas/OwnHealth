@@ -83,9 +83,6 @@ pub struct Entry {
     pub pointer: String,
     pub resource: Value,
     pub full_url: Option<String>,
-    /// The Bundle that held this entry carries a sensitive `meta.security` label
-    /// ([`mapping::sensitivity`]): the stored file is sensitive whatever the entry's own labels say.
-    pub bundle_labelled: bool,
 }
 
 impl Entry {
@@ -134,24 +131,53 @@ fn expand(res: Value, prefix: &str) -> Result<Vec<Entry>> {
             pointer: at.to_string(),
             resource: res,
             full_url: None,
-            bundle_labelled: false,
         }]);
     }
-    let bundle_labelled = !mapping::sensitivity(&res).is_empty();
+    // A sensitive label on the Bundle covers every entry in it: each entry takes the Bundle's labels
+    // into its own `meta.security`, so its facts, its held review item and the document's
+    // `sensitive` flag read them as the entry's own.
+    let inherited: &[Value] = if mapping::sensitivity(&res).is_empty() {
+        &[]
+    } else {
+        py::list(res.get("meta"), "security")
+    };
     let mut out = Vec::new();
     if let Some(Value::Array(entries)) = res.get("entry") {
         for (i, e) in entries.iter().enumerate() {
             if let Some(r) = e.get("resource").filter(|r| r.is_object()) {
+                let mut resource = r.clone();
+                inherit_labels(&mut resource, inherited);
                 out.push(Entry {
                     pointer: format!("{prefix}/entry/{i}/resource"),
-                    resource: r.clone(),
+                    resource,
                     full_url: e.get("fullUrl").and_then(Value::as_str).map(String::from),
-                    bundle_labelled,
                 });
             }
         }
     }
     Ok(out)
+}
+
+/// Add `labels` (a Bundle's `meta.security`) to an entry resource's own `meta.security`, once each.
+fn inherit_labels(resource: &mut Value, labels: &[Value]) {
+    if labels.is_empty() {
+        return;
+    }
+    let meta = &mut resource["meta"];
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let security = &mut meta["security"];
+    if !security.is_array() {
+        *security = json!([]);
+    }
+    if let Some(own) = security.as_array_mut() {
+        for label in labels {
+            if !own.contains(label) {
+                own.push(label.clone());
+            }
+        }
+    }
 }
 
 /// A summary stored in `document.flags.import` (or `job.result`).
@@ -859,7 +885,7 @@ impl Run<'_> {
         let pulled = self.pull.as_ref().map(|p| (p.source_id, p.sha.to_string()));
         // the stored file, a pull's bundle or an upload, holds every entry as received, whatever this
         // run does with it below
-        let labelled = e.bundle_labelled || !mapping::sensitivity(r).is_empty();
+        let labelled = !mapping::sensitivity(r).is_empty();
         if is_context(rtype) {
             self.tally.context += 1;
             self.tally.sensitive += i64::from(labelled);
