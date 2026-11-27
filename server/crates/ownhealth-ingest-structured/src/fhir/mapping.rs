@@ -59,6 +59,21 @@ pub const SUPPORTING: [&str; 7] = [
     "Device",
 ];
 
+/// The sensitivity labels among `labels`, the first of each code, in order: what a labelled
+/// Bundle hands to each of its entries. One per code keeps the copy small whatever the Bundle holds.
+pub fn sensitive_labels(labels: &[Value]) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    labels
+        .iter()
+        .filter(|l| {
+            l.get("code")
+                .and_then(Value::as_str)
+                .is_some_and(|c| security_tag(c).is_some() && seen.insert(c.to_string()))
+        })
+        .cloned()
+        .collect()
+}
+
 /// v3-ActCode confidentiality / sensitivity labels -> our sensitivity tags.
 fn security_tag(code: &str) -> Option<&'static str> {
     Some(match code {

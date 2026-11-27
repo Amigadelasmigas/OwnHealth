@@ -154,17 +154,17 @@ fn expand(res: Value, prefix: &str, out: &mut Read) -> Result<()> {
     // into its own `meta.security`, so its facts, its held review item and the document's
     // `sensitive` flag read them as the entry's own. The Bundle counts on its own too, so a labelled
     // Bundle with no entry still makes its file sensitive.
-    let inherited: &[Value] = if mapping::sensitivity(&res).is_empty() {
-        &[]
+    let inherited: Vec<Value> = if mapping::sensitivity(&res).is_empty() {
+        Vec::new()
     } else {
         out.labelled_bundles += 1;
-        py::list(res.get("meta"), "security")
+        mapping::sensitive_labels(py::list(res.get("meta"), "security"))
     };
     if let Some(Value::Array(entries)) = res.get("entry") {
         for (i, e) in entries.iter().enumerate() {
             if let Some(r) = e.get("resource").filter(|r| r.is_object()) {
                 let mut resource = r.clone();
-                inherit_labels(&mut resource, inherited);
+                inherit_labels(&mut resource, &inherited);
                 out.entries.push(Entry {
                     pointer: format!("{prefix}/entry/{i}/resource"),
                     resource,
@@ -176,7 +176,8 @@ fn expand(res: Value, prefix: &str, out: &mut Read) -> Result<()> {
     Ok(())
 }
 
-/// Add `labels` (a Bundle's `meta.security`) to an entry resource's own `meta.security`, once each.
+/// Add `labels` (a Bundle's sensitivity labels, one per code) to an entry resource's own
+/// `meta.security`, once each.
 fn inherit_labels(resource: &mut Value, labels: &[Value]) {
     if labels.is_empty() {
         return;
@@ -1555,4 +1556,38 @@ pub(crate) fn accept_fhir_boxed<'c>(
     edits: Option<&'c Value>,
 ) -> BoxFuture<'c, Result<Vec<Uuid>>> {
     Box::pin(accept_fhir_item(conn, item, user_id, edits))
+}
+
+#[cfg(test)]
+mod inherit_tests {
+    use super::*;
+
+    /// A labelled Bundle hands each entry its sensitivity labels once per code, never its whole
+    /// `meta.security` list: a Bundle with thousands of labels costs each entry a handful.
+    #[test]
+    fn a_bundle_hands_each_entry_only_its_distinct_sensitivity_labels() {
+        let mut security: Vec<Value> = (0..3000)
+            .map(|i| json!({"system": format!("urn:x:{i}"), "code": format!("X{i}")}))
+            .collect();
+        for i in 0..500 {
+            security.push(json!({"system": format!("urn:dup:{i}"), "code": "PSY"}));
+        }
+        security.push(json!({"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "HIV"}));
+        let entries: Vec<Value> = (0..200)
+            .map(|i| json!({"resource": {"resourceType": "Observation", "id": format!("o{i}")}}))
+            .collect();
+        let bundle =
+            json!({"resourceType": "Bundle", "type": "collection", "meta": {"security": security}, "entry": entries});
+        let out = read(&serde_json::to_vec(&bundle).expect("bundle as bytes"), false).expect("a valid Bundle");
+        assert_eq!(out.labelled_bundles, 1);
+        assert_eq!(out.entries.len(), 200);
+        for e in &out.entries {
+            let own = e.resource["meta"]["security"]
+                .as_array()
+                .expect("an entry of a labelled Bundle has labels");
+            let codes: Vec<&str> = own.iter().filter_map(|l| l["code"].as_str()).collect();
+            assert_eq!(codes, ["PSY", "HIV"], "entry {} got {} labels", e.pointer, own.len());
+            assert_eq!(mapping::sensitivity(&e.resource), ["mental_health", "sexual_health"]);
+        }
+    }
 }
