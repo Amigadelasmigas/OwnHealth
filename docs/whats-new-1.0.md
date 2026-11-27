@@ -30,7 +30,7 @@ The new `compose.homelab.yaml` mounts `secrets/imaging` into the app, with the `
 
 Both Compose services mount `./keyring/<project>`. For the default project, create `keyring/ownhealth` before you start Compose, as the [homelab setup](https://github.com/GeiserX/OwnHealth/blob/main/deploy/README.md#homelab-setup) shows. If you use `-p` or `COMPOSE_PROJECT_NAME`, use that project name in place of `ownhealth`. If Docker created the folder, give UID and GID 10001 ownership and set mode 0700.
 
-If your old Compose file mounted `./keyring` directly, stop the old project before switching Compose files. Move its current `keyring/keyring.json` into `keyring/<project>/keyring.json` before starting the updated project. Move the file to the project that owns it. Take a backup right after the upgrade: it writes `keyring.json`. Backups taken before the upgrade do not hold the profile keys: keep `keyring.json`, or they restore without their files. Tell your host backup tools to skip `keyring/`.
+If your old Compose file mounted `./keyring` directly, stop the old project before switching Compose files. Move its current `keyring/keyring.json` into `keyring/<project>/keyring.json` before starting the updated project. To go back to the old version later, move it back to `keyring/keyring.json` before you start the old Compose file. Move the file to the project that owns it. Take a backup right after the upgrade: it writes `keyring.json`. Backups taken before the upgrade do not hold the profile keys: keep `keyring.json`, or they restore without their files. Tell your host backup tools to skip `keyring/`.
 
 ### The secrets key
 
@@ -46,7 +46,7 @@ if test -s secrets/secrets_key; then
 elif v=$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?OWNHEALTH_SECRETS_KEY[[:space:]]*=[[:space:]]*//p' .env | tail -n 1 |
     sed -E "s/[[:space:]]+#.*\$//; s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/") && test -n "$v"; then
   case "$v" in
-    *'$'*) echo "OWNHEALTH_SECRETS_KEY in .env names a variable: write its value to secrets/secrets_key by hand" >&2 ;;
+    *'$'*) echo "OWNHEALTH_SECRETS_KEY in .env names a variable: write its value to secrets/secrets_key by hand, then chmod 644 it" >&2 ;;
     *) printf '%s' "$v" > secrets/secrets_key ;;   # the value Compose reads, without quotes or a comment
   esac
 else
