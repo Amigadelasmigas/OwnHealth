@@ -13,6 +13,7 @@ Take a fresh backup first, while `compose.yaml` still names the old version: `ba
 The quickstart `compose.yaml` has no restic repository, so `backup.sh` fails there. Write the backup into a folder of your own instead. Keep it with a copy of `secrets/secrets_key`, or of the `OWNHEALTH_SECRETS_KEY` line in `.env` on an install from before 1.0 that has no key file yet:
 
 ```sh
+export COMPOSE_PROJECT_NAME=ownhealth   # your install's project: the one you pass to -p, if any
 mkdir -p -m 700 backups && sudo chown 10001:10001 backups
 docker compose run --rm -T -v "$PWD/backups:/backups" admin ownhealth backup "/backups/$(date +%F-%H%M%S)"
 ```
@@ -25,16 +26,21 @@ Then change the image tag of the `admin` and `app` services in `compose.yaml` to
 docker compose pull && docker compose up -d
 ```
 
-Migrations are forward-only and run at start, in the `admin` service, before the app comes up. To go back to an older version, set the image tags back to it and restore the backup you took before the upgrade, with the version that wrote it. On the homelab stack, follow [Restore](deploy/README.md#restore). On a quickstart install, the restore needs an empty database, so it deletes the current volumes first:
+Migrations are forward-only and run at start, in the `admin` service, before the app comes up. To go back to an older version, set the image tags back to it and restore the backup you took before the upgrade, with the version that wrote it. On the homelab stack, follow [Restore](deploy/README.md#restore). On a quickstart install, the restore needs an empty database, so it deletes the current volumes first. Run every command with your install's project name, or `down -v` deletes another project's volumes:
 
 ```sh
-docker compose down -v      # deletes the current database and data volumes
+export COMPOSE_PROJECT_NAME=ownhealth   # your install's project: the one you pass to -p, if any
+docker compose down -v                  # deletes this project's database and data volumes
 docker compose up -d db
-docker compose run --rm -T -v "$PWD/backups:/backups" admin sh -c "sh /opt/ownhealth-db/app-role.sh && ownhealth restore /backups/<folder>"
-docker compose up -d
+docker compose run --rm -T -v "$PWD/backups:/backups" admin sh -c "sh /opt/ownhealth-db/app-role.sh && ownhealth restore /backups/<folder>" \
+  && docker compose up -d               # starts the app only when the restore succeeded
 ```
 
+If the restore stops with an error, the app stays down. Fix what the error names, then empty the database again with `docker compose down -v && docker compose up -d db` and run the restore once more.
+
 `ownhealth restore` prints a JSON report and checks every profile's `state_hash`. It takes the profile keys from `keyring/<project>/keyring.json`, so leave that file in place.
+
+With the `wearables` profile on, `down -v` also deletes the Open Wearables database, and no backup holds it. After the restore, connect each vendor again as the restore steps under [Wearables](deploy/README.md#wearables) say.
 
 ## Upgrading to 1.0
 
