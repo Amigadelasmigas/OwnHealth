@@ -205,3 +205,30 @@ jobs:
           short-description: "Self-hosted health data layer you own: labs, records, genome, MCP server. AGPL."
           readme-filepath: README.md
           enable-url-completion: true
+
+  # The GitHub Release for the tag, after both images are signed and pushed. Its notes are the
+  # tag's CHANGELOG.md entry; a major release also needs its "## Upgrading to X.0" section in
+  # UPGRADING.md, and the notes link it (.github/scripts/release-notes.sh fails the job without it).
+  # A re-run edits the release.
+  github-release:
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Publish the release with the changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -o pipefail
+          .github/scripts/release-notes.sh "$TAG" > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "OwnHealth ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag --title "OwnHealth ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
