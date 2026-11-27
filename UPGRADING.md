@@ -10,11 +10,11 @@ Take a fresh backup first, while `compose.yaml` still names the old version: `ba
 ./deploy/restic/backup.sh         # a fresh backup before every upgrade
 ```
 
-The quickstart `compose.yaml` has no restic repository, so `backup.sh` fails there. Write the backup into a folder of your own instead, and keep it with a copy of `secrets/secrets_key`:
+The quickstart `compose.yaml` has no restic repository, so `backup.sh` fails there. Write the backup into a folder of your own instead. Keep it with a copy of `secrets/secrets_key`, or of the `OWNHEALTH_SECRETS_KEY` line in `.env` on an install from before 1.0 that has no key file yet:
 
 ```sh
 mkdir -p -m 700 backups && sudo chown 10001:10001 backups
-docker compose run --rm -T -v "$PWD/backups:/backups" admin ownhealth backup "/backups/$(date +%F)"
+docker compose run --rm -T -v "$PWD/backups:/backups" admin ownhealth backup "/backups/$(date +%F-%H%M%S)"
 ```
 
 Like every backup, it leaves the profile keys out. They stay in `keyring/<project>/keyring.json`, and [Backups](deploy/README.md#backups) says how to keep that file. Never copy the database volume instead: it holds the profile keys, so a copy can reopen a profile you delete later.
