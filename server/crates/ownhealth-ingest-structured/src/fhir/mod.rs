@@ -98,27 +98,43 @@ fn not_readable(e: impl std::fmt::Display) -> Error {
     Error::Invalid(e.to_string())
 }
 
-/// (Bundle.id, entries) of a JSON file or an NDJSON file.
+/// What a FHIR file holds: the Bundle.id of a JSON Bundle, its entries, and how many of its Bundles
+/// carry a sensitive `meta.security` label. A labelled Bundle counts whether or not it holds an entry,
+/// since the stored file keeps the label ([`import_read`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Read {
+    pub bundle_id: Option<String>,
+    pub entries: Vec<Entry>,
+    pub labelled_bundles: i64,
+}
+
+/// (Bundle.id, entries) of a JSON file or an NDJSON file: [`read`] without the Bundle labels.
 pub fn read_entries(data: &[u8], ndjson: bool) -> Result<(Option<String>, Vec<Entry>)> {
+    read(data, ndjson).map(|r| (r.bundle_id, r.entries))
+}
+
+/// A JSON file or an NDJSON file, read as FHIR.
+pub fn read(data: &[u8], ndjson: bool) -> Result<Read> {
+    let mut out = Read::default();
     if ndjson {
-        let mut out = Vec::new();
         for (n, line) in py::splitlines(data).into_iter().enumerate() {
             if line.trim_ascii().is_empty() {
                 continue;
             }
             let v: Value = serde_json::from_slice(line).map_err(not_readable)?;
-            out.extend(expand(v, &format!("L{}", n + 1))?);
+            expand(v, &format!("L{}", n + 1), &mut out)?;
         }
-        return Ok((None, out));
+        return Ok(out);
     }
     let doc: Value = serde_json::from_slice(data).map_err(not_readable)?;
-    let bundle_id = (doc.get("resourceType").and_then(Value::as_str) == Some("Bundle"))
+    out.bundle_id = (doc.get("resourceType").and_then(Value::as_str) == Some("Bundle"))
         .then(|| py::get_truthy(Some(&doc), "id").map(|v| py::py_str(Some(v))))
         .flatten();
-    Ok((bundle_id, expand(doc, "")?))
+    expand(doc, "", &mut out)?;
+    Ok(out)
 }
 
-fn expand(res: Value, prefix: &str) -> Result<Vec<Entry>> {
+fn expand(res: Value, prefix: &str, out: &mut Read) -> Result<()> {
     let at = if prefix.is_empty() { "/" } else { prefix };
     let Some(rtype) = res.get("resourceType") else {
         return Err(Error::Invalid(format!("not a FHIR resource at {at}")));
@@ -127,25 +143,60 @@ fn expand(res: Value, prefix: &str) -> Result<Vec<Entry>> {
         return Err(Error::Invalid(format!("not a FHIR resource at {at}")));
     }
     if rtype.as_str() != Some("Bundle") {
-        return Ok(vec![Entry {
+        out.entries.push(Entry {
             pointer: at.to_string(),
             resource: res,
             full_url: None,
-        }]);
+        });
+        return Ok(());
     }
-    let mut out = Vec::new();
+    // A sensitive label on the Bundle covers every entry in it: each entry takes the Bundle's labels
+    // into its own `meta.security`, so its facts, its held review item and the document's
+    // `sensitive` flag read them as the entry's own. The Bundle counts on its own too, so a labelled
+    // Bundle with no entry still makes its file sensitive.
+    let inherited: Vec<Value> = if mapping::sensitivity(&res).is_empty() {
+        Vec::new()
+    } else {
+        out.labelled_bundles += 1;
+        mapping::sensitive_labels(py::list(res.get("meta"), "security"))
+    };
     if let Some(Value::Array(entries)) = res.get("entry") {
         for (i, e) in entries.iter().enumerate() {
             if let Some(r) = e.get("resource").filter(|r| r.is_object()) {
-                out.push(Entry {
+                let mut resource = r.clone();
+                inherit_labels(&mut resource, &inherited);
+                out.entries.push(Entry {
                     pointer: format!("{prefix}/entry/{i}/resource"),
-                    resource: r.clone(),
+                    resource,
                     full_url: e.get("fullUrl").and_then(Value::as_str).map(String::from),
                 });
             }
         }
     }
-    Ok(out)
+    Ok(())
+}
+
+/// Add `labels` (a Bundle's sensitivity labels, one per code) to an entry resource's own
+/// `meta.security`, once each.
+fn inherit_labels(resource: &mut Value, labels: &[Value]) {
+    if labels.is_empty() {
+        return;
+    }
+    let meta = &mut resource["meta"];
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let security = &mut meta["security"];
+    if !security.is_array() {
+        *security = json!([]);
+    }
+    if let Some(own) = security.as_array_mut() {
+        for label in labels {
+            if !own.contains(label) {
+                own.push(label.clone());
+            }
+        }
+    }
 }
 
 /// A summary stored in `document.flags.import` (or `job.result`).
@@ -182,9 +233,9 @@ pub async fn import_fhir(conn: &mut PgConnection, blobs: &BlobStore, document_id
         .await?
         .ok_or_else(|| Error::NotFound(format!("unknown profile {profile_id}")))?;
     let ndjson = mime == "application/fhir+ndjson" || filename.unwrap_or_default().to_lowercase().ends_with(".ndjson");
-    let (bundle_id, entries) = read_entries(&blobs.get_bytes(BlobOwner::Profile(profile_id), &sha)?, ndjson)?;
-    let key = bundle_id.unwrap_or_else(|| format!("doc-{}", &sha[..12]));
-    let (summary, identity) = import_resources(conn, &entries, &profile, document_id, &key, None, "FHIR").await?;
+    let file = read(&blobs.get_bytes(BlobOwner::Profile(profile_id), &sha)?, ndjson)?;
+    let key = file.bundle_id.clone().unwrap_or_else(|| format!("doc-{}", &sha[..12]));
+    let (summary, identity) = import_read(conn, &file, &profile, document_id, &key, "FHIR").await?;
     mark_imported(conn, document_id, &summary, Some(&identity)).await?;
     Ok(summary)
 }
@@ -356,7 +407,8 @@ enum Held {
 ///   A bundle that holds a sensitive resource is flagged `sensitive` the same way, read from every
 ///   entry before the ledger or the dedupe can skip it: the mapped value's sensitivity, or a
 ///   sensitive `meta.security` label on any resource, context included. A daily pull of the same
-///   sensitive fact imports nothing new, and its file holds that fact all the same.
+///   sensitive fact imports nothing new, and its file holds that fact all the same. An uploaded file
+///   is read for `sensitive` by the same code ([`Run::one`]).
 ///
 /// The caller owns the transaction (RUST-CONTRACTS.md), and runs one pull per source at a time: the
 /// ledger is read, then written, with no lock in between. The `source.poll` job's dedupe key gives
@@ -402,8 +454,9 @@ pub(crate) async fn import_pull_with_identity(
         .await?
         .ok_or_else(|| Error::NotFound(format!("unknown profile {profile_id}")))?;
     let ndjson = mime == "application/fhir+ndjson" || filename.unwrap_or_default().to_lowercase().ends_with(".ndjson");
-    let (bundle_id, entries) = read_entries(&blobs.get_bytes(BlobOwner::Profile(profile_id), &sha)?, ndjson)?;
-    let key = bundle_id.unwrap_or_else(|| format!("doc-{}", &sha[..12]));
+    let file = read(&blobs.get_bytes(BlobOwner::Profile(profile_id), &sha)?, ndjson)?;
+    let key = file.bundle_id.clone().unwrap_or_else(|| format!("doc-{}", &sha[..12]));
+    let entries = &file.entries;
     let imported_before = flags.get("import").is_some_and(|d| truthy(Some(d)));
     if !imported_before {
         // These bytes were pulled and then retracted (the retraction cleared the import flag), and
@@ -421,32 +474,29 @@ pub(crate) async fn import_pull_with_identity(
     };
     let (summary, identity, tally) = import_with(
         conn,
-        &entries,
+        entries,
         &profile,
         document_id,
         &key,
         identity,
         &label,
+        file.labelled_bundles,
         Some(pull),
     )
     .await?;
-    if tally.unprojected > 0 || tally.sensitive > 0 {
-        let count = |n: i64| (n > 0).then_some(n);
-        sqlx::query(
-            "update document set flags = flags || jsonb_strip_nulls(jsonb_build_object('unprojected', $1::bigint, \
-             'sensitive', $2::bigint)) where id = $3",
-        )
-        .bind(count(tally.unprojected))
-        .bind(count(tally.sensitive))
-        .bind(document_id)
-        .execute(&mut *conn)
-        .await?;
+    if tally.unprojected > 0 {
+        // `sensitive` is written by `import_with`, for an upload as for a pull
+        sqlx::query("update document set flags = flags || jsonb_build_object('unprojected', $1::bigint) where id = $2")
+            .bind(tally.unprojected)
+            .bind(document_id)
+            .execute(&mut *conn)
+            .await?;
     }
     if !imported_before {
         mark_imported(conn, document_id, &summary, Some(&identity)).await?;
     }
     let mut counted: BTreeMap<String, i64> = BTreeMap::new();
-    for e in &entries {
+    for e in entries {
         *counted.entry(e.rtype().to_string()).or_default() += 1;
     }
     Ok(PullSummary {
@@ -472,12 +522,48 @@ pub async fn import_resources(
     identity: Option<&str>,
     label: &str,
 ) -> Result<(ImportSummary, String)> {
-    let (summary, identity, _) =
-        import_with(conn, entries, profile, document_id, bundle_key, identity, label, None).await?;
+    let (summary, identity, _) = import_with(
+        conn,
+        entries,
+        profile,
+        document_id,
+        bundle_key,
+        identity,
+        label,
+        0,
+        None,
+    )
+    .await?;
     Ok((summary, identity))
 }
 
-/// [`import_resources`], for a file (`pull` None) or for a connector pull.
+/// [`import_resources`] for a file [`read`] as FHIR: a Bundle labelled sensitive makes the document
+/// sensitive, though it holds no entry.
+pub async fn import_read(
+    conn: &mut PgConnection,
+    file: &Read,
+    profile: &Profile,
+    document_id: Uuid,
+    bundle_key: &str,
+    label: &str,
+) -> Result<(ImportSummary, String)> {
+    let (summary, identity, _) = import_with(
+        conn,
+        &file.entries,
+        profile,
+        document_id,
+        bundle_key,
+        None,
+        label,
+        file.labelled_bundles,
+        None,
+    )
+    .await?;
+    Ok((summary, identity))
+}
+
+/// [`import_resources`], for a file (`pull` None) or for a connector pull. `labelled_bundles` counts
+/// the file's Bundles labelled sensitive ([`Read`]), entries or none.
 #[allow(clippy::too_many_arguments)]
 async fn import_with(
     conn: &mut PgConnection,
@@ -487,6 +573,7 @@ async fn import_with(
     bundle_key: &str,
     identity: Option<&str>,
     label: &str,
+    labelled_bundles: i64,
     pull: Option<Pull<'_>>,
 ) -> Result<(ImportSummary, String, Tally)> {
     if let Some(e) = entries
@@ -572,7 +659,16 @@ async fn import_with(
         run.one(conn, e).await?;
     }
     run.queue_grouped(conn).await?;
+    run.tally.sensitive += labelled_bundles;
     let (summary, tally) = (run.summary, run.tally);
+    if tally.sensitive > 0 {
+        // the file holds a sensitive resource: `documents::document_is_sensitive` keeps it closed
+        sqlx::query("update document set flags = flags || jsonb_build_object('sensitive', $1::bigint) where id = $2")
+            .bind(tally.sensitive)
+            .bind(document_id)
+            .execute(&mut *conn)
+            .await?;
+    }
     Ok((summary, identity, tally))
 }
 
@@ -846,21 +942,22 @@ impl Run<'_> {
         let r = &e.resource;
         let rtype = e.rtype();
         let pulled = self.pull.as_ref().map(|p| (p.source_id, p.sha.to_string()));
-        // a pull's bundle holds every entry as received, whatever this run does with it below
-        let labelled = pulled.is_some() && !mapping::sensitivity(r).is_empty();
+        // the stored file, a pull's bundle or an upload, holds every entry as received, whatever this
+        // run does with it below
+        let labelled = !mapping::sensitivity(r).is_empty();
         if is_context(rtype) {
             self.tally.context += 1;
             self.tally.sensitive += i64::from(labelled);
             return Ok(()); // context for the others; kept in the stored bundle
         }
         let m = self.map(e);
+        if labelled || mapped_sensitive(m.as_ref()) {
+            self.tally.sensitive += 1;
+        }
         let Some((source_id, sha)) = pulled else {
             self.import_one(&mut *conn, e, m, "").await?;
             return Ok(());
         };
-        if labelled || mapped_sensitive(m.as_ref()) {
-            self.tally.sensitive += 1;
-        }
         if matches!(m, None | Some(Mapped::Unmapped(_) | Mapped::Skip(_))) {
             // the bundle holds it as received, and nothing read it for sensitivity
             self.tally.unprojected += 1;
@@ -1459,4 +1556,49 @@ pub(crate) fn accept_fhir_boxed<'c>(
     edits: Option<&'c Value>,
 ) -> BoxFuture<'c, Result<Vec<Uuid>>> {
     Box::pin(accept_fhir_item(conn, item, user_id, edits))
+}
+
+#[cfg(test)]
+mod inherit_tests {
+    use super::*;
+
+    /// A labelled Bundle hands each entry its sensitivity labels once per code, never its whole
+    /// `meta.security` list, and only their system and code: a Bundle with thousands of labels, or
+    /// with one huge label, costs each entry a few short codings.
+    #[test]
+    fn a_bundle_hands_each_entry_only_its_distinct_sensitivity_labels() {
+        let mut security: Vec<Value> = (0..3000)
+            .map(|i| json!({"system": format!("urn:x:{i}"), "code": format!("X{i}")}))
+            .collect();
+        // the first PSY carries a 64 KiB display: an entry must not take a copy of it
+        security.push(json!({"system": "urn:big", "code": "PSY", "display": "x".repeat(64 * 1024)}));
+        for i in 0..500 {
+            security.push(json!({"system": format!("urn:dup:{i}"), "code": "PSY"}));
+        }
+        security.push(json!({"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "HIV"}));
+        let entries: Vec<Value> = (0..200)
+            .map(|i| json!({"resource": {"resourceType": "Observation", "id": format!("o{i}")}}))
+            .collect();
+        let bundle =
+            json!({"resourceType": "Bundle", "type": "collection", "meta": {"security": security}, "entry": entries});
+        let out = read(&serde_json::to_vec(&bundle).expect("bundle as bytes"), false).expect("a valid Bundle");
+        assert_eq!(out.labelled_bundles, 1);
+        assert_eq!(out.entries.len(), 200);
+        for e in &out.entries {
+            let own = e.resource["meta"]["security"]
+                .as_array()
+                .expect("an entry of a labelled Bundle has labels");
+            let codes: Vec<&str> = own.iter().filter_map(|l| l["code"].as_str()).collect();
+            assert_eq!(codes, ["PSY", "HIV"], "entry {} got {} labels", e.pointer, own.len());
+            let act = "http://terminology.hl7.org/CodeSystem/v3-ActCode";
+            assert_eq!(
+                own,
+                &[
+                    json!({"system": act, "code": "PSY"}),
+                    json!({"system": act, "code": "HIV"})
+                ]
+            );
+            assert_eq!(mapping::sensitivity(&e.resource), ["mental_health", "sexual_health"]);
+        }
+    }
 }

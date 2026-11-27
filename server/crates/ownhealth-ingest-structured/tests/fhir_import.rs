@@ -960,3 +960,181 @@ async fn a_coded_smoking_status_in_a_component_is_read_by_its_own_answer() -> R 
     assert_eq!((s.accepted, s.queued), (0, 1), "{s:?}");
     Ok(())
 }
+
+/// L-FHIRLABEL: an uploaded bundle is read for security labels the way a connector pull is: a resource
+/// labelled sensitive (here a CarePlan, which has no table and waits as received) makes the document
+/// sensitive, so its file needs read:sensitive. The same bundle without the label is not.
+#[tokio::test]
+async fn an_uploaded_bundle_with_a_sensitivity_label_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let bundle = |labelled: bool, id: &str| {
+        let mut plan = json!({"resourceType": "CarePlan", "id": format!("plan-{id}"), "status": "active",
+                              "intent": "plan", "title": "Plan de seguimiento",
+                              "subject": {"reference": "Patient/alex-rivera"}});
+        if labelled {
+            plan["meta"] =
+                json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+        }
+        json!({"resourceType": "Bundle", "id": format!("upload-{id}"), "type": "collection",
+               "entry": [{"fullUrl": format!("urn:uuid:plan-{id}"), "resource": plan}]})
+    };
+    let mut docs = Vec::new();
+    for (labelled, id) in [(true, "a"), (false, "b")] {
+        let data = serde_json::to_vec(&bundle(labelled, id))?;
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "plan.json", JSON).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        docs.push(doc);
+    }
+    assert!(document_is_sensitive(&mut tx, docs[0]).await?, "the labelled bundle");
+    assert!(
+        !document_is_sensitive(&mut tx, docs[1]).await?,
+        "the same bundle without the label"
+    );
+    Ok(())
+}
+
+/// U7-BUNDLELABEL: a sensitive security label on the uploaded Bundle itself makes the document
+/// sensitive, though no entry carries a label of its own. The same bundle without it is not.
+#[tokio::test]
+async fn an_uploaded_bundle_labelled_sensitive_on_the_bundle_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let bundle = |labelled: bool, id: &str| {
+        let plan = json!({"resourceType": "CarePlan", "id": format!("plan-{id}"), "status": "active",
+                          "intent": "plan", "title": "Plan de seguimiento",
+                          "subject": {"reference": "Patient/alex-rivera"}});
+        let mut b = json!({"resourceType": "Bundle", "id": format!("bundle-label-{id}"), "type": "collection",
+                           "entry": [{"fullUrl": format!("urn:uuid:plan-{id}"), "resource": plan}]});
+        if labelled {
+            b["meta"] =
+                json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+        }
+        b
+    };
+    let mut docs = Vec::new();
+    for (labelled, id) in [(true, "a"), (false, "b")] {
+        let data = serde_json::to_vec(&bundle(labelled, id))?;
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "plan.json", JSON).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        docs.push(doc);
+    }
+    assert!(
+        document_is_sensitive(&mut tx, docs[0]).await?,
+        "the bundle carries the label"
+    );
+    assert!(
+        !document_is_sensitive(&mut tx, docs[1]).await?,
+        "the same bundle without it"
+    );
+    Ok(())
+}
+
+/// A sensitive label on the Bundle covers what each entry becomes, not only the stored file: a
+/// relative's condition and a held Observation with no value, both unlabelled in a Bundle labelled
+/// PSY, carry `mental_health`, so the record, the review list and the counts keep them behind
+/// read:sensitive.
+#[tokio::test]
+async fn a_sensitive_bundle_label_reaches_every_fact_and_held_resource_in_it() -> R {
+    use ownhealth_ingest_structured::fhir::mapping;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let p = fam.profile("alex");
+    let bundle = json!({"resourceType": "Bundle", "id": "bundle-label-psy", "type": "collection",
+        "meta": {"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]},
+        "entry": [
+            {"fullUrl": "urn:uuid:cond-psy", "resource": {"resourceType": "Condition", "id": "cond-psy",
+             "clinicalStatus": {"coding": [{"code": "active"}]}, "code": {"text": "Ansiedad"},
+             "subject": {"reference": "Patient/alex-rivera"}, "recordedDate": "2026-03-01"}},
+            {"fullUrl": "urn:uuid:obs-psy", "resource": {"resourceType": "Observation", "id": "obs-psy",
+             "status": "final", "code": {"text": "Escala de ansiedad"},
+             "subject": {"reference": "Patient/alex-rivera"}, "effectiveDateTime": "2026-03-01"}}]});
+    let data = serde_json::to_vec(&bundle)?;
+    let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, "psy.json", JSON).await?;
+    import_fhir(&mut tx, &env.blobs, doc).await?;
+    let held: Vec<Value> = sqlx::query_scalar("select payload from review_item where document_id = $1")
+        .bind(doc)
+        .fetch_all(&mut *tx)
+        .await?;
+    let raw: Vec<&Value> = held.iter().filter_map(|h| h.get("resource")).collect();
+    assert_eq!(
+        raw.len(),
+        1,
+        "the Observation with no value waits as received: {held:?}"
+    );
+    assert_eq!(mapping::sensitivity(raw[0]), ["mental_health"], "{held:?}");
+    let conditions: Vec<Value> = records(&mut tx, "condition", p)
+        .await?
+        .iter()
+        .map(|c| c["sensitivity"].clone())
+        .chain(
+            held.iter()
+                .filter_map(|h| h.get("record"))
+                .map(|r| r["sensitivity"].clone()),
+        )
+        .collect();
+    assert_eq!(conditions, [json!(["mental_health"])], "{held:?}");
+    Ok(())
+}
+
+/// R7-L1: a sensitive label on a Bundle makes its document sensitive even when the Bundle brings no
+/// resource: no entries, entries that hold no resource, or an empty labelled Bundle line in an NDJSON
+/// file. The same empty Bundle without the label is not sensitive.
+#[tokio::test]
+async fn a_bundle_labelled_sensitive_with_no_resource_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let psy = json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+    let empty = json!({"resourceType": "Bundle", "id": "bundle-empty", "type": "collection", "meta": psy,
+                       "entry": []});
+    let hollow = json!({"resourceType": "Bundle", "id": "bundle-hollow", "type": "collection", "meta": psy,
+                        "entry": [{"fullUrl": "urn:uuid:nothing"}, {"resource": "not a resource"}]});
+    let plan = json!({"resourceType": "CarePlan", "id": "plan-ndjson", "status": "active", "intent": "plan",
+                      "title": "Plan de seguimiento", "subject": {"reference": "Patient/alex-rivera"}});
+    let line = json!({"resourceType": "Bundle", "type": "collection", "meta": psy});
+    let ndjson = format!("{plan}\n{line}\n").into_bytes();
+    let unlabelled = json!({"resourceType": "Bundle", "id": "bundle-plain", "type": "collection", "entry": []});
+    let mut sensitive = Vec::new();
+    for (name, data, filename, mime) in [
+        ("an empty Bundle", serde_json::to_vec(&empty)?, "vacio.json", JSON),
+        (
+            "entries with no resource",
+            serde_json::to_vec(&hollow)?,
+            "huecos.json",
+            JSON,
+        ),
+        (
+            "an empty Bundle line in NDJSON",
+            ndjson,
+            "lineas.ndjson",
+            "application/fhir+ndjson",
+        ),
+        (
+            "the empty Bundle without the label",
+            serde_json::to_vec(&unlabelled)?,
+            "sin.json",
+            JSON,
+        ),
+    ] {
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, filename, mime).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        sensitive.push((name, document_is_sensitive(&mut tx, doc).await?));
+    }
+    assert_eq!(
+        sensitive,
+        [
+            ("an empty Bundle", true),
+            ("entries with no resource", true),
+            ("an empty Bundle line in NDJSON", true),
+            ("the empty Bundle without the label", false),
+        ]
+    );
+    Ok(())
+}

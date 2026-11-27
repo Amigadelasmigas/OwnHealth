@@ -88,6 +88,16 @@ async fn setup(env: &Env) -> anyhow::Result<Ids> {
     run(&mut c, ids.alex_email, false).await?;
     run(&mut c, ids.alex_email, false).await?;
     run(&mut c, ids.carmen_nightscout, true).await?;
+    // Alex, Carmen's caregiver, also reads her wearables, so her Nightscout shows to him (a reader
+    // without them: a_source_shows_only_to_a_reader_of_its_data)
+    sqlx::query(
+        "update profile_grant set categories = array_append(categories, 'read:wearables') \
+         where user_id = $1 and profile_id = $2",
+    )
+    .bind(env.user("alex"))
+    .bind(env.profile("carmen"))
+    .execute(&mut *c)
+    .await?;
     Ok(ids)
 }
 
@@ -151,12 +161,13 @@ async fn each_person_sees_the_sources_of_the_profiles_they_can_open() -> R {
         );
     }
 
-    // sam has no grant on carmen
+    // sam has no grant on carmen, and his viewer grant on alex (read:summary) shows no mailbox
     let mut sam = env.as_user(env.user("sam")).await?;
     let r = sam.get("/api/inboxes/health").await?;
     let got = ids_of(&r.json);
-    assert_eq!(got.len(), 3, "{got:?}");
+    assert_eq!(got.len(), 2, "{got:?}");
     assert!(!got.contains(&ids.carmen_nightscout.to_string()));
+    assert!(!got.contains(&ids.alex_email.to_string()));
     assert!(!got.contains(&ids.other_household.to_string()));
     let r = sam
         .get(&format!("/api/inboxes/{}/health", ids.carmen_nightscout))
@@ -178,6 +189,239 @@ async fn each_person_sees_the_sources_of_the_profiles_they_can_open() -> R {
 
     let r = env.anon().get("/api/inboxes/health").await?;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
+/// Sam's categories on Alex's profile (sam is a viewer there).
+async fn sam_on_alex(env: &Env, categories: &[&str]) -> R {
+    sqlx::query("update profile_grant set categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(env.user("sam"))
+        .bind(env.profile("alex"))
+        .bind(categories.iter().map(|c| c.to_string()).collect::<Vec<_>>())
+        .execute(env.pool())
+        .await?;
+    Ok(())
+}
+
+/// The two sources `user` is shown, by kind: in the list, and the single row answering 200 for the same.
+async fn shown(env: &Env, user: &str, dexcom: Uuid, mail: Uuid) -> anyhow::Result<Vec<&'static str>> {
+    let mut c = env.as_user(env.user(user)).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let listed = ids_of(&r.json);
+    let mut out = Vec::new();
+    for (id, name) in [(dexcom, "dexcom"), (mail, "email")] {
+        let one = c.get(&format!("/api/inboxes/{id}/health")).await?;
+        let in_list = listed.contains(&id.to_string());
+        assert_eq!(
+            in_list,
+            one.status == StatusCode::OK,
+            "{name}: the list and the single row disagree ({:?})",
+            one.status
+        );
+        if in_list {
+            out.push(name);
+        }
+    }
+    Ok(out)
+}
+
+/// A source's kind and label say what the profile holds: a Dexcom source means a glucose sensor. So a
+/// source shows only to a reader who may read the data it brings in: a device's readings need
+/// read:wearables, the documents a mailbox files need a scope the document list reads with. The owner
+/// sees both, a member with the grant sees that source, a member without it sees neither the row nor
+/// the single source.
+#[tokio::test]
+async fn a_source_shows_only_to_a_reader_of_its_data() -> R {
+    let env = Env::new(true).await?;
+    let (dexcom, mail) = {
+        let mut c = env.pool().acquire().await?;
+        let (h, alex) = (env.fam().household_id, Some(env.profile("alex")));
+        (
+            source(&mut c, h, alex, "dexcom", "Dexcom G7 de Alex", Some(900)).await?,
+            source(&mut c, h, alex, "email", "Correo de Alex", Some(300)).await?,
+        )
+    };
+    assert_eq!(
+        shown(&env, "alex", dexcom, mail).await?,
+        ["dexcom", "email"],
+        "the owner"
+    );
+    // sam is a viewer on alex: read:summary only
+    assert!(
+        shown(&env, "sam", dexcom, mail).await?.is_empty(),
+        "a member without the grant"
+    );
+    sam_on_alex(&env, &["read:summary", "read:wearables"]).await?;
+    assert_eq!(
+        shown(&env, "sam", dexcom, mail).await?,
+        ["dexcom"],
+        "a member with read:wearables"
+    );
+    sam_on_alex(&env, &["read:summary", "read:labs"]).await?;
+    assert_eq!(
+        shown(&env, "sam", dexcom, mail).await?,
+        ["email"],
+        "a member with read:labs"
+    );
+    Ok(())
+}
+
+/// The scopes that read what each source kind brings in, written out here on purpose (not taken from
+/// the route), so a change to the route's table shows as a failure.
+const KIND_SCOPES: [(&str, &[&str]); 14] = [
+    ("email", &["read:labs", "read:records"]),
+    ("folder", &["read:labs", "read:records"]),
+    ("paperless", &["read:labs", "read:records"]),
+    ("share", &["read:labs", "read:records"]),
+    ("shortcut", &["read:labs", "read:records"]),
+    ("health_auto_export", &["read:wearables"]),
+    ("gadgetbridge", &["read:wearables"]),
+    ("nightscout", &["read:wearables"]),
+    ("openwearables", &["read:wearables"]),
+    ("dexcom", &["read:wearables"]),
+    ("smart", &["read:records"]),
+    ("bluebutton", &["read:records"]),
+    ("brands", &["read:records"]),
+    ("clinvar", &["read:genome"]),
+];
+
+/// Every source kind, one scope at a time: a viewer holding only that scope (and read:summary) is
+/// shown a source exactly when the scope reads what the kind brings in. read:summary alone shows
+/// none, and so do the scopes no kind lists. A guardian of a child's profile manages it, so he is
+/// shown every source of it whatever scopes he holds.
+#[tokio::test]
+async fn each_source_kind_shows_to_a_reader_of_its_own_scopes_only() -> R {
+    let mut listed: Vec<&str> = KIND_SCOPES.iter().map(|(kind, _)| *kind).collect();
+    let mut known = sources::SOURCE_KINDS.to_vec();
+    listed.sort_unstable();
+    known.sort_unstable();
+    assert_eq!(listed, known, "a source kind is missing from the table");
+    let env = Env::new(true).await?;
+    let (mut kinds, mut lucia) = (Vec::new(), Vec::new());
+    {
+        let mut c = env.pool().acquire().await?;
+        let h = env.fam().household_id;
+        for (kind, _) in KIND_SCOPES {
+            let id = source(
+                &mut c,
+                h,
+                Some(env.profile("alex")),
+                kind,
+                &format!("{kind} de Alex"),
+                Some(900),
+            )
+            .await?;
+            kinds.push((id, kind));
+            // a household holds one directory source (brands), which Alex's set has
+            if kind != "brands" {
+                let id = source(
+                    &mut c,
+                    h,
+                    Some(env.profile("lucia")),
+                    kind,
+                    &format!("{kind} de Lucía"),
+                    Some(900),
+                )
+                .await?;
+                lucia.push((id, kind));
+            }
+        }
+    }
+    let shown_of = |sources: &[(Uuid, &'static str)], v: &Value| -> Vec<&'static str> {
+        let ids = ids_of(v);
+        sources
+            .iter()
+            .filter(|(id, _)| ids.contains(&id.to_string()))
+            .map(|(_, kind)| *kind)
+            .collect()
+    };
+    for scope in [
+        "read:summary",
+        "read:labs",
+        "read:records",
+        "read:wearables",
+        "read:genome",
+        "read:vitals",
+        "read:sensitive",
+        "read:documents_text",
+    ] {
+        sam_on_alex(&env, &["read:summary", scope]).await?;
+        let mut sam = env.as_user(env.user("sam")).await?;
+        let r = sam.get("/api/inboxes/health").await?;
+        assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+        let expected: Vec<&str> = KIND_SCOPES
+            .iter()
+            .filter(|(_, scopes)| scopes.contains(&scope))
+            .map(|(kind, _)| *kind)
+            .collect();
+        assert_eq!(shown_of(&kinds, &r.json), expected, "a viewer with {scope}");
+    }
+    sqlx::query("update profile_grant set role = 'guardian', categories = $3 where user_id = $1 and profile_id = $2")
+        .bind(env.user("sam"))
+        .bind(env.profile("lucia"))
+        .bind(vec!["read:summary".to_string()])
+        .execute(env.pool())
+        .await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let r = sam.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let every: Vec<&str> = lucia.iter().map(|(_, kind)| *kind).collect();
+    assert_eq!(every.len(), KIND_SCOPES.len() - 1);
+    assert_eq!(
+        shown_of(&lucia, &r.json),
+        every,
+        "a guardian of Lucía with read:summary only"
+    );
+    Ok(())
+}
+
+/// C-M2: the registry (`GET /api/inboxes`) carries a source's settings: the mailbox host and user, the
+/// token prefix, the last error, the held-mail count. It lists only the sources the person manages, as
+/// `GET /api/inboxes/{id}` answers only for them. A reader of the data sees the source on the health
+/// route, which sends none of that.
+#[tokio::test]
+async fn the_registry_lists_only_the_sources_the_person_manages() -> R {
+    let env = Env::new(true).await?;
+    let mail = {
+        let mut c = env.pool().acquire().await?;
+        let id = source(
+            &mut c,
+            env.fam().household_id,
+            Some(env.profile("alex")),
+            "email",
+            "Correo de Alex",
+            Some(300),
+        )
+        .await?;
+        sqlx::query("update source set config = $2 where id = $1")
+            .bind(id)
+            .bind(serde_json::json!({"host": "imap.correo.example", "port": 993, "username": "alex.rivera@correo.example"}))
+            .execute(&mut *c)
+            .await?;
+        id
+    };
+    let listed = |v: &Value| ids_of(v).contains(&mail.to_string());
+    let mut alex = env.as_user(env.user("alex")).await?;
+    let r = alex.get("/api/inboxes").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert!(listed(&r.json), "the owner: {:?}", r.json);
+    assert_eq!(row(&r.json, mail)["config"]["host"], "imap.correo.example");
+
+    // sam reads alex's documents but does not manage the profile
+    sam_on_alex(&env, &["read:summary", "read:labs"]).await?;
+    let mut sam = env.as_user(env.user("sam")).await?;
+    let health = sam.get("/api/inboxes/health").await?;
+    assert!(listed(&health.json), "{:?}", health.json);
+    assert!(row(&health.json, mail).get("config").is_none(), "{:?}", health.json);
+    let r = sam.get("/api/inboxes").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert!(!listed(&r.json), "a reader who does not manage: {:?}", r.json);
+    let body = String::from_utf8_lossy(&r.bytes);
+    assert!(
+        !body.contains("imap.correo.example"),
+        "the mailbox host reached a reader: {body}"
+    );
     Ok(())
 }
 
@@ -399,6 +643,109 @@ async fn a_run_where_every_item_failed_is_not_a_successful_sync() -> R {
             "ownhealth_source_last_run_ok{{source=\"{id}\",kind=\"email\"}} 0"
         )),
         "{text}"
+    );
+    Ok(())
+}
+
+/// The `read` rows `tool` wrote for `actor` (None: no actor), as (profile, source ids), sorted.
+async fn health_reads(env: &Env, tool: &str, actor: Option<Uuid>) -> anyhow::Result<Vec<(Option<Uuid>, Vec<String>)>> {
+    let mut rows: Vec<(Option<Uuid>, Vec<String>)> = sqlx::query_as(
+        "select profile_id, resource_ids from audit_event where action = 'read' and tool = $1 \
+         and actor_id is not distinct from $2",
+    )
+    .bind(tool)
+    .bind(actor)
+    .fetch_all(env.pool())
+    .await?;
+    rows.sort();
+    Ok(rows)
+}
+
+/// L-AUDITRULE (a): the health list tells a person which sources a profile has, and a source's kind
+/// names a device, so a response that shows a source writes one read row per profile it shows (and one
+/// with no profile for the household's own sources). The single row writes one for its profile. A
+/// source's own token, the Prometheus scrape path, writes none.
+#[tokio::test]
+async fn a_health_read_that_shows_a_source_writes_one_read_row_per_profile() -> R {
+    let env = Env::new(true).await?;
+    let ids = setup(&env).await?;
+    let alex = env.user("alex");
+    let mut c = env.as_user(alex).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    let mut expected = vec![
+        (None, vec![ids.folder.to_string()]),
+        (Some(env.profile("alex")), vec![ids.alex_email.to_string()]),
+        (Some(env.profile("carmen")), vec![ids.carmen_nightscout.to_string()]),
+        (Some(env.profile("lucia")), vec![ids.lucia_hae.to_string()]),
+    ];
+    expected.sort();
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?,
+        expected
+    );
+    let r = c.get(&format!("/api/inboxes/{}/health", ids.alex_email)).await?;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json);
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/{id}/health", Some(alex)).await?,
+        [(Some(env.profile("alex")), vec![ids.alex_email.to_string()])]
+    );
+    // a source's own token reads its own health and writes nothing
+    let mut conn = env.pool().acquire().await?;
+    let token = sources::issue_token(&mut conn, ids.alex_email).await?;
+    let before: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(env.pool())
+        .await?;
+    let mut monitor = env.anon();
+    for path in [
+        "/api/inboxes/health?format=prometheus".to_string(),
+        format!("/api/inboxes/{}/health?format=prometheus", ids.alex_email),
+    ] {
+        let r = monitor
+            .send(
+                Method::GET,
+                &path,
+                None,
+                &[("authorization", &format!("Bearer {token}"))],
+            )
+            .await?;
+        assert_eq!(r.status, StatusCode::OK, "{path}");
+    }
+    let after: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(env.pool())
+        .await?;
+    assert_eq!(after, before, "the scrape path writes no row");
+    Ok(())
+}
+
+/// F-HEALTHTX: the health list and its read rows commit together. When the row of the last profile it
+/// shows cannot be written, the request fails and leaves none of the rows of the other profiles.
+#[tokio::test]
+async fn a_health_read_whose_audit_fails_leaves_no_read_row() -> R {
+    let env = Env::new(true).await?;
+    setup(&env).await?;
+    let alex = env.user("alex");
+    let last = ["alex", "carmen", "lucia"]
+        .into_iter()
+        .map(|p| env.profile(p))
+        .max()
+        .ok_or_else(|| anyhow::anyhow!("no profile"))?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "create function reject_health_read() returns trigger language plpgsql as
+         $$ begin raise exception 'cannot audit this read'; end $$;
+         create trigger reject_health_read before insert on audit_event
+         for each row when (new.tool = 'GET /api/inboxes/health' and new.profile_id = '{last}')
+         execute function reject_health_read();"
+    )))
+    .execute(env.pool())
+    .await?;
+    let mut c = env.as_user(alex).await?;
+    let r = c.get("/api/inboxes/health").await?;
+    assert_eq!(r.status, StatusCode::INTERNAL_SERVER_ERROR, "{:?}", r.json);
+    assert_eq!(
+        health_reads(&env, "GET /api/inboxes/health", Some(alex)).await?,
+        Vec::<(Option<Uuid>, Vec<String>)>::new(),
+        "no row of another profile stays"
     );
     Ok(())
 }

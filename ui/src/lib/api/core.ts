@@ -87,7 +87,7 @@ export const getSource = (srcId: string, includeText = false) =>
 	get<SourceDetail>(`/sources/${encodeURIComponent(srcId)}`, { include_text: includeText || undefined });
 
 export const listReview = (q: { status?: string; profile?: string; kind?: string; document_id?: Uuid } = {}) =>
-	get<{ items: ReviewItem[]; open: number; withheld?: number }>('/review', q);
+	get<{ items: ReviewItem[]; open: number }>('/review', q);
 export const getReviewItem = (id: Uuid) => get<ReviewItem>(`/review/${id}`);
 export const acceptReview = (id: Uuid, edits?: Record<string, unknown>) =>
 	post<{ id: Uuid; status: 'accepted'; result_ids: Uuid[] }>(`/review/${id}/accept`, { edits: edits ?? null });

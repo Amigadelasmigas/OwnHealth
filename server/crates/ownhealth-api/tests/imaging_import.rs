@@ -557,7 +557,7 @@ async fn hidden_imaging_items_do_not_count_as_withheld() -> R {
     narrow(&a, "alex", "carmen", &["read:summary", "read:labs"]).await?;
     let (status, body) = a.get("alex", "/review?profile=carmen&kind=imaging_study").await?;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({"items": [], "open": 0, "withheld": 0}));
+    assert_eq!(body, json!({"items": [], "open": 0}));
     Ok(())
 }
 
@@ -787,7 +787,9 @@ async fn a_failed_dicom_import_in_review_shows_only_to_those_who_may_read_record
         &a,
         "carmen",
         "job_failed",
-        Some(json!({"job_id": 2, "kind": "import.pdf", "attempts": 5, "error": "Synthetic"})),
+        // a job that names no upload shows to anyone who reviews there; a PDF import with no
+        // document shows to nobody (review_shown::job_reader)
+        Some(json!({"job_id": 2, "kind": "normalize.rederive", "attempts": 5, "error": "Synthetic"})),
         json!({}),
     )
     .await?;

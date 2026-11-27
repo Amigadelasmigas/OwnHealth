@@ -12,7 +12,8 @@
 //!
 //! An item on a profile the caller cannot review, whose held values the caller's scopes would not
 //! show, or whose document the caller could not open (a pull's grouped item), answers 404 like an
-//! unknown id. So does a sync-gap alert on a profile the caller does not manage.
+//! unknown id. So does a sync-gap alert on a profile the caller does not manage. A `document_id`
+//! filter on a document the caller cannot read lists nothing, as one on an unknown document does.
 
 use std::collections::HashMap;
 
@@ -21,11 +22,14 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use ownhealth_auth::household::can_manage;
 use ownhealth_core::access::{Permission, Principal, accessible_profiles, effective_permission};
 use ownhealth_core::audit::{AuditEvent, write_audit};
 use ownhealth_core::review::{self, ItemQuery, ReviewItem};
 use ownhealth_core::{Error, Runtime};
+use ownhealth_mcp::review_shown::{
+    SOURCE_GAP, Scan, gap_review_profiles, imaging_review_profiles, opens_document, shows_household_items, visible,
+};
+pub(super) use ownhealth_mcp::review_shown::{count_shown, count_shown_on_profile, shown_per_document};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -80,14 +84,6 @@ fn item_out(item: &ReviewItem) -> R<Value> {
     Ok(Value::Object(out))
 }
 
-fn obs_scope(category: Option<&str>) -> &'static str {
-    match category {
-        Some("vital-signs" | "survey" | "exam") => "read:vitals",
-        Some("activity") => "read:wearables",
-        _ => "read:labs",
-    }
-}
-
 /// Python truthiness of a JSON value.
 fn truthy(v: Option<&Value>) -> bool {
     match v {
@@ -100,125 +96,53 @@ fn truthy(v: Option<&Value>) -> bool {
     }
 }
 
-const SOURCE_GAP: &str = "source_gap";
-
-/// A held payload carries the values it would write: show it only to someone whose scopes would
-/// show the committed fact (its category scope, and read:sensitive for a sensitive one). A held
-/// imaging study names the patient and the study, which the timeline and the viewer show only with
-/// read:records, and a proposed relative is family history, which needs read:records too. A sync-gap
-/// alert names the device's vendor, and a dismissal closes it for the whole household, so it shows
-/// only to who manages the profile and its connections, as the Connections screen does.
-fn visible(item: &ReviewItem, perm: &Permission) -> bool {
-    if item.kind == SOURCE_GAP && !can_manage(perm) {
-        return false;
-    }
-    if item.kind == ownhealth_imaging::import::REVIEW_KIND && !perm.has("read:records") {
-        return false;
-    }
-    // a failed DICOM import's error can name the upload and its studies, as its job details do
-    if item.kind == "job_failed"
-        && item.payload.get("kind").and_then(Value::as_str) == Some(ownhealth_imaging::import::JOB)
-        && !perm.has("read:records")
-    {
-        return false;
-    }
-    // a relative from a family tree file: the family list shows relatives only with read:records
-    if item.kind == ownhealth_core::gedcom::KIND && !perm.has("read:records") {
-        return false;
-    }
-    let empty = Map::new();
-    let p = item.payload.as_object().unwrap_or(&empty);
-    let mut observations: Vec<&Map<String, Value>> = Vec::new();
-    if let Some(Value::Object(o)) = p.get("observation") {
-        observations.push(o);
-    }
-    if let Some(Value::Array(rows)) = p.get("rows") {
-        observations.extend(
-            rows.iter()
-                .filter_map(|r| r.get("observation"))
-                .filter_map(Value::as_object),
-        );
-    }
-    let record = p.get("record").and_then(Value::as_object);
-    if let Some(record) = record
-        && (!perm.has("read:records")
-            || (truthy(record.get("sensitivity")) && !perm.may_read_sensitive("read:records")))
-    {
-        return false;
-    }
-    observations.iter().all(|o| {
-        let category = o.get("category").and_then(Value::as_str).filter(|c| !c.is_empty());
-        let scope = obs_scope(category);
-        perm.has(scope) && (!truthy(o.get("sensitivity")) || perm.may_read_sensitive(scope))
-    })
-}
-
-/// A pull's grouped item carries no values: it points at the bundle that holds them. It shows to
-/// whoever can open that bundle, so its link never answers 403.
-async fn opens_document(conn: &mut PgConnection, item: &ReviewItem, perm: &Permission) -> Result<bool, ApiError> {
-    match (item.kind.as_str(), item.document_id) {
-        ("fhir_unmapped_summary", Some(doc)) => Ok(crate::routes::documents::file_opens(conn, perm, doc).await?),
-        _ => Ok(true),
-    }
-}
-
-/// `review_open` on the dashboard: what the list for this one profile shows the caller, the household's
-/// own items included. A reader who cannot review there is shown none.
-pub(super) async fn count_shown_on_profile(conn: &mut PgConnection, perm: &Permission) -> Result<i64, ApiError> {
-    if !perm.can("review") {
-        return Ok(0);
-    }
-    count_shown(conn, perm.profile.household_id, &[perm]).await
-}
-
-/// The items of the household itself show only to who can review on some profile.
-fn shows_household_items<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> bool {
-    perms.into_iter().any(|p| p.can("review"))
-}
-
-/// How many open items the list shows the caller, ordinary and emergency alike: the list's `open` and
-/// `review_open` on `/api/me`. `perms` are the caller's permissions on the profiles to count.
-pub(super) async fn count_shown(
+/// The caller's permission on the profile document `doc` is on now and the scope it needs, when the
+/// caller may read it there; None for an unknown document, one with no profile, or one the caller
+/// cannot read. The rule `GET /api/jobs` applies to a document's job.
+async fn document_reader<'p>(
     conn: &mut PgConnection,
-    household: Uuid,
-    perms: &[&Permission],
-) -> Result<i64, ApiError> {
-    let household_items = shows_household_items(perms.iter().copied());
-    let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, *p)).collect();
-    // the list's own query: a held study or a sync alert counts only where the list shows it
-    let imaging_profiles = imaging_review_profiles(perms.iter().copied());
-    let gap_profiles = gap_review_profiles(perms.iter().copied());
-    let items = review::list_items_with_kind_profiles(
-        &mut *conn,
-        &ItemQuery {
-            household_id: Some(household),
-            profile_ids: Some(by_profile.keys().copied().collect()),
-            status: Some("open".into()),
-            limit: i64::MAX,
-            ..ItemQuery::default()
+    perms: &'p [Permission],
+    doc: Uuid,
+) -> R<Option<(&'p Permission, &'static str)>> {
+    Ok(
+        match ownhealth_core::documents::document_profile_scope(conn, doc).await? {
+            Some((Some(profile), scope)) => perms
+                .iter()
+                .find(|p| p.profile.id == profile && p.has(scope))
+                .map(|p| (p, scope)),
+            _ => None,
         },
-        &[
-            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
-            (SOURCE_GAP, &gap_profiles),
-        ],
     )
-    .await?;
-    let mut shown = 0;
-    for i in &items {
-        let show = match i.profile_id.map(|pid| by_profile.get(&pid)) {
-            None => household_items,
-            Some(Some(p)) => {
-                let show = visible(i, p) && opens_document(&mut *conn, i, p).await?;
-                if show && i.kind == ownhealth_imaging::import::REVIEW_KIND {
-                    p.record_read(&["read:records"]);
-                }
-                show
-            }
-            Some(None) => false,
-        };
-        shown += i64::from(show);
+}
+
+/// A household item (no profile) or a failed job can name a document the caller cannot read: one of
+/// another profile, one that moved, or one whose scope the caller lacks (a lab report without
+/// read:labs). Its `document_id`, and what its job wrote about that document (the error, the document
+/// id the job was given), go out only to a caller who may read the document on the profile it is on
+/// now, as `GET /api/jobs` decides for the job itself.
+async fn hide_unread_document(
+    conn: &mut PgConnection,
+    perms: &[Permission],
+    item: &ReviewItem,
+    out: &mut Value,
+) -> R<()> {
+    let Some(doc) = item.document_id else {
+        return Ok(());
+    };
+    if item.profile_id.is_some() && item.kind != "job_failed" {
+        return Ok(());
     }
-    Ok(shown)
+    match document_reader(conn, perms, doc).await? {
+        Some((perm, scope)) => perm.record_read(&[scope]),
+        None => {
+            out["document_id"] = Value::Null;
+            if let Some(payload) = out.get_mut("payload").and_then(Value::as_object_mut) {
+                payload.shift_remove("error");
+                payload.shift_remove("payload_document_id");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn no_item() -> Fail {
@@ -313,23 +237,6 @@ async fn audit(conn: &mut PgConnection, principal: &Principal, item: &ReviewItem
     Ok(())
 }
 
-fn imaging_review_profiles<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> Vec<Uuid> {
-    perms
-        .into_iter()
-        .filter(|p| p.can("review") && p.has("read:records"))
-        .map(|p| p.profile.id)
-        .collect()
-}
-
-/// The profiles whose sync alerts the caller sees: the ones it manages (`visible`).
-fn gap_review_profiles<'a>(perms: impl IntoIterator<Item = &'a Permission>) -> Vec<Uuid> {
-    perms
-        .into_iter()
-        .filter(|p| p.can("review") && can_manage(p))
-        .map(|p| p.profile.id)
-        .collect()
-}
-
 async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let principal = &caller.0;
     let mut e = Errors::new();
@@ -350,41 +257,61 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .collect();
     let imaging_profiles = imaging_review_profiles(&perms);
     let gap_profiles = gap_review_profiles(&perms);
-    let items = review::list_items_with_kind_profiles(
-        &mut tx,
-        &ItemQuery {
+    let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
+    let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
+    // a filter on a document the caller cannot read finds what one on a missing document finds:
+    // nothing, so the answer does not tell whether an item names it
+    let filter_readable = match document_id {
+        Some(d) => document_reader(&mut tx, &perms, d).await?.is_some(),
+        None => true,
+    };
+    // A page holds only items the caller sees: the query is read in batches, `offset` skips visible
+    // items only, and reading stops once the page is full or the query has no more rows.
+    let mut shown: Vec<ReviewItem> = Vec::new();
+    let mut skipped = 0;
+    let kinds = [
+        (ownhealth_imaging::import::REVIEW_KIND, imaging_profiles.as_slice()),
+        (SOURCE_GAP, gap_profiles.as_slice()),
+    ];
+    let mut scan = Scan::new(
+        ItemQuery {
             household_id: principal.household_id,
             profile_ids: Some(pids.clone()),
             status: Some(status.to_string()).filter(|s| !s.is_empty()),
             kind: kind.map(str::to_string),
             document_id,
-            limit,
-            offset,
+            ..ItemQuery::default()
         },
-        &[
-            (ownhealth_imaging::import::REVIEW_KIND, &imaging_profiles),
-            (SOURCE_GAP, &gap_profiles),
-        ],
-    )
-    .await?;
-    let by_profile: HashMap<Uuid, &Permission> = perms.iter().map(|p| (p.profile.id, p)).collect();
-    let counted: Vec<&Permission> = pids.iter().filter_map(|pid| by_profile.get(pid).copied()).collect();
-    let mut shown: Vec<&ReviewItem> = Vec::new();
-    for i in &items {
-        let show = match i.profile_id {
-            None => shows_household_items(counted.iter().copied()),
-            Some(pid) => match by_profile.get(&pid) {
-                Some(p) if visible(i, p) && opens_document(&mut tx, i, p).await? => {
-                    if !visible(i, &p.own_only()) {
-                        p.read_scopes();
-                    }
-                    true
-                }
-                Some(_) => false,
-                None => false,
-            },
-        };
-        if show {
+        &kinds,
+    );
+    while filter_readable && (shown.len() as i64) < limit {
+        let batch = scan.next(&mut tx).await?;
+        if batch.is_empty() {
+            break;
+        }
+        for i in batch {
+            if (shown.len() as i64) >= limit {
+                break;
+            }
+            let show = match i.profile_id {
+                None => shows_household_items(counted.iter().copied()),
+                Some(pid) => match by_profile.get(&pid) {
+                    Some(p) => visible(&i, p) && opens_document(&mut tx, &i, p).await?,
+                    None => false,
+                },
+            };
+            if !show {
+                continue;
+            }
+            if skipped < offset {
+                skipped += 1;
+                continue;
+            }
+            if let Some(p) = i.profile_id.and_then(|pid| by_profile.get(&pid))
+                && !visible(&i, &p.own_only())
+            {
+                p.read_scopes();
+            }
             shown.push(i);
         }
     }
@@ -397,16 +324,19 @@ async fn list(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
     audit.resource_ids = Some(shown.iter().map(|item| item.id.to_string()).collect());
     audit.rows_out = i32::try_from(shown.len()).ok();
     write_audit(&mut tx, &audit).await?;
-    tx.commit().await?;
     // `-> dict`: pydantic's JSON mode writes the datetimes with `Z` (GET /review/{id} did not)
-    let mut out = shown.iter().map(|i| item_out(i)).collect::<R<Vec<_>>>()?;
-    for i in &mut out {
-        pydantic_datetimes(i, &["decided_at", "created_at"]);
+    let mut out = Vec::with_capacity(shown.len());
+    for i in &shown {
+        let mut v = item_out(i)?;
+        pydantic_datetimes(&mut v, &["decided_at", "created_at"]);
+        hide_unread_document(&mut tx, &perms, i, &mut v).await?;
+        out.push(v);
     }
+    tx.commit().await?;
+    // no count of the items left out: it would tell the caller that hidden items exist
     Ok(Json(json!({
         "items": out,
         "open": open,
-        "withheld": items.len() - shown.len(),
     })))
 }
 
@@ -416,8 +346,13 @@ async fn get_one(State(rt): State<Runtime>, caller: Caller, Path(item_id): Path<
     let found = review::get_item(&mut tx, item_id).await?;
     let item = check(&mut tx, &caller.0, found, false).await?;
     audit(&mut tx, &caller.0, &item, "read").await?;
+    let mut out = item_out(&item)?;
+    if item.document_id.is_some() {
+        let perms = accessible_profiles(&mut tx, &caller.0).await?;
+        hide_unread_document(&mut tx, &perms, &item, &mut out).await?;
+    }
     tx.commit().await?;
-    Ok(Json(item_out(&item)?))
+    Ok(Json(out))
 }
 
 async fn accept(

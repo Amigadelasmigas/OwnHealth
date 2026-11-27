@@ -19,6 +19,10 @@ pub mod wearables;
 
 use ownhealth_core::jobs::register_handler;
 
+/// The import jobs whose result is the import summary their document keeps as `flags.import` (a
+/// C-CDA import's also names its sections) and whose filename names that document.
+pub const DOCUMENT_IMPORT_JOBS: [&str; 3] = [ccda::JOB, "import.fhir_bundle", "import.apple_health"];
+
 /// Register lane C's job handlers (`import.fhir_bundle`, `import.apple_health`, `import.ccda`), accept handler
 /// (`fhir_unmapped`), the SMART poller (source kind `smart`), demo hook (`apple_fhir`, order 300) and the US
 /// endpoint directory poller (`brands`, no default-sources hook).

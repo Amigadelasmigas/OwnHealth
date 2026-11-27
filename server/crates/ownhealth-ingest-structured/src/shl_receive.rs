@@ -1021,9 +1021,12 @@ async fn store_fhir(
             identity.unwrap_or_else(|| "missing".into()),
         ));
     }
-    let (bundle_id, entries) = fhir::read_entries(plaintext, false)?;
-    let key = bundle_id.unwrap_or_else(|| format!("shl-{}", &hex::encode(Sha256::digest(plaintext))[..16]));
-    let (summary, who) = fhir::import_resources(&mut *conn, &entries, profile, doc.id, &key, None, label).await?;
+    let file = fhir::read(plaintext, false)?;
+    let key = file
+        .bundle_id
+        .clone()
+        .unwrap_or_else(|| format!("shl-{}", &hex::encode(Sha256::digest(plaintext))[..16]));
+    let (summary, who) = fhir::import_read(&mut *conn, &file, profile, doc.id, &key, label).await?;
     fhir::mark_imported(&mut *conn, doc.id, &summary, Some(&who)).await?;
     Ok((doc.id, doc.created, summary, who))
 }

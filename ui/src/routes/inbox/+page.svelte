@@ -28,13 +28,18 @@
 	import SourceForm from '#lib/components/inbox/SourceForm.svelte';
 	import { t } from '#lib/i18n/index.svelte';
 	import { PUSH_KINDS, RECIPE, RECIPES_URL, copyText, heldTotal, quarantineReason } from '#lib/logic/inbox';
+	import { mayManageConnections } from '#lib/logic/connections';
 	import { app, currentProfile } from '#lib/state/app.svelte';
 
 	const sources = new Loader<InboxSource[]>();
 	const held = new Loader<QuarantineOut[]>();
+	// Sources and held mail belong to who manages a profile here (an owner, or the guardian of a child's
+	// profile): anyone else manages none, and the quarantine would answer 403.
+	const manager = $derived(mayManageConnections(app.me?.profiles));
 	const load = () => {
+		if (!app.me) return;
 		sources.run(async () => (await listInboxes()).items);
-		held.run(async () => (await listQuarantine('held')).items);
+		if (manager) held.run(async () => (await listQuarantine('held')).items);
 	};
 	$effect(load);
 
@@ -147,7 +152,7 @@
 	{#snippet right()}
 		<PhaseChip phase="v0.2" />
 		<a class="btn" href="/import-review">{t('nav_imp')}</a>
-		<button class="btn pri" onclick={() => (form = form === 'new' ? null : 'new')} aria-expanded={form === 'new'}>{t('fu_add')}</button>
+		{#if manager}<button class="btn pri" onclick={() => (form = form === 'new' ? null : 'new')} aria-expanded={form === 'new'}>{t('fu_add')}</button>{/if}
 	{/snippet}
 </PageHeader>
 
@@ -199,6 +204,8 @@ Authorization: Bearer {fresh.token.slice(0, 12)}…</pre>
 	<NotReady error={sources.error} onretry={load} />
 {:else if sources.loading && !sources.data}
 	<div class="empty">{t('loading')}</div>
+{:else if !sources.data?.length && !manager}
+	<div class="card"><div class="empty">{t('fu_none_unmanaged')}</div></div>
 {:else if !sources.data?.length}
 	<div class="card"><div class="empty">{t('fu_none')} <button class="btn sm pri" onclick={() => (form = 'new')}>{t('fu_add')}</button></div></div>
 {:else}
@@ -236,6 +243,7 @@ Authorization: Bearer {fresh.token.slice(0, 12)}…</pre>
 	</div>
 {/if}
 
+{#if manager}
 <section class="card q" aria-labelledby="q-h">
 	<h3 id="q-h">{t('fu_quarantine')}<span class="r">{t('fu_q_r')}</span></h3>
 	{#if notice}
@@ -314,6 +322,7 @@ Authorization: Bearer {fresh.token.slice(0, 12)}…</pre>
 		{t('fu_q_note')}
 	</div>
 </section>
+{/if}
 
 <style>
 	.inbox .k {

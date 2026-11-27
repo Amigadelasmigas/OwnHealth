@@ -764,6 +764,11 @@ async fn poll(ctx: &JobContext, base: &Url, source: Uuid) -> Result<RunOutcome> 
                 unreadable: 0,
             };
             let read = pull.bundle(&mut out).await;
+            // Only a day past the mark counts. A trade-off we keep: the mark sits at the last poll, so an
+            // unreadable row that arrives more than one poll late, on a day the vendor already stored,
+            // reads as a re-read and never counts. A vendor that syncs in batches and whose rows stop
+            // reading may so never start this clock. Telling a late row from a re-read would need a
+            // content key for the unreadable rows already seen.
             if stored_until.is_none_or(|until| to > until) {
                 unreadable_new += pull.unreadable;
             }

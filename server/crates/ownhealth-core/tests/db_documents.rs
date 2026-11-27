@@ -505,6 +505,18 @@ async fn a_moved_document_keeps_its_legacy_inbox_file(link: LegacyLink) -> R {
         .await?;
     ownhealth_core::documents::rekey_document(&mut tx, &blobs, document, from, Some(sam)).await?;
     tx.commit().await?;
+    // the removal the move queues lists the raw file too, so its copy under the old owner goes once no
+    // row of that owner names it
+    let listed: Vec<serde_json::Value> = sqlx::query_scalar("select payload -> 'blobs' from job where kind = $1")
+        .bind(ownhealth_core::documents::DROP_MOVED_JOB)
+        .fetch_all(&mut *c)
+        .await?;
+    assert!(
+        listed
+            .iter()
+            .any(|blobs| blobs.as_array().is_some_and(|b| b.contains(&json!(raw)))),
+        "the drop job does not list the moved inbox raw file: {listed:?}"
+    );
 
     // a duplicate arrival of the same bytes for the profile the item resolved to before the move
     assert_eq!(blobs.put_bytes(BlobOwner::Profile(alex), bytes)?, raw);

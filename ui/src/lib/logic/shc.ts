@@ -78,6 +78,25 @@ export function identityWarning(identity: string, cards: ShcSubject[], profile: 
 export type ShcEntry = { type: string | null; date: string | null; text: string | null };
 export type ShcDocCard = { iss: string; host: string; kid: string; issued: string; expires: string | null; entries: ShcEntry[] };
 
+/**
+ * How many rows of a card document wait in review for this reader: the note under the cards shows when
+ * any do. It reads only `open_review`, which counts what the review list shows this reader; `flags`
+ * is in the type so a whole document can be passed, and is not read (`flags.import` is not sent to a
+ * reader without read:sensitive, and its count takes in rows they may not see).
+ */
+export function shcWaiting(doc: { open_review?: number; flags?: Record<string, unknown> } | null | undefined): number {
+	return doc?.open_review ?? 0;
+}
+
+/**
+ * True when the document is a card whose rows (and photo) the server withholds from this reader: it
+ * sends `flags.shc_withheld` in place of `flags.shc` when the card holds sensitive facts and the
+ * reader may not read them. The page then says so and never requests the file, which would answer 403.
+ */
+export function shcWithheld(flags: unknown): boolean {
+	return (flags as { shc_withheld?: unknown } | null)?.shc_withheld === true;
+}
+
 /** The cards a document holds (its `flags.shc`), or null for a document that is not a card. */
 export function shcCards(flags: unknown): ShcDocCard[] | null {
 	const list = (flags as { shc?: unknown } | null)?.shc;

@@ -757,6 +757,10 @@ pub struct ItemQuery {
     pub document_id: Option<Uuid>,
     pub limit: i64,
     pub offset: i64,
+    /// Only rows after this one in the list's order (`created_at`, `id`): a scan that reads the queue
+    /// a batch at a time seeks past the last row it read, so a row closed in between moves no open row
+    /// out of reach, as a raw offset would.
+    pub after: Option<(DateTime<Utc>, Uuid)>,
 }
 
 impl Default for ItemQuery {
@@ -769,6 +773,7 @@ impl Default for ItemQuery {
             document_id: None,
             limit: 100,
             offset: 0,
+            after: None,
         }
     }
 }
@@ -795,6 +800,7 @@ pub async fn list_items_with_kind_profiles(
          and ($5::uuid is null or document_id = $5) \
          and (kind <> all($8::text[]) or exists (select 1 from unnest($9::text[], $10::uuid[]) as a(kind, profile_id) \
            where a.kind = review_item.kind and a.profile_id = review_item.profile_id)) \
+         and ($11::timestamptz is null or (created_at, id) > ($11, $12)) \
          order by created_at, id limit $6 offset $7",
     )
     .bind(q.household_id)
@@ -807,6 +813,8 @@ pub async fn list_items_with_kind_profiles(
     .bind(narrowed)
     .bind(allowed_kinds)
     .bind(allowed_profiles)
+    .bind(q.after.map(|(at, _)| at))
+    .bind(q.after.map(|(_, id)| id))
     .fetch_all(conn)
     .await?)
 }

@@ -36,17 +36,6 @@ const FRESHNESS_SCOPE: [(&str, &str); 5] = [
     ("records", "read:records"),
     ("genome", "read:genome"),
 ];
-/// The review kinds counted in `review_open`, each with the scope that reads what it would become.
-const REVIEW_SCOPE: [(&str, &str); 8] = [
-    ("candidate_row", "read:labs"),
-    ("amended_report", "read:labs"),
-    ("rederive_diff", "read:labs"),
-    ("agent_proposal", "read:summary"),
-    ("document_identity", "read:summary"),
-    ("fhir_unmapped", "read:records"),
-    ("fhir_unmapped_summary", "read:records"),
-    ("genome_reinterpretation", "read:genome"),
-];
 /// Keep a 5-year profile under 2 KB whole without paging: a flag keeps its template text and drops
 /// the structured copies of what the text says; a stale or never-measured gap keeps its structured
 /// fields and drops the text that repeats them.
@@ -146,20 +135,10 @@ pub async fn status_data(call: &mut Call<'_>) -> ToolResult<(Map<String, Value>,
 
     let scopes = call.scopes();
     let mut by_scope: BTreeSet<String> = BTreeSet::new();
-    // open review rows are not facts: a count of what waits for a person, by the kinds this token
-    // could read once accepted
-    let kinds: Vec<&str> = REVIEW_SCOPE
-        .iter()
-        .filter(|(_, scope)| scopes.contains(*scope))
-        .map(|(kind, _)| *kind)
-        .collect();
-    let review_open: i64 = sqlx::query_scalar(
-        "select count(*) from review_item where profile_id = $1 and status = 'open' and kind = any($2)",
-    )
-    .bind(pid)
-    .bind(&kinds)
-    .fetch_one(&mut *call.conn)
-    .await?;
+    // open review rows are not facts: a count of what waits for a person, as the review list shows
+    // this grant (GET /api/review, the same rule)
+    let perm = call.perm()?.clone();
+    let review_open = crate::review_shown::count_shown_on_profile(&mut *call.conn, &perm).await?;
     rendered.insert("review_open".into(), json!(review_open));
     // screenings and vaccines the country's guideline lists (ownhealth.prevention/v1), computed on
     // read; only for a token that may see it, so a viewer pays nothing for it

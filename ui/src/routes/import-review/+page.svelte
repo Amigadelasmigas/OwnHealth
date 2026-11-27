@@ -36,7 +36,7 @@
 	import UploadPanel from '#lib/components/pages2/UploadPanel.svelte';
 	import ShcPanel from '#lib/components/pages2/ShcPanel.svelte';
 	import ShcDocument from '#lib/components/pages2/ShcDocument.svelte';
-	import { shcCards } from '#lib/logic/shc';
+	import { shcCards, shcWaiting, shcWithheld } from '#lib/logic/shc';
 	import { cgmDoc, type CgmLine } from '#lib/logic/cgm_import';
 	import { fitDocLines } from '#lib/logic/fit_import';
 	import { proposalTitle, type FamilyProposal } from '#lib/logic/gedcom';
@@ -149,6 +149,10 @@
 		pageNo = Number(page.url.searchParams.get('page')) || 1;
 		doc.run(() => getDocument(id), id);
 	});
+	function reloadDoc() {
+		const id = docId;
+		if (id) doc.run(() => getDocument(id), id);
+	}
 	const rows = $derived(items.filter((i) => i.kind === 'candidate_row' && i.document_id === docId));
 	const docProposals = $derived(items.filter((i) => isObsProposal(i) && i.document_id === docId).map((i) => ({ item: i, rows: proposalRows(i) ?? [] })));
 	// v0.2: "probably the same as document X" (dedup level 2) is a banner over that document's rows.
@@ -239,6 +243,11 @@
 				await tick();
 				refocus(plan);
 			});
+			// A card document's note counts its rows that wait for this reader (open_review). While the
+			// document's first load is still out it may be a card too, and that answer may predate this
+			// decision: the reload supersedes it (Loader ignores answers older than its newest call).
+			const id = docId;
+			if (id && (shcDoc || doc.data?.id !== id)) reloadDoc();
 		}
 	}
 	// Focus after a decision (Accept, Dismiss, Reject…). The pressed button is disabled while the request
@@ -485,7 +494,7 @@
 				{/if}
 			</div>
 			{#if doc.error}
-				<NotReady error={doc.error} />
+				<NotReady error={doc.error} onretry={reloadDoc} />
 			{:else if doc.data && docFailed}
 				<div class="empty">{t('i2_doc_failed')}</div>
 			{:else if doc.data && docId && doc.data.id === docId && cgm}
@@ -494,10 +503,12 @@
 					{#if cgm.lines}<ul aria-label={t('i2_dt_cgm')}>{#each cgm.lines as l}<li>{cgmText(l)}</li>{/each}</ul>{/if}
 				</div>
 			{:else if doc.data && docId && doc.data.id === docId && shcDoc}
-				<ShcDocument cards={shcDoc} queued={Number((doc.data.flags?.import as { queued?: number } | undefined)?.queued ?? 0)} photo={doc.data.mime.startsWith('image/') ? documentFileUrl(docId) : null} />
+				<ShcDocument cards={shcDoc} queued={shcWaiting(doc.data)} photo={doc.data.mime.startsWith('image/') ? documentFileUrl(docId) : null} />
+			{:else if doc.data && docId && doc.data.id === docId && shcWithheld(doc.data.flags)}
+				<div class="empty">{t('shc_doc_withheld')}</div>
 			{:else if doc.data && pinfo && docId && doc.data.id === docId}
 				<PageView documentId={docId} page={pageNo} width={pinfo.width_pt} height={pinfo.height_pt} {boxes} {selected} {zoom} onpick={pick} />
-			{:else if doc.data && docId && doc.data.mime.startsWith('image/')}
+			{:else if doc.data && docId && doc.data.id === docId && doc.data.mime.startsWith('image/')}
 				<img class="scan" src={documentFileUrl(docId)} alt={tf('i2_scan_alt', { doc: plain(doc.data.filename) })} />
 				<div class="note" style="margin-top:6px">{t('i2_no_pages_image')}</div>
 			{:else if doc.data && docId && doc.data.id === docId && fitDoc}

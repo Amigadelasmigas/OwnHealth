@@ -290,7 +290,7 @@ async fn items_outside_the_callers_reach_are_404() -> anyhow::Result<()> {
     let r = c.get("/api/review/not-a-uuid").await?;
     assert_eq!(r.status, 422);
     let q = m.client.get("/api/review").await?.expect(200)?.json;
-    assert_eq!(q, json!({"items": [], "open": 0, "withheld": 0}));
+    assert_eq!(q, json!({"items": [], "open": 0}));
     Ok(())
 }
 
