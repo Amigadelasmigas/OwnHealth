@@ -1149,10 +1149,10 @@ pub async fn store(
     let mut identity: Option<String> = None;
     for (jws, card) in input.cards.iter().zip(&cards) {
         let bundle = serde_json::to_vec(&card.bundle)?;
-        let (_, entries) = fhir::read_entries(&bundle, false)?;
+        let file = fhir::read(&bundle, false)?;
         let key = format!("shc-{}", &hex::encode(Sha256::digest(jws.as_bytes()))[..16]);
         let label = format!("SMART Health Card · {}", card.host);
-        let (one, who) = fhir::import_resources(&mut *conn, &entries, profile, document_id, &key, None, &label).await?;
+        let (one, who) = fhir::import_read(&mut *conn, &file, profile, document_id, &key, &label).await?;
         summary.accepted += one.accepted;
         summary.queued += one.queued;
         summary.skipped += one.skipped;

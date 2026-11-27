@@ -1081,3 +1081,60 @@ async fn a_sensitive_bundle_label_reaches_every_fact_and_held_resource_in_it() -
     assert_eq!(conditions, [json!(["mental_health"])], "{held:?}");
     Ok(())
 }
+
+/// R7-L1: a sensitive label on a Bundle makes its document sensitive even when the Bundle brings no
+/// resource: no entries, entries that hold no resource, or an empty labelled Bundle line in an NDJSON
+/// file. The same empty Bundle without the label is not sensitive.
+#[tokio::test]
+async fn a_bundle_labelled_sensitive_with_no_resource_is_a_sensitive_document() -> R {
+    use ownhealth_core::documents::document_is_sensitive;
+    let env = Env::new().await?;
+    let mut tx = env.tx().await?;
+    let fam = family(&mut tx).await?;
+    let psy = json!({"security": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "PSY"}]});
+    let empty = json!({"resourceType": "Bundle", "id": "bundle-empty", "type": "collection", "meta": psy,
+                       "entry": []});
+    let hollow = json!({"resourceType": "Bundle", "id": "bundle-hollow", "type": "collection", "meta": psy,
+                        "entry": [{"fullUrl": "urn:uuid:nothing"}, {"resource": "not a resource"}]});
+    let plan = json!({"resourceType": "CarePlan", "id": "plan-ndjson", "status": "active", "intent": "plan",
+                      "title": "Plan de seguimiento", "subject": {"reference": "Patient/alex-rivera"}});
+    let line = json!({"resourceType": "Bundle", "type": "collection", "meta": psy});
+    let ndjson = format!("{plan}\n{line}\n").into_bytes();
+    let unlabelled = json!({"resourceType": "Bundle", "id": "bundle-plain", "type": "collection", "entry": []});
+    let mut sensitive = Vec::new();
+    for (name, data, filename, mime) in [
+        ("an empty Bundle", serde_json::to_vec(&empty)?, "vacio.json", JSON),
+        (
+            "entries with no resource",
+            serde_json::to_vec(&hollow)?,
+            "huecos.json",
+            JSON,
+        ),
+        (
+            "an empty Bundle line in NDJSON",
+            ndjson,
+            "lineas.ndjson",
+            "application/fhir+ndjson",
+        ),
+        (
+            "the empty Bundle without the label",
+            serde_json::to_vec(&unlabelled)?,
+            "sin.json",
+            JSON,
+        ),
+    ] {
+        let doc = store_doc(&mut tx, &env.blobs, &fam, "alex", &data, filename, mime).await?;
+        import_fhir(&mut tx, &env.blobs, doc).await?;
+        sensitive.push((name, document_is_sensitive(&mut tx, doc).await?));
+    }
+    assert_eq!(
+        sensitive,
+        [
+            ("an empty Bundle", true),
+            ("entries with no resource", true),
+            ("an empty Bundle line in NDJSON", true),
+            ("the empty Bundle without the label", false),
+        ]
+    );
+    Ok(())
+}
