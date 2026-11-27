@@ -1415,6 +1415,57 @@ async fn a_restore_records_its_losses_only_once_no_backup_holds_the_anchor_lock(
     Ok(())
 }
 
+/// A restore takes the audit anchor lock before the keyring lock, the order a backup takes them in: a
+/// backup holds the anchor and then waits for the keyring (keyfile::rewrite). So while a backup holds the
+/// anchor, the restore waiting for it holds no keyring lock, and the backup can still take the keyring.
+/// The other order would deadlock the two.
+#[tokio::test]
+async fn a_restore_waiting_for_the_anchor_lock_holds_no_keyring_lock() -> R {
+    use ownhealth_core::keyfile;
+    use sqlx::Connection;
+    use std::time::Duration;
+
+    let l = live().await?;
+    let (db, settings) = fresh(&l).await?;
+    // a backup of the restore's database, holding the anchor lock
+    let mut backup = sqlx::PgConnection::connect(&settings.sqlx_url()).await?;
+    sqlx::query("select pg_catalog.pg_advisory_lock(pg_catalog.hashtext('ownhealth.audit_anchor'))")
+        .execute(&mut backup)
+        .await?;
+    let mut restore = Box::pin(ownhealth_ops::restore_with(&settings, &l.archive, true));
+    let waiting = async {
+        loop {
+            let waits: i64 = sqlx::query_scalar(
+                "select count(*) from pg_locks l join pg_database d on d.oid = l.database \
+                 where l.locktype = 'advisory' and not l.granted and d.datname = current_database()",
+            )
+            .fetch_one(&db.pool)
+            .await?;
+            if waits > 0 {
+                return anyhow::Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore did not wait for the anchor lock: {done:?}"),
+        waited = tokio::time::timeout(Duration::from_secs(120), waiting) => waited??,
+    }
+    // the backup's next step: the keyring lock, which the waiting restore must not hold
+    let ring = tokio::select! {
+        done = &mut restore => anyhow::bail!("the restore ran while a backup held the anchor lock: {done:?}"),
+        ring = tokio::time::timeout(Duration::from_secs(10), keyfile::lock(&settings)) => ring,
+    };
+    let ring = ring
+        .map_err(|_| anyhow::anyhow!("the restore holds the keyring lock while it waits for the anchor lock"))?
+        .map_err(|e| anyhow::anyhow!("{}", e.0))?;
+    drop(ring);
+    backup.close().await?;
+    let report = tokio::time::timeout(Duration::from_secs(120), restore).await??;
+    assert_eq!(report["ok"], true, "{report:#}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn round_eight_a_partial_restore_can_retry_after_blob_placement_is_interrupted() -> R {
     use ownhealth_core::keyfile;

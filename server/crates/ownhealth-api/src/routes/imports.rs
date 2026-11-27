@@ -15,7 +15,9 @@
 //!
 //! A job's `result` counts what its import brought or lists files a failed import left out. The result of a wearables import
 //! ([`WEARABLE_JOBS`]) is shown only to a caller who may read wearables on that profile; anyone else
-//! with a grant there sees the job with `result: null`.
+//! with a grant there sees the job with `result: null`. A document's job (PDF, C-CDA, FHIR, Apple
+//! Health) shows its filename, error and result on the terms of that document, where it is now
+//! ([`jobs`]).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -30,6 +32,8 @@ use ownhealth_core::blobs::BlobOwner;
 use ownhealth_core::documents::{StoredFile, dispatch_upload_in_zone};
 use ownhealth_core::pyjson::row_to_json;
 use ownhealth_core::{Error, Runtime, ids};
+pub use ownhealth_devices::WEARABLE_JOBS;
+use ownhealth_mcp::review_shown::{JobReader, job_reader};
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -228,18 +232,34 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
     Ok(Json(result))
 }
 
-/// The import jobs whose result counts a profile's wearable samples and names its devices (a CGM
-/// export's result also counts its Low and High readings).
-pub const WEARABLE_JOBS: [&str; 6] = [
-    "import.fit",
-    "import.gadgetbridge",
-    "import.cgm_csv",
-    ownhealth_devices::garmin_zip::JOB,
-    ownhealth_devices::strava_zip::JOB,
-    ownhealth_devices::takeout_fitbit::JOB,
-];
+/// A job's filename, error and result, left out of what the caller is shown.
+fn withhold(j: &mut Value) {
+    j["result"] = Value::Null;
+    j["filename"] = Value::Null;
+    j["last_error"] = Value::Null;
+}
 
 /// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones.
+///
+/// A job's filename names its upload, its error can quote it, and its result can count health data, so
+/// each goes out only on the terms of what the job read ([`job_reader`], which a failed job's review
+/// item follows too):
+/// - a PDF job or a [`DOCUMENT_IMPORT_JOBS`](ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS) job, once its document exists: the scope that document
+///   needs on the profile it is on now (a move does not rewrite a finished job), and read:sensitive
+///   too for the result, as the document's import flags do (the summary's counts take in items the
+///   review list hides). A job whose document is gone, or is on a profile the caller cannot read with
+///   that scope, shows none of them; so does a PDF job that names no document. A structured job whose
+///   document does not exist yet shows its filename and error with read:records on its profile.
+/// - a [`WEARABLE_JOBS`] job: read:wearables on its profile; a DICOM import: read:records.
+///
+/// A response that shows a job's filename, error or result writes one read audit row per profile it
+/// read (for a document's job, the profile the document is on now) naming those jobs, for every job
+/// kind. A job that shows only its state, kind and times is not a read of health data and is not
+/// named, with one exception: a DICOM import is named for every caller with read:records on its
+/// profile, whatever it shows. A response that names no job writes no row, except an empty one, which
+/// writes a row with no profile (RUST-CONTRACTS.md section 3). A document's job that shows none of
+/// its fields does not name its document either (`document_id` is null), as `GET /api/review` hides
+/// the document of a failed job.
 async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>) -> R<Json<Value>> {
     let mut e = Errors::new();
     let limit = e.int("query", &q, "limit", 50, Some(1), Some(200));
@@ -270,7 +290,7 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         .iter()
         .map(|r| row_to_json(r).map(Value::Object))
         .collect::<Result<Vec<_>, _>>()?;
-    // Audit the DICOM details and finished C-CDA and wearable results by profile.
+    // Audit, by profile, every job whose filename, error or result goes out.
     let mut read_jobs = BTreeMap::<_, Vec<_>>::new();
     for j in &mut jobs {
         pydantic_datetimes(j, &["created_at", "finished_at"]);
@@ -281,32 +301,72 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         let kind = j["kind"].as_str().unwrap_or_default();
         let wearable = WEARABLE_JOBS.contains(&kind);
         let dicom = kind == ownhealth_imaging::import::JOB;
-        let ccda = kind == ownhealth_ingest_structured::ccda::JOB;
         if let Some(perm) = permission {
             perm.record_read(if wearable { &["read:wearables"] } else { &[] });
         }
-        if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
-            j["result"] = Value::Null;
-            j["filename"] = Value::Null;
-            j["last_error"] = Value::Null;
-        }
-        if dicom {
-            if let Some(perm) = permission.filter(|p| p.has("read:records")) {
-                perm.record_read(&["read:records"]);
-                read_jobs
-                    .entry(Some(perm.profile.id))
-                    .or_default()
-                    .push(j["id"].to_string());
-            } else {
-                j["result"] = Value::Null;
-                j["filename"] = Value::Null;
-                j["last_error"] = Value::Null;
+        let doc = j["document_id"]
+            .as_str()
+            .or_else(|| j["result"]["document_id"].as_str())
+            .map(|d| Uuid::parse_str(d).ok());
+        // the permission whose profile the shown fields belong to, when they may go out at all
+        let mut reader = permission;
+        match job_reader(kind, doc.is_some()) {
+            JobReader::Profile => {}
+            JobReader::Scope(scope) if wearable => {
+                if !permission.is_some_and(|p| p.has(scope)) {
+                    withhold(j);
+                }
+            }
+            JobReader::Scope(scope) if dicom => {
+                if let Some(perm) = permission.filter(|p| p.has(scope)) {
+                    perm.record_read(&[scope]);
+                    read_jobs
+                        .entry(Some(perm.profile.id))
+                        .or_default()
+                        .push(j["id"].to_string());
+                } else {
+                    withhold(j);
+                }
+            }
+            // a document's job (PDF, C-CDA, FHIR, Apple Health)
+            rule => {
+                let shown = match (rule, doc) {
+                    // a structured import before its document exists: the upload on the job's profile
+                    (JobReader::Scope(scope), _) => permission.filter(|p| p.has(scope)).map(|p| (p, scope)),
+                    (JobReader::Document, Some(Some(d))) => {
+                        match ownhealth_core::documents::document_profile_scope(&mut tx, d).await? {
+                            Some((Some(profile), scope)) => perms
+                                .iter()
+                                .find(|p| p.profile.id == profile && p.has(scope))
+                                .map(|p| (p, scope)),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                reader = shown.map(|(p, _)| p);
+                match shown {
+                    Some((perm, scope)) => {
+                        perm.record_read(&[scope]);
+                        if !perm.may_read_sensitive(scope) {
+                            j["result"] = Value::Null;
+                        }
+                    }
+                    None => {
+                        withhold(j);
+                        j["document_id"] = Value::Null;
+                    }
+                }
             }
         }
-        // A result can expose health data. An unfinished poll or withheld result does not.
-        if (ccda || wearable)
-            && !j["result"].is_null()
-            && let Some(perm) = permission
+        // A filename names a document, an error can quote it, and a result can expose health data. A
+        // job that shows none of them (an unfinished poll, a withheld job) is no read.
+        let shown = ["filename", "last_error", "result"]
+            .iter()
+            .any(|field| !j[*field].is_null());
+        if !dicom
+            && shown
+            && let Some(perm) = reader
         {
             read_jobs
                 .entry(Some(perm.profile.id))

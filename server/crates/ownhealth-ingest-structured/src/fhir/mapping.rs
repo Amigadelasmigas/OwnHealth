@@ -59,6 +59,20 @@ pub const SUPPORTING: [&str; 7] = [
     "Device",
 ];
 
+/// The sensitivity labels among `labels`, one per code in first-seen order, each as a short
+/// v3-ActCode coding: what a labelled Bundle hands to each of its entries. Only the code is read
+/// (and it is one of the few `security_tag` knows), so whatever else a label carries stays in the
+/// stored Bundle and the copy per entry stays small.
+pub fn sensitive_labels(labels: &[Value]) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    labels
+        .iter()
+        .filter_map(|l| l.get("code").and_then(Value::as_str))
+        .filter(|c| security_tag(c).is_some() && seen.insert(c.to_string()))
+        .map(|c| serde_json::json!({"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": c}))
+        .collect()
+}
+
 /// v3-ActCode confidentiality / sensitivity labels -> our sensitivity tags.
 fn security_tag(code: &str) -> Option<&'static str> {
     Some(match code {
@@ -69,7 +83,9 @@ fn security_tag(code: &str) -> Option<&'static str> {
     })
 }
 
-fn category_of(code: &str) -> Option<&'static str> {
+/// Our observation category for a FHIR category code (`social-history` is a survey, `imaging` and
+/// `procedure` are exams); None for a code we do not read. An Observation with none is a lab value.
+pub fn category_of(code: &str) -> Option<&'static str> {
     Some(match code {
         "laboratory" => "laboratory",
         "vital-signs" => "vital-signs",
@@ -614,14 +630,20 @@ fn status(r: &Value) -> Option<String> {
     r.get("status").filter(|s| !s.is_null()).map(text_of)
 }
 
+/// The category the importer gives an Observation: the first `category` whose first code
+/// ([`status_code`]) is one it reads ([`category_of`]), else `laboratory`.
+pub fn observation_category(r: &Value) -> &'static str {
+    list(Some(r), "category")
+        .iter()
+        .find_map(|cc| category_of(&status_code(Some(cc), "")))
+        .unwrap_or("laboratory")
+}
+
 pub fn observation(r: &Value) -> Mapped {
     if let Some(s) = status(r).filter(|s| s == "entered-in-error" || s == "cancelled") {
         return skip(&format!("status_{s}"));
     }
-    let cat = list(Some(r), "category")
-        .iter()
-        .find_map(|cc| category_of(&status_code(Some(cc), "")))
-        .unwrap_or("laboratory");
+    let cat = observation_category(r);
     let effective = get_truthy(Some(r), "effectiveDateTime")
         .or_else(|| get_truthy(Some(r), "effectiveInstant"))
         .or_else(|| get_truthy(r.get("effectivePeriod"), "start"));

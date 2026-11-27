@@ -4250,6 +4250,12 @@ fn pre1_a_leading_decimal_point_is_no_punctuation() -> R {
     assert_eq!(not_read(observation("5 mg", "5 mg."))?, Vec::<String>::new());
     assert_eq!(not_read(observation("Dose 5", "Dose 5."))?, Vec::<String>::new());
     assert_eq!(not_read(observation("Dose 5", "«Dose 5»."))?, Vec::<String>::new());
+    // a leading point or comma before a letter, or alone, is punctuation
+    assert_eq!(
+        not_read(observation("Nonreactive", "...Nonreactive"))?,
+        Vec::<String>::new()
+    );
+    assert_eq!(not_read(observation("word", ", word"))?, Vec::<String>::new());
     Ok(())
 }
 

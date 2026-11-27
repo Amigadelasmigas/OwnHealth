@@ -187,7 +187,7 @@ async fn a_labnorte_pdf_auto_accepts_clean_rows_and_queues_the_rest() -> anyhow:
         .expect(200)?
         .json;
     assert_eq!(q["open"], 1);
-    assert_eq!(q["withheld"], 0);
+    assert!(q.get("withheld").is_none(), "{q}");
     let it = &q["items"][0];
     assert_eq!(it["kind"], "candidate_row");
     assert_eq!(it["reasons"], json!(["implausible", "suspect_separator"]));

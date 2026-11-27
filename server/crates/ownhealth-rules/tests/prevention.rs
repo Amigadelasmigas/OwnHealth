@@ -978,12 +978,8 @@ fn every_group_name_matches_its_own_aliases() -> R {
 fn ppsv23_and_live_zoster_count_in_no_language() -> R {
     let pack = load_pack()?;
     let p = load_dir(Path::new(DATA), &pack)?;
-    let counts = |group: &str, name: &str| {
-        let g = &p.groups[group];
-        let w = prevention::words(name);
-        let any = |list: &Vec<Vec<String>>| list.iter().any(|a| !a.is_empty() && w.windows(a.len()).any(|x| x == a));
-        any(&g.aliases) && !any(&g.aliases_not)
-    };
+    // the matcher the evidence reader uses for a record with no listed code
+    let counts = |group: &str, name: &str| p.groups[group].counts_vaccine_named(&prevention::words(name));
     let mut wrong = Vec::new();
     for (lang, name) in [
         ("en", "Pneumococcal polysaccharide vaccine 23-valent"),

@@ -951,6 +951,61 @@ pub async fn document_is_sensitive(conn: &mut PgConnection, document_id: Uuid) -
     Ok(v.unwrap_or(false))
 }
 
+/// The scope a document needs, by its type; a document whose flags hold a CGM import (`cgm`) holds every
+/// reading of the export, so it needs read:wearables whatever its type.
+pub fn scope_for(doc_type: Option<&str>, cgm: bool) -> &'static str {
+    if cgm {
+        return "read:wearables";
+    }
+    match doc_type {
+        Some("lab_report") => "read:labs",
+        Some(WEARABLES_DOC_TYPE) => "read:wearables",
+        _ => "read:records",
+    }
+}
+
+/// [`scope_for`]'s `cgm` as a SQL boolean over the document alias `d`.
+pub const CGM_SQL: &str = "coalesce(d.flags ? 'cgm_csv', false)";
+
+/// The profile document `document_id` is on now (None: no profile) and the scope it needs
+/// ([`scope_for`]); None when there is no such document.
+pub async fn document_profile_scope(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Option<(Option<Uuid>, &'static str)>> {
+    let row: Option<(Option<Uuid>, Option<String>, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select d.profile_id, d.doc_type, {CGM_SQL} from document d where d.id = $1"
+    )))
+    .bind(document_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(|(profile, doc_type, cgm)| (profile, scope_for(doc_type.as_deref(), cgm))))
+}
+
+/// The scope document `document_id` needs ([`scope_for`]); None when there is no such document.
+pub async fn document_scope(conn: &mut PgConnection, document_id: Uuid) -> Result<Option<&'static str>> {
+    Ok(document_profile_scope(conn, document_id).await?.map(|(_, scope)| scope))
+}
+
+/// Whether `GET /documents/{id}/file` serves this document to `perm` (the caller's permission on a
+/// profile): the document is on that profile now, the caller holds the scope its type needs, and
+/// read:sensitive when it is sensitive, as the documents route decides. A review item that only points
+/// at its document (a pull's `fhir_unmapped_summary`) shows on the same terms, so an item a move left
+/// on the profile the document came from no longer shows through that profile's permission.
+pub async fn file_opens(conn: &mut PgConnection, perm: &crate::access::Permission, document_id: Uuid) -> Result<bool> {
+    let Some((profile, scope)) = document_profile_scope(&mut *conn, document_id).await? else {
+        return Ok(false);
+    };
+    if profile != Some(perm.profile.id) || !perm.has(scope) {
+        return Ok(false);
+    }
+    let visible = perm.may_read_sensitive(scope) || !document_is_sensitive(conn, document_id).await?;
+    if visible {
+        perm.record_read(&[scope]);
+    }
+    Ok(visible)
+}
+
 /// The blobs of a document that moved, and the owner they were stored for before.
 /// `ownhealth_auth::household::drop_moved_copies` removes that owner's copies once the move commits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1015,7 +1070,8 @@ async fn inbox_raw_owners(
     Ok(rows.into_iter().map(|(s, e, sha, o)| ((s, e), (sha, o))).collect())
 }
 
-/// After document `document_id` moved from profile `from` to `to` (`None`: no profile): every blob of
+/// After document `document_id` moved from profile `from` to `to` (`None`: no profile, where only a
+/// document that had none stays; a move back there is refused): every blob of
 /// the document (the file, its page layers and images, its OCR layers) is stored for `to` as well, so
 /// the new profile's key opens them, and the removal of `from`'s copies is queued
 /// ([`DROP_MOVED_JOB`]). The raw file of a live inbox row whose owner in `blobs::HOLDERS` resolves
@@ -1037,6 +1093,14 @@ pub async fn rekey_document(
             from: old,
             shas: Vec::new(),
         });
+    }
+    // No route moves a filed document back to no profile: a move names its profile. Its item key went
+    // when it was filed, and the removal of the item's folder that move queued would also take the
+    // files a move back stored there, under the same item id. So the move back is refused.
+    if from.is_some() && to.is_none() {
+        return Err(Error::Invalid(
+            "a document on a profile cannot move back to no profile".into(),
+        ));
     }
     let files: Vec<String> = sqlx::query_scalar(
         "select distinct encode(h, 'hex') from (select blob_sha256 as h from document where id = $1 \
