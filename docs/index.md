@@ -13,7 +13,7 @@ hide:
 
 Labs, records, wearables and genome in one self-hosted store, with a web dashboard and an MCP server for your own agent.
 
-<span class="oh-status">Pre-alpha · 0.4.0 · AGPL-3.0-or-later</span>
+<span class="oh-status">1.0.0 · AGPL-3.0-or-later</span>
 
 [Quick start](quickstart.md){ .md-button .md-button--primary }
 [MCP tool reference](mcp-tools.md){ .md-button }
