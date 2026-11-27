@@ -32,7 +32,8 @@ use ownhealth_core::blobs::BlobOwner;
 use ownhealth_core::documents::{StoredFile, dispatch_upload_in_zone};
 use ownhealth_core::pyjson::row_to_json;
 use ownhealth_core::{Error, Runtime, ids};
-use ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS;
+pub use ownhealth_devices::WEARABLE_JOBS;
+use ownhealth_mcp::review_shown::{JobReader, job_reader};
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -231,20 +232,6 @@ async fn upload(State(rt): State<Runtime>, caller: Caller, req: Request) -> R<Js
     Ok(Json(result))
 }
 
-/// The import jobs whose result counts a profile's wearable samples and names its devices (a CGM
-/// export's result also counts its Low and High readings).
-pub const WEARABLE_JOBS: [&str; 6] = [
-    "import.fit",
-    "import.gadgetbridge",
-    "import.cgm_csv",
-    ownhealth_devices::garmin_zip::JOB,
-    ownhealth_devices::strava_zip::JOB,
-    ownhealth_devices::takeout_fitbit::JOB,
-];
-
-/// The PDF and image import job; its payload names its document.
-const PDF_JOB: &str = "import.pdf";
-
 /// A job's filename, error and result, left out of what the caller is shown.
 fn withhold(j: &mut Value) {
     j["result"] = Value::Null;
@@ -255,8 +242,9 @@ fn withhold(j: &mut Value) {
 /// Import jobs of the caller's profiles, newest first; `ids=1,2,3` to poll specific ones.
 ///
 /// A job's filename names its upload, its error can quote it, and its result can count health data, so
-/// each goes out only on the terms of what the job read:
-/// - a PDF job or a [`DOCUMENT_IMPORT_JOBS`] job, once its document exists: the scope that document
+/// each goes out only on the terms of what the job read ([`job_reader`], which a failed job's review
+/// item follows too):
+/// - a PDF job or a [`DOCUMENT_IMPORT_JOBS`](ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS) job, once its document exists: the scope that document
 ///   needs on the profile it is on now (a move does not rewrite a finished job), and read:sensitive
 ///   too for the result, as the document's import flags do (the summary's counts take in items the
 ///   review list hides). A job whose document is gone, or is on a profile the caller cannot read with
@@ -313,59 +301,62 @@ async fn jobs(State(rt): State<Runtime>, caller: Caller, Query(q): Query<Params>
         let kind = j["kind"].as_str().unwrap_or_default();
         let wearable = WEARABLE_JOBS.contains(&kind);
         let dicom = kind == ownhealth_imaging::import::JOB;
-        let pdf = kind == PDF_JOB;
-        let structured = DOCUMENT_IMPORT_JOBS.contains(&kind);
         if let Some(perm) = permission {
             perm.record_read(if wearable { &["read:wearables"] } else { &[] });
         }
+        let doc = j["document_id"]
+            .as_str()
+            .or_else(|| j["result"]["document_id"].as_str())
+            .map(|d| Uuid::parse_str(d).ok());
         // the permission whose profile the shown fields belong to, when they may go out at all
         let mut reader = permission;
-        if pdf || structured {
-            let doc = j["document_id"]
-                .as_str()
-                .or_else(|| j["result"]["document_id"].as_str())
-                .map(|d| Uuid::parse_str(d).ok());
-            let shown = match doc {
-                // a structured import before its document exists: the upload on the job's profile
-                None if structured => permission
-                    .filter(|p| p.has("read:records"))
-                    .map(|p| (p, "read:records")),
-                None => None,
-                Some(None) => None,
-                Some(Some(d)) => match ownhealth_core::documents::document_profile_scope(&mut tx, d).await? {
-                    Some((Some(profile), scope)) => perms
-                        .iter()
-                        .find(|p| p.profile.id == profile && p.has(scope))
-                        .map(|p| (p, scope)),
-                    _ => None,
-                },
-            };
-            reader = shown.map(|(p, _)| p);
-            match shown {
-                Some((perm, scope)) => {
-                    perm.record_read(&[scope]);
-                    if !perm.may_read_sensitive(scope) {
-                        j["result"] = Value::Null;
-                    }
-                }
-                None => {
+        match job_reader(kind, doc.is_some()) {
+            JobReader::Profile => {}
+            JobReader::Scope(scope) if wearable => {
+                if !permission.is_some_and(|p| p.has(scope)) {
                     withhold(j);
-                    j["document_id"] = Value::Null;
                 }
             }
-        }
-        if wearable && !permission.is_some_and(|p| p.has("read:wearables")) {
-            withhold(j);
-        }
-        if dicom {
-            if let Some(perm) = permission.filter(|p| p.has("read:records")) {
-                perm.record_read(&["read:records"]);
-                read_jobs
-                    .entry(Some(perm.profile.id))
-                    .or_default()
-                    .push(j["id"].to_string());
-            } else {
-                withhold(j);
+            JobReader::Scope(scope) if dicom => {
+                if let Some(perm) = permission.filter(|p| p.has(scope)) {
+                    perm.record_read(&[scope]);
+                    read_jobs
+                        .entry(Some(perm.profile.id))
+                        .or_default()
+                        .push(j["id"].to_string());
+                } else {
+                    withhold(j);
+                }
+            }
+            // a document's job (PDF, C-CDA, FHIR, Apple Health)
+            rule => {
+                let shown = match (rule, doc) {
+                    // a structured import before its document exists: the upload on the job's profile
+                    (JobReader::Scope(scope), _) => permission.filter(|p| p.has(scope)).map(|p| (p, scope)),
+                    (JobReader::Document, Some(Some(d))) => {
+                        match ownhealth_core::documents::document_profile_scope(&mut tx, d).await? {
+                            Some((Some(profile), scope)) => perms
+                                .iter()
+                                .find(|p| p.profile.id == profile && p.has(scope))
+                                .map(|p| (p, scope)),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                reader = shown.map(|(p, _)| p);
+                match shown {
+                    Some((perm, scope)) => {
+                        perm.record_read(&[scope]);
+                        if !perm.may_read_sensitive(scope) {
+                            j["result"] = Value::Null;
+                        }
+                    }
+                    None => {
+                        withhold(j);
+                        j["document_id"] = Value::Null;
+                    }
+                }
             }
         }
         // A filename names a document, an error can quote it, and a result can expose health data. A

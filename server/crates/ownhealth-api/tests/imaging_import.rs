@@ -787,7 +787,9 @@ async fn a_failed_dicom_import_in_review_shows_only_to_those_who_may_read_record
         &a,
         "carmen",
         "job_failed",
-        Some(json!({"job_id": 2, "kind": "import.pdf", "attempts": 5, "error": "Synthetic"})),
+        // a job that names no upload shows to anyone who reviews there; a PDF import with no
+        // document shows to nobody (review_shown::job_reader)
+        Some(json!({"job_id": 2, "kind": "normalize.rederive", "attempts": 5, "error": "Synthetic"})),
         json!({}),
     )
     .await?;

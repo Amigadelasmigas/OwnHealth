@@ -1507,3 +1507,61 @@ async fn test_a_held_observation_takes_the_category_the_importer_chooses() -> R 
     );
     Ok(())
 }
+
+/// R7-L2: a failed job's review item shows on the terms `GET /api/jobs` shows that job's error
+/// (`ownhealth_mcp::review_shown::job_reader`): a wearables import needs read:wearables on its
+/// profile, and a PDF import that names no document shows to nobody. The list, the item route, the
+/// list's `open` total and the dashboard's `review_open` (MCP get_health_status reads the same count)
+/// agree.
+#[tokio::test]
+async fn test_a_failed_wearables_or_pdf_import_shows_on_the_terms_of_its_job() -> R {
+    let a = app().await?;
+    let failed = |kind: &str, error: &str| json!({"job_id": 1, "kind": kind, "attempts": 3, "payload_document_id": null, "error": error});
+    let mut wearables = Vec::new();
+    for kind in [
+        "import.fit",
+        "import.gadgetbridge",
+        "import.cgm_csv",
+        "import.garmin_zip",
+        "import.strava_zip",
+        "import.fitbit_takeout",
+    ] {
+        let payload = failed(
+            kind,
+            "glucosa_carmen.csv: 12 readings below 54 mg/dL could not be stored",
+        );
+        wearables.push(item(&a, "carmen", "job_failed", Some(payload), json!({})).await?);
+    }
+    let pdf = failed(
+        "import.pdf",
+        "analitica_carmen.pdf: the uploaded file is not in the blob store",
+    );
+    let pdf = item(&a, "carmen", "job_failed", Some(pdf), json!({})).await?;
+    let ids: Vec<Uuid> = wearables.iter().copied().chain([pdf]).collect();
+    let dashboard = || async {
+        let (s, v) = a
+            .get("alex", "/profiles/carmen/dashboard?as_of=2026-11-07&lang=en")
+            .await?;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        anyhow::Ok(v["review_open"].clone())
+    };
+    let records = ["read:summary", "read:labs", "read:vitals", "read:records"];
+    let (opened, without) = alex_opens(&a, &records, &ids).await?;
+    assert_eq!(opened, Vec::<Uuid>::new(), "without read:wearables");
+    assert_eq!(dashboard().await?, without, "the dashboard and the list agree");
+    let all = [
+        "read:summary",
+        "read:labs",
+        "read:vitals",
+        "read:records",
+        "read:wearables",
+    ];
+    let (opened, with) = alex_opens(&a, &all, &ids).await?;
+    assert_eq!(
+        opened, wearables,
+        "with read:wearables; never the PDF import that names no document"
+    );
+    assert_eq!(with.as_i64(), without.as_i64().map(|n| n + 6), "the open total follows");
+    assert_eq!(dashboard().await?, with, "the dashboard and the list agree");
+    Ok(())
+}

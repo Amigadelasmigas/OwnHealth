@@ -17,6 +17,45 @@ use crate::envelope::truthy;
 /// A sync-gap alert's kind.
 pub const SOURCE_GAP: &str = "source_gap";
 
+/// The PDF and image import job; its payload names its document.
+pub const PDF_JOB: &str = "import.pdf";
+
+/// Who may read a job's filename and error: the one rule behind `GET /api/jobs` and a failed job's
+/// review item ([`visible`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobReader {
+    /// Anyone with a grant on the job's profile.
+    Profile,
+    /// This scope on the job's profile.
+    Scope(&'static str),
+    /// The scope its document needs, on the profile the document is on now; the caller looks it up.
+    Document,
+    /// Nobody: a PDF job that names no document.
+    Nobody,
+}
+
+/// [`JobReader`] of a job of `kind`, which names a document or not: a wearables import
+/// (`ownhealth_devices::WEARABLE_JOBS`) needs read:wearables and a DICOM import read:records; a PDF
+/// job or a structured import (`ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS`) that names its
+/// document follows that document; a structured import before its document exists needs read:records,
+/// and a PDF job with no document shows to nobody. Any other job shows to the profile's readers.
+pub fn job_reader(kind: &str, names_document: bool) -> JobReader {
+    let structured = ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS.contains(&kind);
+    if ownhealth_devices::WEARABLE_JOBS.contains(&kind) {
+        JobReader::Scope("read:wearables")
+    } else if kind == ownhealth_imaging::import::JOB {
+        JobReader::Scope("read:records")
+    } else if (kind == PDF_JOB || structured) && names_document {
+        JobReader::Document
+    } else if structured {
+        JobReader::Scope("read:records")
+    } else if kind == PDF_JOB {
+        JobReader::Nobody
+    } else {
+        JobReader::Profile
+    }
+}
+
 fn obs_scope(category: Option<&str>) -> &'static str {
     match category {
         Some("vital-signs" | "survey" | "exam") => "read:vitals",
@@ -43,16 +82,18 @@ pub fn visible(item: &ReviewItem, perm: &Permission) -> bool {
     if item.kind == ownhealth_imaging::import::REVIEW_KIND && !perm.has("read:records") {
         return false;
     }
-    // a failed import's error can name the upload, as its job details do: a DICOM import's (and its
-    // studies), and a structured import's that failed before its document existed, whose upload
-    // `GET /api/jobs` names only with read:records on the profile
+    // a failed import's error can name the upload and count what it read, as its job details do: it
+    // shows on the terms `GET /api/jobs` shows that job's error ([`job_reader`]). A job that names a
+    // document is shown, and the review list leaves out its error unless the reader may read that
+    // document where it is now (`hide_unread_document`).
     if item.kind == "job_failed"
         && let Some(job) = item.payload.get("kind").and_then(Value::as_str)
-        && (job == ownhealth_imaging::import::JOB
-            || (item.document_id.is_none() && ownhealth_ingest_structured::DOCUMENT_IMPORT_JOBS.contains(&job)))
-        && !perm.has("read:records")
     {
-        return false;
+        match job_reader(job, item.document_id.is_some()) {
+            JobReader::Profile | JobReader::Document => {}
+            JobReader::Scope(scope) if perm.has(scope) => {}
+            JobReader::Scope(_) | JobReader::Nobody => return false,
+        }
     }
     // a relative from a family tree file: the family list shows relatives only with read:records
     if item.kind == ownhealth_core::gedcom::KIND && !perm.has("read:records") {

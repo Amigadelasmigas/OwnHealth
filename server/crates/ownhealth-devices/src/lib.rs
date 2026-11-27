@@ -34,6 +34,18 @@ pub mod takeout_fitbit;
 
 use chrono::{DateTime, NaiveDate, Utc};
 
+/// The import jobs whose result counts a profile's wearable samples and names its devices (a CGM
+/// export's result also counts its Low and High readings): their filename, error and result need
+/// read:wearables (`ownhealth_mcp::review_shown::job_reader`).
+pub const WEARABLE_JOBS: [&str; 6] = [
+    fit::JOB,
+    gadgetbridge::JOB,
+    cgm_csv::JOB,
+    garmin_zip::JOB,
+    strava_zip::JOB,
+    takeout_fitbit::JOB,
+];
+
 /// Register `import.gadgetbridge`, `import.cgm_csv`, the `nightscout` poller and the demo hook. Called
 /// by `ownhealth::register_lanes`.
 pub fn register() {

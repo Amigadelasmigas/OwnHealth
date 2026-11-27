@@ -699,7 +699,11 @@ async fn status_counts_open_review_rows_it_may_read() -> R {
             "fhir_unmapped",
             json!({"resource_type": "Condition", "resource": {"resourceType": "Condition", "code": {"text": "Asma"}}}),
         ),
-        ("job_failed", json!({"kind": "import.pdf", "error": "unreadable"})),
+        // a job that names no upload (a PDF import with no document shows to nobody)
+        (
+            "job_failed",
+            json!({"kind": "normalize.rederive", "error": "unreadable"}),
+        ),
     ] {
         sqlx::query(
             "insert into review_item (household_id, profile_id, kind, payload) \

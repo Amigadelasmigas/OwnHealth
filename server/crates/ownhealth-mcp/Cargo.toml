@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 ownhealth-core.workspace = true
 ownhealth-auth.workspace = true
+ownhealth-devices.workspace = true
 ownhealth-genome.workspace = true
 ownhealth-imaging.workspace = true
 ownhealth-ingest-pdf.workspace = true
