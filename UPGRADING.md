@@ -40,7 +40,7 @@ If the restore stops with an error, the app stays down. Fix what the error names
 
 `ownhealth restore` prints a JSON report and checks every profile's `state_hash`. It takes the profile keys from `keyring/<project>/keyring.json`, so leave that file in place.
 
-With the `wearables` profile on, `down -v` also deletes the Open Wearables database, and no backup holds it. After the restore, connect each vendor again as the restore steps under [Wearables](deploy/README.md#wearables) say.
+If the `wearables` profile is on, or was on before, `down -v` also deletes the Open Wearables database: it lives in the same `ownhealth-pg` volume, and no backup holds it. After the restore, connect each vendor again as the restore steps under [Wearables](deploy/README.md#wearables) say.
 
 ## Upgrading to 1.0
 
