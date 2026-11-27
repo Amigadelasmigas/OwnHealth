@@ -25,7 +25,16 @@ Then change the image tag of the `admin` and `app` services in `compose.yaml` to
 docker compose pull && docker compose up -d
 ```
 
-Migrations are forward-only and run at start, in the `admin` service, before the app comes up. To go back to an older version, restore the backup you took before the upgrade.
+Migrations are forward-only and run at start, in the `admin` service, before the app comes up. To go back to an older version, set the image tags back to it and restore the backup you took before the upgrade, with the version that wrote it. On the homelab stack, follow [Restore](deploy/README.md#restore). On a quickstart install, the restore needs an empty database, so it deletes the current volumes first:
+
+```sh
+docker compose down -v      # deletes the current database and data volumes
+docker compose up -d db
+docker compose run --rm -T -v "$PWD/backups:/backups" admin sh -c "sh /opt/ownhealth-db/app-role.sh && ownhealth restore /backups/<folder>"
+docker compose up -d
+```
+
+`ownhealth restore` prints a JSON report and checks every profile's `state_hash`. It takes the profile keys from `keyring/<project>/keyring.json`, so leave that file in place.
 
 ## Upgrading to 1.0
 
