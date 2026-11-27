@@ -81,16 +81,19 @@ OwnHealth is for personal record keeping and for showing values computed from pu
 
 ## Documentation
 
-- [Quick start](docs/quickstart.md) and [deploy, back up, restore](deploy/README.md)
-- [MCP tool reference](docs/mcp-tools.md): every tool, with example responses
-- [Recipes](docs/recipes/README.md) for the inboxes and the claude.ai connector, and [agent-assisted extraction](docs/agent-extraction.md)
+Full documentation: [geiserx.github.io/OwnHealth](https://geiserx.github.io/OwnHealth/).
+
+- [Quick start](https://geiserx.github.io/OwnHealth/quickstart/) and [deploy, back up, restore](deploy/README.md)
+- [What's new in 1.0](https://geiserx.github.io/OwnHealth/whats-new-1.0/): what changed and how to upgrade from 0.x
+- [MCP tool reference](https://geiserx.github.io/OwnHealth/mcp-tools/): every tool, with example responses
+- [Recipes](https://geiserx.github.io/OwnHealth/recipes/) for the inboxes and the claude.ai connector, and [agent-assisted extraction](https://geiserx.github.io/OwnHealth/agent-extraction/)
 - [Plan](docs/PLAN.md): the problem, principles and decisions
 - [Roadmap](docs/ROADMAP.md): phases, deliverables and exit criteria
 - [Mockup](docs/mockup/README.md): every screen with synthetic data
-- Design: [architecture](docs/design/architecture.md), [ingestion](docs/design/ingestion.md), [connectors](docs/design/connectors.md), [MCP](docs/design/mcp.md), [genomics](docs/design/genomics.md), [security, privacy and threat model](docs/design/security-privacy.md)
+- Design: [architecture](https://geiserx.github.io/OwnHealth/design/architecture/), [ingestion](https://geiserx.github.io/OwnHealth/design/ingestion/), [connectors](https://geiserx.github.io/OwnHealth/design/connectors/), [MCP](https://geiserx.github.io/OwnHealth/design/mcp/), [genomics](https://geiserx.github.io/OwnHealth/design/genomics/), [security, privacy and threat model](https://geiserx.github.io/OwnHealth/design/security-privacy/)
 - [Rivals](docs/research/rivals.md)
 - [Contributing](CONTRIBUTING.md): how to add a lab template or an alias
-- [Guideline files](docs/guidelines.md): how to add a country's screenings and vaccines
+- [Guideline files](https://geiserx.github.io/OwnHealth/guidelines/): how to add a country's screenings and vaccines
 - [Security policy](SECURITY.md)
 
 ## Related projects
