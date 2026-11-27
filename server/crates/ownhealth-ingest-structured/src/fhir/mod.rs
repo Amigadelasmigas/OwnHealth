@@ -1563,12 +1563,15 @@ mod inherit_tests {
     use super::*;
 
     /// A labelled Bundle hands each entry its sensitivity labels once per code, never its whole
-    /// `meta.security` list: a Bundle with thousands of labels costs each entry a handful.
+    /// `meta.security` list, and only their system and code: a Bundle with thousands of labels, or
+    /// with one huge label, costs each entry a few short codings.
     #[test]
     fn a_bundle_hands_each_entry_only_its_distinct_sensitivity_labels() {
         let mut security: Vec<Value> = (0..3000)
             .map(|i| json!({"system": format!("urn:x:{i}"), "code": format!("X{i}")}))
             .collect();
+        // the first PSY carries a 64 KiB display: an entry must not take a copy of it
+        security.push(json!({"system": "urn:big", "code": "PSY", "display": "x".repeat(64 * 1024)}));
         for i in 0..500 {
             security.push(json!({"system": format!("urn:dup:{i}"), "code": "PSY"}));
         }
@@ -1587,6 +1590,14 @@ mod inherit_tests {
                 .expect("an entry of a labelled Bundle has labels");
             let codes: Vec<&str> = own.iter().filter_map(|l| l["code"].as_str()).collect();
             assert_eq!(codes, ["PSY", "HIV"], "entry {} got {} labels", e.pointer, own.len());
+            let act = "http://terminology.hl7.org/CodeSystem/v3-ActCode";
+            assert_eq!(
+                own,
+                &[
+                    json!({"system": act, "code": "PSY"}),
+                    json!({"system": act, "code": "HIV"})
+                ]
+            );
             assert_eq!(mapping::sensitivity(&e.resource), ["mental_health", "sexual_health"]);
         }
     }

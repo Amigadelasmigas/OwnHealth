@@ -59,18 +59,17 @@ pub const SUPPORTING: [&str; 7] = [
     "Device",
 ];
 
-/// The sensitivity labels among `labels`, the first of each code, in order: what a labelled
-/// Bundle hands to each of its entries. One per code keeps the copy small whatever the Bundle holds.
+/// The sensitivity labels among `labels`, one per code in first-seen order, each as a short
+/// v3-ActCode coding: what a labelled Bundle hands to each of its entries. Only the code is read
+/// (and it is one of the few `security_tag` knows), so whatever else a label carries stays in the
+/// stored Bundle and the copy per entry stays small.
 pub fn sensitive_labels(labels: &[Value]) -> Vec<Value> {
     let mut seen = BTreeSet::new();
     labels
         .iter()
-        .filter(|l| {
-            l.get("code")
-                .and_then(Value::as_str)
-                .is_some_and(|c| security_tag(c).is_some() && seen.insert(c.to_string()))
-        })
-        .cloned()
+        .filter_map(|l| l.get("code").and_then(Value::as_str))
+        .filter(|c| security_tag(c).is_some() && seen.insert(c.to_string()))
+        .map(|c| serde_json::json!({"system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": c}))
         .collect()
 }
 
