@@ -21,7 +21,7 @@ fi
 case "$version" in
   *.0.0)
     major="${version%%.*}"
-    if ! grep -qx "## Upgrading to $major.0" UPGRADING.md; then
+    if ! grep -Fqx "## Upgrading to $major.0" UPGRADING.md; then
       echo "release-notes: $version is a major release and UPGRADING.md has no '## Upgrading to $major.0' section" >&2
       exit 1
     fi
