@@ -17,7 +17,7 @@ OwnHealth 1.0 is the connected release. It pulls records from US patient portals
 
 Passwords, passkeys, access tokens and OAuth connections keep working. Twenty-three migrations apply at start. Migrations are forward-only: to go back, restore the backup you take in step 1. Coming from 0.3.0 or earlier? Read the "To 0.4.0" and "To 0.3.0" notes in [Upgrades](https://github.com/GeiserX/OwnHealth/blob/main/deploy/README.md#upgrades) first, because rule pack 0.2.0 moves every `state_hash` once.
 
-1. Take a backup while the compose file still names your old version: `./deploy/restic/backup.sh`.
+1. Take a backup while the compose file still names your old version. On the homelab stack, run `./deploy/restic/backup.sh`. The quickstart `compose.yaml` has no restic repository, so `backup.sh` fails there: stop OwnHealth with `docker compose down` and copy its `ownhealth-data` and `ownhealth-pg` volumes before you go on.
 2. Set `admin` and `app` to `drumsergio/ownhealth:1.0.0` and `ocr` to `drumsergio/ownhealth:1.0.0-ocr`, and take the new compose file.
 3. Before `docker compose up -d`, do the three steps below: the imaging folder (homelab only), the keyring folder and the secrets key.
 4. Start it with `docker compose pull && docker compose up -d`. Then take a backup, and [encrypt the older files](#encrypt-the-older-files) when you choose.
@@ -37,7 +37,7 @@ If your old Compose file mounted `./keyring` directly, stop the old project befo
 OwnHealth now encrypts each profile's documents and genome files, so every command except `migrate` and `healthcheck` refuses to start without `OWNHEALTH_SECRETS_KEY` and prints one line that says how to make one. Keep the key you have: it already encrypts your inbox secrets, and a new one would lock them.
 
 - Homelab: the new `compose.homelab.yaml` gives `secrets/secrets_key` to `admin` and `ocr` as well as the app (backups and restores open the encrypted files). The file exists since 0.3.0, so on an upgrade from 0.3.0 or later take the new compose file and nothing else changes. On a direct upgrade from 0.2.0 or earlier, run the steps below first, next to `compose.homelab.yaml`: they keep a key file you already have, move the key from `.env` when there is no file, and make a new key only when neither has one.
-- Quickstart (`compose.yaml`): the key now comes from the file `secrets/secrets_key`, never from `.env`. These steps keep a key file you already have, move the value from `.env` when there is no file, and make a new key only when neither has one. Then delete the `OWNHEALTH_SECRETS_KEY=` line from `.env`:
+- Quickstart (`compose.yaml`): the key now comes from the file `secrets/secrets_key`, never from `.env`. These steps keep a key file you already have, move the value from `.env` when there is no file, and make a new key only when neither has one. A key in `.env` that names another variable, such as `${BASE_KEY}`, is not copied: the steps say so, and you write its value to the file yourself. Then delete the `OWNHEALTH_SECRETS_KEY=` line from `.env`:
 
 ```sh
 mkdir -p -m 700 secrets
@@ -45,7 +45,10 @@ if test -s secrets/secrets_key; then
   echo "secrets/secrets_key is there: keeping it"
 elif v=$(sed -n -E 's/^[[:space:]]*(export[[:space:]]+)?OWNHEALTH_SECRETS_KEY[[:space:]]*=[[:space:]]*//p' .env | tail -n 1 |
     sed -E "s/[[:space:]]+#.*\$//; s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/") && test -n "$v"; then
-  printf '%s' "$v" > secrets/secrets_key   # the value Compose reads, without quotes or a comment
+  case "$v" in
+    *'$'*) echo "OWNHEALTH_SECRETS_KEY in .env names a variable: write its value to secrets/secrets_key by hand" >&2 ;;
+    *) printf '%s' "$v" > secrets/secrets_key ;;   # the value Compose reads, without quotes or a comment
+  esac
 else
   openssl rand -base64 32 | tr -d '\n' > secrets/secrets_key   # neither had a key
 fi
