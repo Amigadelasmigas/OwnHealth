@@ -111,7 +111,7 @@ Logins use passkeys. Every read through MCP goes to an append-only audit log. A 
 
 ## Every page
 
-- **Get started:** [Quick start](quickstart.md), [Recipes](recipes/README.md) ([email](recipes/email.md), [Paperless-ngx](recipes/paperless-ngx.md), [scanner to folder](recipes/scanner-to-folder.md), [Health Auto Export](recipes/health-auto-export.md), [Gadgetbridge](recipes/gadgetbridge.md), [Nightscout](recipes/nightscout.md), [iOS Shortcut](recipes/ios-shortcut.md), [claude.ai connector](recipes/claude-connector.md)), [Agent-assisted extraction](agent-extraction.md).
+- **Get started:** [Quick start](quickstart.md), [What's new in 1.0](whats-new-1.0.md) (how to upgrade from 0.x), [Recipes](recipes/README.md) ([email](recipes/email.md), [Paperless-ngx](recipes/paperless-ngx.md), [scanner to folder](recipes/scanner-to-folder.md), [Health Auto Export](recipes/health-auto-export.md), [Gadgetbridge](recipes/gadgetbridge.md), [Nightscout](recipes/nightscout.md), [iOS Shortcut](recipes/ios-shortcut.md), [claude.ai connector](recipes/claude-connector.md)), [Agent-assisted extraction](agent-extraction.md).
 - **Reference:** [MCP tools](mcp-tools.md), [Calculators](calculators/README.md) ([eGFR](calculators/ckd-epi-2021.md), [FIB-4](calculators/fib-4.md), [HOMA-IR](calculators/homa-ir.md), [SCORE2](calculators/score2.md), [PREVENT](calculators/prevent.md), [RCV](calculators/rcv.md), [baseline](calculators/baseline.md)), [Guideline files](guidelines.md), [OCR benchmark](ocr-benchmark.md).
 - **How it works:** [architecture](design/architecture.md), [ingestion](design/ingestion.md), [connectors](design/connectors.md), [MCP design](design/mcp.md), [genome data](design/genomics.md), [security and privacy](design/security-privacy.md).
 

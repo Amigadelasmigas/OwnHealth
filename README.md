@@ -16,7 +16,7 @@ You run it yourself.
   <img src="https://raw.githubusercontent.com/GeiserX/OwnHealth/main/docs/images/screenshots/dashboard.png" alt="OwnHealth: the family dashboard in the dark theme, with synthetic data" width="800">
 </p>
 
-**Status: 1.0.0.** Upgrades from every 0.x release keep your data: see the [changelog](CHANGELOG.md).
+**Status: 1.0.0.** Upgrades from every 0.x release keep your data: see [What's new in 1.0](https://geiserx.github.io/OwnHealth/whats-new-1.0/) for the steps, and the [changelog](CHANGELOG.md).
 
 ## What it does
 
