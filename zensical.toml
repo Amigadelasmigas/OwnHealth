@@ -64,7 +64,6 @@ nav = [
   { "Home" = "index.md" },
   { "Get started" = [
     { "Quick start" = "quickstart.md" },
-    { "What's new in 1.0" = "whats-new-1.0.md" },
     { "Recipes" = [
       "recipes/README.md",
       { "Email" = "recipes/email.md" },

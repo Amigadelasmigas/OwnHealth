@@ -412,32 +412,4 @@ Restore with the OwnHealth version that made the backup (`app_version` in the ma
 
 ## Upgrades
 
-Take a fresh backup first, while `compose.yaml` still names the old version: `backup.sh` runs in the `admin` image, and a newer image would write the backup with its own rules before the migrations ran.
-
-```sh
-./deploy/restic/backup.sh         # a fresh backup before every upgrade
-```
-
-Then change the image tag of the `admin` and `app` services in `compose.yaml` to the new version, and the `ocr` service's tag to `<version>-ocr`, and start it:
-
-```sh
-docker compose pull && docker compose up -d
-```
-
-Migrations are forward-only and run at start, in the `admin` service, before the app comes up. To go back to an older version, restore the backup you took before the upgrade.
-
-**To 1.0.0.** Follow [Upgrading from 0.x](https://geiserx.github.io/OwnHealth/whats-new-1.0/#upgrading-from-0x) on the docs site. It has every step: the imaging folder, the keyring folder, the secrets key, `seal-legacy`, the database role and the Caddyfile.
-
-**To 0.4.0.** After the backup, set `admin` and `app` to `drumsergio/ownhealth:0.4.0` and `ocr` to `drumsergio/ownhealth:0.4.0-ocr`; nothing else in the compose files changes. Rule pack 0.2.0 moves every profile's `state_hash` once, so restore a backup made before the upgrade with 0.3.0, as above. For the same reason, `restore-test.sh` on a snapshot made before the upgrade reports every profile's `state_hash` as different; run `./deploy/restic/backup.sh` once after the upgrade, so the restore test checks a 0.4.0 snapshot. A household with a genome starts downloading NCBI's weekly ClinVar file (about 200 MB, no personal data in the request); turn it off in Settings, or set a local file path on a server without internet.
-
-**To 0.3.0.** Take the new `compose.homelab.yaml` (it adds the `ocr` worker, the inbox folder and the `secrets_key` secret), then before `docker compose up -d`:
-
-```sh
-test -s secrets/secrets_key || openssl rand -base64 32 | tr -d '\n' > secrets/secrets_key   # keep a key you have
-chmod 644 secrets/secrets_key
-mkdir -p inbox && sudo chown 10001:10001 inbox
-```
-
-Compose refuses to start without the secret file. Keep a copy of it with the restic password.
-
-Scans a 0.2.0 install kept as pending documents are read by OCR once you turn the `ocr` profile on: the worker queues them when it starts.
+The steps for every upgrade, and what each release needs on top of them, are in [UPGRADING.md](../UPGRADING.md).

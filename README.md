@@ -16,7 +16,7 @@ You run it yourself.
   <img src="https://raw.githubusercontent.com/GeiserX/OwnHealth/main/docs/images/screenshots/dashboard.png" alt="OwnHealth: the family dashboard in the dark theme, with synthetic data" width="800">
 </p>
 
-**Status: 1.0.0.** Upgrades from every 0.x release keep your data: see [What's new in 1.0](https://geiserx.github.io/OwnHealth/whats-new-1.0/) for the steps, and the [changelog](CHANGELOG.md).
+**Status: 1.0.0.** Upgrades from every 0.x release keep your data: see [UPGRADING.md](UPGRADING.md) for the steps, and the [changelog](CHANGELOG.md).
 
 ## What it does
 
@@ -84,7 +84,6 @@ OwnHealth is for personal record keeping and for showing values computed from pu
 Full documentation: [geiserx.github.io/OwnHealth](https://geiserx.github.io/OwnHealth/).
 
 - [Quick start](https://geiserx.github.io/OwnHealth/quickstart/) and [deploy, back up, restore](deploy/README.md)
-- [What's new in 1.0](https://geiserx.github.io/OwnHealth/whats-new-1.0/): what changed and how to upgrade from 0.x
 - [MCP tool reference](https://geiserx.github.io/OwnHealth/mcp-tools/): every tool, with example responses
 - [Recipes](https://geiserx.github.io/OwnHealth/recipes/) for the inboxes and the claude.ai connector, and [agent-assisted extraction](https://geiserx.github.io/OwnHealth/agent-extraction/)
 - [Plan](docs/PLAN.md): the problem, principles and decisions

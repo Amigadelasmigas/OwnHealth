@@ -207,8 +207,9 @@ jobs:
           enable-url-completion: true
 
   # The GitHub Release for the tag, after both images are signed and pushed. Its notes are the
-  # tag's CHANGELOG.md entry; a major release also needs docs/whats-new-X.0.md, and the notes link
-  # it (.github/scripts/release-notes.sh fails the job without it). A re-run edits the release.
+  # tag's CHANGELOG.md entry; a major release also needs its "## Upgrading to X.0" section in
+  # UPGRADING.md, and the notes link it (.github/scripts/release-notes.sh fails the job without it).
+  # A re-run edits the release.
   github-release:
     needs: merge
     runs-on: ubuntu-latest
