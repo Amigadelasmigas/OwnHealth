@@ -277,59 +277,61 @@ Ships in 0.4.0. Measured exit criteria, and the test behind each deliverable: [v
 
 ## v1.0 Connected
 
+Ships in 1.0.0, except the four items left open below. The CI half of each exit criterion runs on every pull request; the **Live** runs, the 30-day soaks among them, are measured after the tag.
+
 **Goal.** Live connections where a self-hoster can register, imaging in the browser, sharing only by a human click, and per-profile encryption.
 
 ### Deliverables
 
 **Records/connectors**
-- [ ] US SMART on FHIR patient standalone launch (PKCE) for Epic, Oracle Health, athenahealth, eClinicalWorks, MEDITECH, NextGen, VA Lighthouse; endpoint directory built from vendor Brands bundles. Each vendor ships with an honest "verified live" status: 1.0 needs Epic verified live, and the other six are verified one by one after 1.0.
-- [ ] Bring-your-own client wizard: the self-hoster registers a read-only, patient-facing US Core/USCDI client per vendor, with a client secret (a JWKS only when the instance is public, [connectors.md section 7](design/connectors.md#7-us-smart-on-fhir-registration-strategy)). A shared project client is an open decision (below).
-- [ ] CMS Blue Button 2.0 (CARIN BB, `ExplanationOfBenefit`, `Coverage`), bring-your-own registered confidential client. Claims are stored with the pull and counted. Nobody reviews them one by one: every unmapped type (`Coverage`, `ExplanationOfBenefit`) lands in one grouped review item per run and type, `Patient` matches the profile, as in every FHIR import, and the source card shows the claim count.
-- [ ] C-CDA import (US CCD) through an open CDA-to-FHIR mapper.
-- [ ] SMART Health Links and SMART Health Cards receiver (QR scan or paste).
-- [ ] Refresh-token rotation persisted atomically before use.
-- [ ] GEDCOM import (structure only), moved from v0.3: typing 6 to 10 relatives by hand works for a household, and a GEDCOM file is mostly free text about living people that we would have to prove we never store.
+- [x] US SMART on FHIR patient standalone launch (PKCE) for Epic, Oracle Health, athenahealth, eClinicalWorks, MEDITECH, NextGen, VA Lighthouse; endpoint directory built from vendor Brands bundles. Each vendor ships with an honest "verified live" status: 1.0.0 ships all seven as not verified live. Epic is verified first, after the tag, and the other six one by one.
+- [x] Bring-your-own client wizard: the self-hoster registers a read-only, patient-facing US Core/USCDI client per vendor, with a client secret (a JWKS only when the instance is public, [connectors.md section 7](design/connectors.md#7-us-smart-on-fhir-registration-strategy)). A shared project client is an open decision (below).
+- [x] CMS Blue Button 2.0 (CARIN BB, `ExplanationOfBenefit`, `Coverage`), bring-your-own registered confidential client. Claims are stored with the pull and counted. Nobody reviews them one by one: every unmapped type (`Coverage`, `ExplanationOfBenefit`) lands in one grouped review item per run and type, `Patient` matches the profile, as in every FHIR import, and the source card shows the claim count.
+- [x] C-CDA import (US CCD) through an open CDA-to-FHIR mapper.
+- [x] SMART Health Links and SMART Health Cards receiver (QR scan or paste).
+- [x] Refresh-token rotation persisted atomically before use.
+- [x] GEDCOM import (structure only), moved from v0.3: typing 6 to 10 relatives by hand works for a household, and a GEDCOM file is mostly free text about living people that we would have to prove we never store.
 
 **Wearables**
-- [ ] `wearables` profile: Open Wearables (MIT) sidecar, pinned at 0.11.0, pulled over its REST API. Its ingest is an allowlist: Oura, Whoop, Polar and Withings. Every other provider is off in the sidecar, and the `openwearables` connector drops and counts any sample from a provider outside the list (Strava and Garmin included).
-- [ ] Oura, Whoop v2, Polar AccessLink and Withings through the sidecar; guided per-provider setup page (redirect URI, scopes).
-- [ ] Dexcom v3 as a native connector, not through the sidecar: Open Wearables 0.11.0 has no Dexcom provider.
-- [ ] Each vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban. Until then it is shown in the UI and over REST only.
-- [ ] Polar and Dexcom rolling windows: scheduled syncs from day one, alert on a sync gap.
-- [ ] File importers: Garmin "Export Your Data" (FIT + JSON), Google Takeout Fitbit, Strava bulk export, LibreView and Dexcom Clarity CSV.
-- [ ] Vendor scores (readiness, recovery, Body Battery) stored apart from measurements, tagged `computed_by: provider`.
-- [ ] HRV tagged by method; never compared across vendors.
+- [x] `wearables` profile: Open Wearables (MIT) sidecar, pinned at 0.11.0, pulled over its REST API. Its ingest is an allowlist: Oura, Whoop, Polar and Withings. Every other provider is off in the sidecar, and the `openwearables` connector drops and counts any sample from a provider outside the list (Strava and Garmin included).
+- [x] Oura, Whoop v2, Polar AccessLink and Withings through the sidecar; guided per-provider setup page (redirect URI, scopes).
+- [ ] Dexcom v3 as a native connector, not through the sidecar: Open Wearables 0.11.0 has no Dexcom provider. Not in 1.0.0: the `dexcom` kind is reserved, and the connector is not built yet ([docs/connectors/dexcom.md](connectors/dexcom.md)). Dexcom readings come in through a Clarity CSV or Nightscout.
+- [x] Each vendor's data reaches MCP, the rule-pack markers and the calculators only once its connector page quotes the primary terms and they show no AI ban. Until then it is shown in the UI and over REST only.
+- [ ] Polar and Dexcom rolling windows: scheduled syncs from day one, alert on a sync gap. Polar ships in 1.0.0; Dexcom waits for its native connector.
+- [x] File importers: Garmin "Export Your Data" (FIT + JSON), Google Takeout Fitbit, Strava bulk export, LibreView and Dexcom Clarity CSV.
+- [x] Vendor scores (readiness, recovery, Body Battery) stored apart from measurements, tagged `computed_by: provider`.
+- [x] HRV tagged by method; never compared across vendors.
 
 **Imaging**
-- [ ] `imaging` profile: one Orthanc container with its OHIF plugin, not a separate OHIF container (rule 6 of "How we decide"). The viewer runs in a sandboxed origin and reads DICOMweb through a short-lived capability path, never with the session cookie.
-- [ ] DICOM import from CD folders and zips; study linked to its report document and to the timeline.
+- [x] `imaging` profile: one Orthanc container with its OHIF plugin, not a separate OHIF container (rule 6 of "How we decide"). The viewer runs in a sandboxed origin and reads DICOMweb through a short-lived capability path, never with the session cookie.
+- [x] DICOM import from CD folders and zips; study linked to its report document and to the timeline.
 
 **UI**
-- [ ] SMART Health Links sharing from the UI only: scope picker, expiry, optional PIN, access log, revoke. The instance serves the ciphertext itself, through a public site block that exposes only the link routes. Everything else stays private. The project runs no share host.
-- [ ] ICE card: printable wallet card, offline QR with minimal plain text, optional SHL QR for the full IPS.
-- [ ] Household overview: one row per member with flags and overdue items.
-- [ ] Connections screen: status, last sync, token expiry per source.
+- [x] SMART Health Links sharing from the UI only: scope picker, expiry, optional PIN, access log, revoke. The instance serves the ciphertext itself, through a public site block that exposes only the link routes. Everything else stays private. The project runs no share host.
+- [x] ICE card: printable wallet card, offline QR with minimal plain text, optional SHL QR for the full IPS.
+- [x] Household overview: one row per member with flags and overdue items.
+- [x] Connections screen: status, last sync, token expiry per source.
 
 **Security/Privacy**
-- [ ] Per-profile data keys (DEKs) for blobs, genome files and connector tokens, wrapped by a household key; crypto-shredding on profile deletion.
+- [x] Per-profile data keys (DEKs) for blobs, genome files and connector tokens, wrapped by a household key; crypto-shredding on profile deletion.
   - [x] Part 1: each profile's documents and genome files are sealed under its own key, wrapped by the instance key (`OWNHEALTH_SECRETS_KEY`); deleting a profile deletes its key, so the live files no longer open; backup, verify-restore and restore keep the files sealed. Backups still hold the wrapped keys, so a backup taken before a delete opens that profile's files until it expires.
-  - [ ] Part 2: the wrapped keys kept out of the dump and backed up apart from it, so a delete also closes older backups; pending inbox items under their own key and re-keyed on assignment, connector tokens under the profile key, and an operator-started job that seals the files an older install stored in the plain layout.
-- [ ] Hash-chained audit log, user-visible.
-- [ ] Break-glass for family: a grant that activates after a delay unless the owner cancels it; every use audited and notified. The owner hears at request time through an event in their calendar feed, the only outbound channel before v2. A grant activates only once its delay has passed and the owner's calendar feed has been fetched since the request, so a grant cannot open before the owner's calendar has received the request. Every step also lands in the in-app outbox.
-- [ ] Threat model and security design updated for live connectors, sharing and the 1.0 key scope; external security review before tagging 1.0.
+  - [x] Part 2: the wrapped keys kept out of the dump and backed up apart from it, so a delete also closes the encrypted files of older backups restored with the current keyring, once no earlier keyring copy remains (backups without wrapped keys, and files still in the plain layout, stay readable until retention drops them); pending inbox items under their own key and re-keyed on assignment, connector tokens under the profile key, and an operator-started job that seals the files an older install stored in the plain layout.
+- [x] Hash-chained audit log, user-visible.
+- [x] Break-glass for family: a grant that activates after a delay unless the owner cancels it; every use audited and notified. The owner hears at request time through an event in their calendar feed, the only outbound channel before v2. A grant activates only once its delay has passed and the owner's calendar feed has been fetched since the request, so a grant cannot open before the owner's calendar has received the request. Every step also lands in the in-app outbox.
+- [ ] Threat model and security design updated for live connectors, sharing and the 1.0 key scope; external security review before tagging 1.0. The threat model covers the 1.0 surfaces ([security-privacy.md](design/security-privacy.md#3-threat-model)); no external review is recorded yet.
 
 **MCP**
-- [ ] Agent session report, moved from v0.3: it needs a consent switch for logged sessions (rule 2 of "How we decide"), and `audit_event` does not yet record `not_assessed` counts or argument width.
-- [ ] Sidecar (Oura, Whoop, Polar, Withings) and native Dexcom metrics in `search_observations` and `get_trend`, each once its terms allow it (Wearables above), with a min/max envelope for long windows. Polar is served; Oura, WHOOP, Withings and Dexcom stay withheld, each for the clause its page in [docs/connectors](connectors/README.md) names.
+- [x] Agent session report, moved from v0.3: it needs a consent switch for logged sessions (rule 2 of "How we decide"), and `audit_event` does not yet record `not_assessed` counts or argument width.
+- [x] Sidecar (Oura, Whoop, Polar, Withings) and native Dexcom metrics in `search_observations` and `get_trend`, each once its terms allow it (Wearables above), with a min/max envelope for long windows. Polar is served; Oura, WHOOP, Withings and Dexcom stay withheld, each for the clause its page in [docs/connectors](connectors/README.md) names.
 
 **Ops/Distribution**
-- [ ] Upgrade path tested from every 0.x release to 1.0 with no data loss.
-- [ ] S3/Garage blob backend option.
-- [ ] Monthly partitions + BRIN for samples only past ~50M rows, with a migration job.
+- [x] Upgrade path tested from every 0.x release to 1.0 with no data loss.
+- [ ] S3/Garage blob backend option. Not in 1.0.0: every blob read names its owner, so the backend can land without touching callers.
+- [x] Monthly partitions + BRIN for samples only past ~50M rows, with a migration job.
 
 **Docs/Community**
-- [ ] More UI languages: de, fr, ca, it, pt.
-- [ ] Per-connector pages with the vendor's AI and data-use terms quoted and linked.
+- [x] More UI languages: de, fr, ca, it, pt, as beta languages.
+- [x] Per-connector pages with the vendor's AI and data-use terms quoted and linked.
 
 ### Exit criteria
 

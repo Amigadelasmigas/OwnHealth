@@ -4011,7 +4011,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4048,7 +4048,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-api"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4095,7 +4095,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-auth"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4128,7 +4128,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-contract-tests"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-core"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4181,7 +4181,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-devices"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4213,7 +4213,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-genome"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4237,7 +4237,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-imaging"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4269,7 +4269,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-inbox"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-imap",
@@ -4295,7 +4295,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ingest-pdf"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4323,7 +4323,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ingest-structured"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4357,7 +4357,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-mcp"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4398,7 +4398,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-normalize"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4424,7 +4424,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ocr"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4454,7 +4454,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-ops"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4485,7 +4485,7 @@ dependencies = [
 
 [[package]]
 name = "ownhealth-rules"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
